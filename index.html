@@ -887,7 +887,8 @@
 <script type="module" src="/src/main.ts"></script>
 
 <!-- Phase 8c follow-up:importDialog 是匯入檔案時(addFile → showImportDialog)用的旋轉設定對話框,
-     原本在 index_legacy.html 結尾,Phase 0/1 carve-out 時被遺漏。 -->
+     原本在 index_legacy.html 結尾,Phase 0/1 carve-out 時被遺漏。
+     UI 參考 floorTypesDialog 的預覽結構:header bar(檔名 + 縮放滑桿) + stage(canvas 2D 重繪)。 -->
 <div id="importDialog">
   <div class="imp-mask"></div>
   <div class="imp-box">
@@ -904,10 +905,17 @@
         <div class="imp-help">選擇後右側預覽會即時更新。<br>0° 會保留 PDF 自動對齊;90/180/270° 為使用者明確指定,跳過自動對齊。</div>
       </div>
       <div class="imp-preview">
-        <div class="imp-preview-frame">
+        <div class="imp-preview-head">
+          <span id="importPreviewName" class="imp-preview-name">預覽 ・ 滾輪縮放 / 拖曳平移 / 雙擊重置</span>
+          <span class="imp-zoom">
+            <span style="font-size:10px">縮放</span>
+            <input id="importPreviewZoom" type="range" min="0.25" max="8" step="0.05" value="1">
+            <span id="importPreviewZoomVal" style="font-size:10px;color:#7b818a;min-width:36px">100%</span>
+          </span>
+        </div>
+        <div class="imp-preview-stage">
           <canvas id="importPreviewCanvas"></canvas>
         </div>
-        <div class="imp-preview-label">預覽</div>
       </div>
     </div>
     <div class="imp-actions">

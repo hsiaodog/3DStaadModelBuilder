@@ -698,6 +698,10 @@ function showImportDialog({ name, drawPreview }) {
     const okBtn   = document.getElementById("importOkBtn");
     const caBtn   = document.getElementById("importCancelBtn");
     const rotBtns = dlg.querySelectorAll(".imp-rot-btn");
+    const stage         = dlg.querySelector(".imp-preview-stage");
+    const previewName   = document.getElementById("importPreviewName");
+    const previewZoom   = document.getElementById("importPreviewZoom");
+    const previewZoomVal = document.getElementById("importPreviewZoomVal");
     setupImportDialogDrag();   // 第一次打開時才掛拖曳 listener
     // 每次打開對話框都重置位置為置中(清掉上次拖曳留下的 inline style)
     const box = dlg.querySelector(".imp-box");
@@ -705,29 +709,53 @@ function showImportDialog({ name, drawPreview }) {
     fnEl.textContent = name;
 
     let curRot = lastImportRotation || 0;   // 沿用上一次的選擇
-    // zoom / pan 狀態:zoom = 1 為「base fit 過後」的尺寸;panX/Y 是 frame 中心點的位移(像素)
-    let zoom = 1, panX = 0, panY = 0;
-    const frame = dlg.querySelector(".imp-preview-frame");
+    // 參考 floorTypesDialog 的預覽流程:srcCanvas 是 drawPreview 畫進去的原始光柵圖,
+    //   visible canvas 隨 stage 尺寸 + DPR 重設,_drawPreview 每次重繪都從 srcCanvas
+    //   經 ctx 變換(translate / rotate / scale)blit 到 visible canvas → zoom 高倍仍然銳利。
+    const previewState = { zoom: 1, offsetX: 0, offsetY: 0 };
+    let srcCanvas = null;
 
-    // 把畫好的 canvas 縮放到能容納 90°/270° 旋轉的方形預覽框內。
-    //   frame 改為 flex 自適應後尺寸不再是固定 320,改成讀實際 clientWidth/Height。
-    //   留 8px margin 讓邊緣不要貼滿(也避免 90° 時被裁切)。
-    const fitCanvasDisplay = () => {
-      const fw = (frame && frame.clientWidth)  || 320;
-      const fh = (frame && frame.clientHeight) || 320;
-      const MARGIN = 8;
-      const MAX = Math.max(40, Math.min(fw, fh) - MARGIN * 2);
-      const w = canvas.width || 1, h = canvas.height || 1;
-      const s = Math.min(MAX / w, MAX / h, 1);
-      canvas.style.width  = (w * s).toFixed(1) + "px";
-      canvas.style.height = (h * s).toFixed(1) + "px";
+    const _resizeVisibleCanvas = () => {
+      const cssW = Math.max(80, Math.floor(stage.clientWidth));
+      const cssH = Math.max(60, Math.floor(stage.clientHeight));
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      canvas.style.width  = cssW + "px";
+      canvas.style.height = cssH + "px";
+      canvas.width  = Math.round(cssW * dpr);
+      canvas.height = Math.round(cssH * dpr);
     };
-    // CSS transform 由右往左套用:先 rotate(把圖旋轉)→ scale(整體放大)→ translate(平移)。
-    //   transform-origin 是 canvas 中心,所以 zoom 中心 = canvas 中心 + (panX, panY)。
-    const applyXform = () => {
-      canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom}) rotate(${curRot}deg)`;
+    const _drawPreview = () => {
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      if (!srcCanvas) return;
+      const sw = srcCanvas.width, sh = srcCanvas.height;
+      if (sw <= 0 || sh <= 0) return;
+      // 90°/270° 時長寬互換 → fit 算出來的 scale 才能容下旋轉後的 bounding box
+      const rotMod = ((curRot % 360) + 360) % 360;
+      const effW = (rotMod === 90 || rotMod === 270) ? sh : sw;
+      const effH = (rotMod === 90 || rotMod === 270) ? sw : sh;
+      const fit = Math.min(canvas.width / effW, canvas.height / effH) * 0.95;   // 邊緣留一點空隙
+      const sc = fit * previewState.zoom;
+      ctx.save();
+      ctx.translate(canvas.width / 2 + previewState.offsetX, canvas.height / 2 + previewState.offsetY);
+      ctx.rotate(rotMod * Math.PI / 180);
+      ctx.scale(sc, sc);
+      // WYSIWYG 反相 + 對比加強(對應原本 CSS filter,讓使用者看到的接近匯入後實際模樣)。
+      //   drop-shadow 在 canvas 上效能差且邊界鋸齒 → 不沿用,改用 contrast 與 imageSmoothing 補回。
+      try { ctx.filter = "invert(1) hue-rotate(180deg) contrast(1.3)"; } catch (_) {}
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(srcCanvas, -sw / 2, -sh / 2);
+      ctx.restore();
     };
-    const resetView = () => { zoom = 1; panX = 0; panY = 0; applyXform(); };
+    const _setZoom = (z) => {
+      previewState.zoom = Math.max(0.25, Math.min(z, 8));
+      if (previewZoom) previewZoom.value = String(previewState.zoom);
+      if (previewZoomVal) previewZoomVal.textContent = Math.round(previewState.zoom * 100) + "%";
+    };
+    const resetView = () => { previewState.offsetX = 0; previewState.offsetY = 0; _setZoom(1); _drawPreview(); };
 
     const refreshButtons = () => {
       rotBtns.forEach(b => b.classList.toggle("active", parseInt(b.dataset.rot) === curRot));
@@ -745,71 +773,79 @@ function showImportDialog({ name, drawPreview }) {
     // 滾輪 zoom(以滑鼠位置為中心,讓游標下的點維持不動)
     const onWheel = (e) => {
       e.preventDefault();
-      frame.classList.add("no-trans");
-      const rect = frame.getBoundingClientRect();
-      // 把游標座標換成「相對 frame 中心」的位移
-      const cx = e.clientX - rect.left - rect.width  / 2;
-      const cy = e.clientY - rect.top  - rect.height / 2;
+      const rect = canvas.getBoundingClientRect();
+      const dpr = canvas.width / rect.width;
+      // 換算到 canvas 內部像素座標,且以「畫面中心」為原點(對應 _drawPreview 的 translate)
+      const cx = (e.clientX - rect.left) * dpr - canvas.width  / 2;
+      const cy = (e.clientY - rect.top)  * dpr - canvas.height / 2;
       const factor = (e.deltaY < 0) ? 1.15 : (1 / 1.15);
-      const newZoom = Math.max(0.25, Math.min(zoom * factor, 20));
-      const ratio = newZoom / zoom;
-      // 鎖定游標下的點:panX' = cx - (cx - panX) * ratio
-      panX = cx - (cx - panX) * ratio;
-      panY = cy - (cy - panY) * ratio;
-      zoom = newZoom;
-      applyXform();
+      const newZoom = Math.max(0.25, Math.min(previewState.zoom * factor, 8));
+      const ratio = newZoom / previewState.zoom;
+      // 鎖定游標下的點:offset' = c - (c - offset) * ratio
+      previewState.offsetX = cx - (cx - previewState.offsetX) * ratio;
+      previewState.offsetY = cy - (cy - previewState.offsetY) * ratio;
+      _setZoom(newZoom);
+      _drawPreview();
     };
     // 左鍵拖曳 = pan
-    let drag = null;
+    let panStart = null;
     const onDown = (e) => {
       if (e.button !== 0) return;
-      frame.classList.add("panning", "no-trans");
-      drag = { sx: e.clientX, sy: e.clientY, px: panX, py: panY };
+      stage.classList.add("panning");
+      panStart = { x: e.clientX, y: e.clientY, ox: previewState.offsetX, oy: previewState.offsetY };
       e.preventDefault();
     };
     const onMove = (e) => {
-      if (!drag) return;
-      panX = drag.px + (e.clientX - drag.sx);
-      panY = drag.py + (e.clientY - drag.sy);
-      applyXform();
+      if (!panStart) return;
+      const rect = canvas.getBoundingClientRect();
+      const dpr = canvas.width / rect.width;
+      previewState.offsetX = panStart.ox + (e.clientX - panStart.x) * dpr;
+      previewState.offsetY = panStart.oy + (e.clientY - panStart.y) * dpr;
+      _drawPreview();
     };
     const onUp = () => {
-      if (!drag) return;
-      drag = null;
-      frame.classList.remove("panning");
+      if (!panStart) return;
+      panStart = null;
+      stage.classList.remove("panning");
     };
-    // 雙擊重置 view(回到 fit-to-frame、無平移)
-    const onDbl = () => {
-      frame.classList.remove("no-trans");   // 重置時恢復 transition,讓它「飛回去」
-      resetView();
-    };
-    frame.addEventListener("wheel",     onWheel, { passive: false });
-    frame.addEventListener("mousedown", onDown);
+    const onDbl = () => { resetView(); };
+    const onZoomInput = () => { _setZoom(+previewZoom.value || 1); _drawPreview(); };
+
+    stage.addEventListener("wheel",     onWheel, { passive: false });
+    stage.addEventListener("mousedown", onDown);
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup",   onUp);
-    frame.addEventListener("dblclick",  onDbl);
+    stage.addEventListener("dblclick",  onDbl);
+    if (previewZoom) previewZoom.addEventListener("input", onZoomInput);
 
-    // 繪製預覽(可能是 async)
-    try { await drawPreview(canvas); }
-    catch (e) { console.warn("導入預覽失敗:", e); }
-    fitCanvasDisplay();
-    applyXform();
-
-    // 顯示
+    // 顯示對話框(必須先 active 才有 clientWidth/clientHeight 可量)
     dlg.classList.add("active");
+    _resizeVisibleCanvas();
+    // 把 drawPreview 畫到一個 offscreen srcCanvas;callers 會在裡面設 canvas.width/height + 繪圖,
+    //   但 visible canvas 已被 _resizeVisibleCanvas 占走,所以給它一個全新的 srcCanvas。
+    srcCanvas = document.createElement("canvas");
+    srcCanvas.width = 1; srcCanvas.height = 1;
+    try { await drawPreview(srcCanvas); }
+    catch (e) { console.warn("導入預覽失敗:", e); }
+    _setZoom(1);
+    previewState.offsetX = 0; previewState.offsetY = 0;
+    _drawPreview();
+
+    // (顯示對話框已在 _resizeVisibleCanvas 之前完成,這裡不再重複 add)
 
     const close = (result) => {
       dlg.classList.remove("active");
       okBtn.onclick = null;
       caBtn.onclick = null;
       document.removeEventListener("keydown", onKey, true);
-      // 拆掉這次對話框掛在 frame / window 上的 zoom / pan listener,避免下次再開時雙重觸發
-      frame.removeEventListener("wheel", onWheel);
-      frame.removeEventListener("mousedown", onDown);
+      // 拆掉這次對話框掛在 stage / window / slider 上的 zoom / pan listener,避免下次再開時雙重觸發
+      stage.removeEventListener("wheel", onWheel);
+      stage.removeEventListener("mousedown", onDown);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup",   onUp);
-      frame.removeEventListener("dblclick", onDbl);
-      frame.classList.remove("no-trans", "panning");
+      stage.removeEventListener("dblclick", onDbl);
+      if (previewZoom) previewZoom.removeEventListener("input", onZoomInput);
+      stage.classList.remove("panning");
       // 只有在使用者按「確定」時才更新預設;取消不更新
       if (result && result.ok) lastImportRotation = result.rotation || 0;
       resolve(result);
