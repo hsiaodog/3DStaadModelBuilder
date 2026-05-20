@@ -326,7 +326,7 @@ export function getPage() {
 }
 // 拆分頁面的可繪製範圍:有 clipRect 時只能在矩形內建立 / 編輯
 //   tol 給少量浮點容差(預設 0.5 世界單位 = 0.5px)
-function isInsideClip(file, x, y, tol) {
+export function isInsideClip(file, x, y, tol) {
   if (!file || !file.clipRect) return true;
   const t = tol == null ? 0.5 : tol;
   const r = file.clipRect;
@@ -847,7 +847,7 @@ export function applyTransform() {
     `X: ${state.cursor.sx.toFixed(1)} · Y: ${state.cursor.sy.toFixed(1)} · ${Z}: ${(state.zoom*100).toFixed(0)}%`
     + (state.tool === "select" ? `  ·  ${selectFilterLabel(state.selectFilter)}` : "");
 }
-function screenToWorld(clientX, clientY) {
+export function screenToWorld(clientX, clientY) {
   const r = wrap.getBoundingClientRect();
   return {
     x: (clientX - r.left - state.panX) / state.zoom,
@@ -3142,7 +3142,7 @@ window.addEventListener("keyup", (e) => {
 });
 
 // ---------- tools ----------
-function setTool(t) {
+export function setTool(t) {
   // 從修改底圖模式切到其他工具時,清空所有底圖選取
   const wasBgsel = (state.tool === "selectBg");
   if (wasBgsel && t !== "selectBg") {
@@ -11919,7 +11919,7 @@ function commitMove(tx, ty) {
   exitMoveMode();
   refreshLists();
 }
-function handleMoveModeClick(x, y) {
+export function handleMoveModeClick(x, y) {
   const m = state.moveMode;
   if (!m.active) return;
   if (!m.base) {
@@ -12051,7 +12051,7 @@ function splitSelectedAtMidpoint() {
 }
 
 // 在指定線段(memberId)上、最靠近 (clientX,clientY) 的位置插入新節點,並把該線段切成兩段
-function splitMemberAt(memberId, clientX, clientY) {
+export function splitMemberAt(memberId, clientX, clientY) {
   const p = getPage();
   const m = p.members.find(x => x.id === memberId);
   if (!m) return;
@@ -12119,7 +12119,7 @@ function syncMemberAcrossViews(j1Local, j2Local) {
 
 // 在「桿件」工具下完成第二端點時呼叫:本頁建桿件 + (若 crossViewSync 開啟)跨頁建對應桿件
 //   兩端若尚未有 globalJoint,先 syncJointAcrossViews(promote + 跨頁建節點),再 syncMemberAcrossViews
-function addMemberInteractive(j1id, j2id) {
+export function addMemberInteractive(j1id, j2id) {
   addMember(j1id, j2id);
   if (!state.crossViewSync) return;
   const p = getPage();
@@ -12330,11 +12330,11 @@ export function _markSelectionSourceIfEmpty() {
 }
 
 // 多選判定:按住 Shift 或開啟多選持續模式(Shift+S 切換)時,點選為追加
-function additiveSelect(e) {
+export function additiveSelect(e) {
   return !!(e && e.shiftKey) || !!state.multiSelectSticky;
 }
 // 反選判定:按住 Ctrl(或 Mac 的 Cmd / Meta)時,點選為從選取中移除
-function subtractiveSelect(e) {
+export function subtractiveSelect(e) {
   return !!(e && (e.ctrlKey || e.metaKey));
 }
 
@@ -13580,7 +13580,7 @@ export function el(tag, attrs, text) {
 // ---------- context menu (右鍵刪除) ----------
 let ctxTarget = null;        // 觸發右鍵的元素
 let ctxPending = null;       // { joints:Set, members:Set, orphans:Set } 即將刪除的全部對象
-function showCtxMenu(x, y, target) {
+export function showCtxMenu(x, y, target) {
   ctxTarget = target;
   const p = getPage();
 
@@ -13863,8 +13863,9 @@ function duplicateFileById(fid, opts) {
   return clone;
 }
 
-let splitContext = null;
-function showSplitDim(rect) {
+export let splitContext = null;
+export function _setSplitContext(ctx) { splitContext = ctx; }
+export function showSplitDim(rect) {
   let dim = document.getElementById("splitDim");
   if (!dim) {
     dim = document.createElement("div");
@@ -14093,7 +14094,7 @@ $("splitName") && $("splitName").addEventListener("keydown", (e) => {
 });
 
 // 配對中:把點到的 view joint 綁到 pendingGlobalPair。回傳 true 表示已處理(呼叫端應 return)
-function tryConsumePendingGlobalPair(j) {
+export function tryConsumePendingGlobalPair(j) {
   if (state.pendingGlobalPair == null) return false;
   const gid = state.pendingGlobalPair;
   if (j.globalId === gid) {
@@ -21452,18 +21453,18 @@ function ensureHoverTip() {
   }
   return t;
 }
-function showHoverTip(html, ev) {
+export function showHoverTip(html, ev) {
   const t = ensureHoverTip();
   t.innerHTML = html;
   t.style.display = "block";
   positionHoverTip(t, ev.clientX, ev.clientY);
 }
-function moveHoverTip(ev) {
+export function moveHoverTip(ev) {
   const t = document.getElementById("hoverTip");
   if (!t || t.style.display === "none") return;
   positionHoverTip(t, ev.clientX, ev.clientY);
 }
-function hideHoverTip() {
+export function hideHoverTip() {
   const t = document.getElementById("hoverTip");
   if (t) t.style.display = "none";
 }
@@ -21482,7 +21483,7 @@ function escHtml(s) {
 function tipRow(key, val) {
   return `<span class="ttip-row"><span class="ttip-key">${escHtml(key)}:</span> <span class="ttip-val">${escHtml(val)}</span></span>`;
 }
-function fmtJointInfo(j) {
+export function fmtJointInfo(j) {
   const af = getActiveFile();
   const o  = af && af.planeOrigin;
   const id = displayJointId(j);
@@ -21542,7 +21543,7 @@ function fmtJointInfo(j) {
   }
   return lines.join("\n");
 }
-function fmtMemberInfo(m) {
+export function fmtMemberInfo(m) {
   const a = jointById(m.j1), b = jointById(m.j2);
   const af = getActiveFile();
   const o  = af && af.planeOrigin;

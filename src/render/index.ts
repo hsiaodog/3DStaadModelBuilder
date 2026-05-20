@@ -3,13 +3,20 @@
 // @ts-nocheck
 
 import {
-  state, svg, getPage, $,
+  state, svg, getPage, getActiveFile, $,
   applyTransform, fitToView,
   el, jointById, drawSnapGrid, updateBgStrokeWidth, updateSelectToolsVisibility,
   refreshAxisIndicator,
   displayJointId, displayMemberId,
   _fileHasFullSetup, _getJointMemberDirs, _hasAnyPerpPair, _allDirsCollinear,
   _t,
+  // 互動 / 工具 / 對話框相關 helper(_renderImpl 的 click / contextmenu / hover handler 用)
+  isInsideClip, screenToWorld, setTool, handleMoveModeClick,
+  splitMemberAt, addMemberInteractive, additiveSelect, subtractiveSelect,
+  showCtxMenu, _setSplitContext, showSplitDim,
+  tryConsumePendingGlobalPair,
+  showHoverTip, moveHoverTip, hideHoverTip, fmtJointInfo, fmtMemberInfo,
+  clearSelection, pushUndo, _markSelectionSourceIfEmpty,
 } from "../legacy";
 import { _worldForRank } from "../core/rankCache";
 
@@ -162,7 +169,7 @@ function _renderImpl() {
           const aJ = jointById(mm.j1), bJ = jointById(mm.j2);
           if (aJ && bJ && inside(aJ) && inside(bJ)) movedM.add(mm.id);
         }
-        splitContext = { movedJ, movedM, rect };
+        _setSplitContext({ movedJ, movedM, rect });
         showSplitDim(rect);
         $("splitName").value = "拆分_" + (state.files.length + 1);
         $("splitDialog").style.display = "flex";
@@ -367,7 +374,7 @@ function _renderImpl() {
           const aJ = jointById(mm.j1), bJ = jointById(mm.j2);
           if (aJ && bJ && inside(aJ) && inside(bJ)) movedM.add(mm.id);
         }
-        splitContext = { movedJ, movedM, rect };
+        _setSplitContext({ movedJ, movedM, rect });
         showSplitDim(rect);
         $("splitName").value = "拆分_" + (state.files.length + 1);
         $("splitDialog").style.display = "flex";
