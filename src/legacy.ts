@@ -705,16 +705,29 @@ function showImportDialog({ name, drawPreview }) {
     fnEl.textContent = name;
 
     let curRot = lastImportRotation || 0;   // 沿用上一次的選擇
+    // zoom / pan 狀態:zoom = 1 為「base fit 過後」的尺寸;panX/Y 是 frame 中心點的位移(像素)
+    let zoom = 1, panX = 0, panY = 0;
+    const frame = dlg.querySelector(".imp-preview-frame");
 
-    // 把畫好的 canvas 縮放到能容納 90°/270° 旋轉的方形預覽框內
-    const FRAME = 320, MARGIN = 20, MAX = FRAME - MARGIN * 2;
+    // 把畫好的 canvas 縮放到能容納 90°/270° 旋轉的方形預覽框內。
+    //   frame 改為 flex 自適應後尺寸不再是固定 320,改成讀實際 clientWidth/Height。
+    //   留 8px margin 讓邊緣不要貼滿(也避免 90° 時被裁切)。
     const fitCanvasDisplay = () => {
+      const fw = (frame && frame.clientWidth)  || 320;
+      const fh = (frame && frame.clientHeight) || 320;
+      const MARGIN = 8;
+      const MAX = Math.max(40, Math.min(fw, fh) - MARGIN * 2);
       const w = canvas.width || 1, h = canvas.height || 1;
       const s = Math.min(MAX / w, MAX / h, 1);
       canvas.style.width  = (w * s).toFixed(1) + "px";
       canvas.style.height = (h * s).toFixed(1) + "px";
     };
-    const applyRot = () => { canvas.style.transform = `rotate(${curRot}deg)`; };
+    // CSS transform 由右往左套用:先 rotate(把圖旋轉)→ scale(整體放大)→ translate(平移)。
+    //   transform-origin 是 canvas 中心,所以 zoom 中心 = canvas 中心 + (panX, panY)。
+    const applyXform = () => {
+      canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom}) rotate(${curRot}deg)`;
+    };
+    const resetView = () => { zoom = 1; panX = 0; panY = 0; applyXform(); };
 
     const refreshButtons = () => {
       rotBtns.forEach(b => b.classList.toggle("active", parseInt(b.dataset.rot) === curRot));
@@ -723,16 +736,64 @@ function showImportDialog({ name, drawPreview }) {
       b.onclick = () => {
         curRot = parseInt(b.dataset.rot) || 0;
         refreshButtons();
-        applyRot();
+        // 切換角度時順便重置 zoom/pan,避免在歪斜狀態下切角度造成視覺跳動
+        resetView();
       };
     });
     refreshButtons();
+
+    // 滾輪 zoom(以滑鼠位置為中心,讓游標下的點維持不動)
+    const onWheel = (e) => {
+      e.preventDefault();
+      frame.classList.add("no-trans");
+      const rect = frame.getBoundingClientRect();
+      // 把游標座標換成「相對 frame 中心」的位移
+      const cx = e.clientX - rect.left - rect.width  / 2;
+      const cy = e.clientY - rect.top  - rect.height / 2;
+      const factor = (e.deltaY < 0) ? 1.15 : (1 / 1.15);
+      const newZoom = Math.max(0.25, Math.min(zoom * factor, 20));
+      const ratio = newZoom / zoom;
+      // 鎖定游標下的點:panX' = cx - (cx - panX) * ratio
+      panX = cx - (cx - panX) * ratio;
+      panY = cy - (cy - panY) * ratio;
+      zoom = newZoom;
+      applyXform();
+    };
+    // 左鍵拖曳 = pan
+    let drag = null;
+    const onDown = (e) => {
+      if (e.button !== 0) return;
+      frame.classList.add("panning", "no-trans");
+      drag = { sx: e.clientX, sy: e.clientY, px: panX, py: panY };
+      e.preventDefault();
+    };
+    const onMove = (e) => {
+      if (!drag) return;
+      panX = drag.px + (e.clientX - drag.sx);
+      panY = drag.py + (e.clientY - drag.sy);
+      applyXform();
+    };
+    const onUp = () => {
+      if (!drag) return;
+      drag = null;
+      frame.classList.remove("panning");
+    };
+    // 雙擊重置 view(回到 fit-to-frame、無平移)
+    const onDbl = () => {
+      frame.classList.remove("no-trans");   // 重置時恢復 transition,讓它「飛回去」
+      resetView();
+    };
+    frame.addEventListener("wheel",     onWheel, { passive: false });
+    frame.addEventListener("mousedown", onDown);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup",   onUp);
+    frame.addEventListener("dblclick",  onDbl);
 
     // 繪製預覽(可能是 async)
     try { await drawPreview(canvas); }
     catch (e) { console.warn("導入預覽失敗:", e); }
     fitCanvasDisplay();
-    applyRot();
+    applyXform();
 
     // 顯示
     dlg.classList.add("active");
@@ -742,6 +803,13 @@ function showImportDialog({ name, drawPreview }) {
       okBtn.onclick = null;
       caBtn.onclick = null;
       document.removeEventListener("keydown", onKey, true);
+      // 拆掉這次對話框掛在 frame / window 上的 zoom / pan listener,避免下次再開時雙重觸發
+      frame.removeEventListener("wheel", onWheel);
+      frame.removeEventListener("mousedown", onDown);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup",   onUp);
+      frame.removeEventListener("dblclick", onDbl);
+      frame.classList.remove("no-trans", "panning");
       // 只有在使用者按「確定」時才更新預設;取消不更新
       if (result && result.ok) lastImportRotation = result.rotation || 0;
       resolve(result);

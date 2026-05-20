@@ -1038,12 +1038,14 @@
   #importDialog .imp-mask { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
   #importDialog .imp-box { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
     background: #1f2126; color: #eaeaea; border: 1px solid #444; border-radius: 8px;
-    padding: 16px 18px 14px; min-width: 600px;
+    padding: 16px 18px 14px;
+    width: 80vw; height: 80vh; max-width: 1600px; max-height: 1000px;
+    display: flex; flex-direction: column;
     box-shadow: 0 12px 40px rgba(0,0,0,0.65); }
   #importDialog .imp-title { font-size: 14px; font-weight: 700; margin-bottom: 10px; color: #ffd23f;
     cursor: move; user-select: none; }
   #importDialog .imp-title .imp-fn { color: #eaeaea; font-weight: 500; margin-left: 6px; word-break: break-all; }
-  #importDialog .imp-body { display: flex; gap: 18px; align-items: stretch; }
+  #importDialog .imp-body { display: flex; gap: 18px; align-items: stretch; flex: 1; min-height: 0; }
   #importDialog .imp-controls { width: 200px; display: flex; flex-direction: column; }
   #importDialog .imp-section-title { font-size: 12px; color: #aab; margin: 4px 0 6px; }
   #importDialog .imp-rot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
@@ -1053,10 +1055,12 @@
   #importDialog .imp-rot-btn:hover { background: #353940; }
   #importDialog .imp-rot-btn.active { background: #2f4a78; border-color: #6c9bff; color: #fff; }
   #importDialog .imp-help { font-size: 11px; color: #888; margin-top: 10px; line-height: 1.5; }
-  #importDialog .imp-preview { flex: 1; display: flex; flex-direction: column; align-items: center; }
-  #importDialog .imp-preview-frame { width: 320px; height: 320px; background: #000;
+  #importDialog .imp-preview { flex: 1; display: flex; flex-direction: column; align-items: stretch; min-width: 0; }
+  #importDialog .imp-preview-frame { flex: 1; width: 100%; background: #000;
     border: 1px solid #2a2d33; border-radius: 6px;
-    display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+    display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative;
+    cursor: grab; }
+  #importDialog .imp-preview-frame.panning { cursor: grabbing; }
   /* 預覽畫布套上和主畫布一樣的反相 filter → WYSIWYG:看到的就是匯入後的樣子。
      再疊 drop-shadow 製造「加粗」視覺效果(純 CSS 層次,不動 SVG/canvas 本身 → 不影響實際匯入)。
      contrast 把 anti-aliasing 邊緣銳化,drop-shadow 在反相後的亮色線條周圍加白色光暈讓線條看起來更厚實。 */
@@ -1065,6 +1069,8 @@
     filter: invert(1) hue-rotate(180deg) contrast(1.3)
             drop-shadow(0 0 0.5px rgba(255,255,255,0.9))
             drop-shadow(0 0 0.5px rgba(255,255,255,0.9)); }
+  /* zoom/pan 互動時關掉 transition,否則 wheel 連續事件會被 0.18s 緩動拖累成果凍感 */
+  #importDialog .imp-preview-frame.no-trans canvas { transition: none; }
   #importDialog .imp-preview-label { font-size: 11px; color: #888; margin-top: 4px; }
   #importDialog .imp-actions { margin-top: 14px; display: flex; justify-content: flex-end; gap: 8px; }
   #importDialog .imp-btn { padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 13px;
