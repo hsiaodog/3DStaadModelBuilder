@@ -11,10 +11,11 @@ import { MAX_UNDO, ALLOWED_YY } from "./constants";
 import { staadUnitKeyword, unitToMeter, meterToTarget } from "./utils/units";
 import { xlsxCellRef as _xlsxCellRef, xmlEsc as _xmlEsc, xlsxCell as _xlsxCell } from "./utils/ooxml";
 import { joint2DToWorld3D, world3DToJoint2D } from "./core/projection";
-import { listGlobalBindings } from "./core/globalJoints";
+import { listGlobalBindings, inferGlobalJoint, inferAllGlobalJoints } from "./core/globalJoints";
 import { proposeAutoPairings } from "./core/autopair";
 import { _rankCache, invalidateRankCache, _worldForRank, _axisCap, _ensureRankCache } from "./core/rankCache";
 import { _displayIdForJointWith } from "./core/displayId";
+import { buildModel, showBuildModelCollisionsIfAny } from "./core/buildModel";
 
 // ---------- main app code(原本是 1.13M chars 的大 <script> block) ----------
 "use strict";
@@ -348,7 +349,7 @@ function autoGlobalJointLabel() {
 }
 // 把世界座標 round 到目前精準度(state.measureDecimals 位數),且 -0 → 0。
 //   globalJoint 的 x/y/z 一律以這個結果儲存,避免漂浮小數造成 rank cache / 顯示不一致
-function _snapCoordToPrecision(v) {
+export function _snapCoordToPrecision(v) {
   if (!Number.isFinite(v)) return v;
   const md = Math.max(0, Math.min(6, Number.isFinite(state.measureDecimals) ? state.measureDecimals : 0));
   const r = parseFloat(v.toFixed(md));
@@ -458,92 +459,7 @@ function _inPlaneCoordsForJoint(file, page, joint) {
 //   - 沒有任何強約束的軸 → 取所有弱約束(out-of-plane)的平均;若仍無 → null
 //   - 若同軸強約束差異 > tol 或 弱/強衝突 > tol → 寫 warning
 //   - locked === true 的不覆蓋座標,只跑檢查
-function inferGlobalJoint(g) {
-  if (!g) return;
-  const tol = 5;        // 公差(state.unitName,例如 mm);超過這個差異才視為衝突
-  // 平面優先級:XY > YZ > XZ — 同類(強/弱)約束內部以此優先級挑來源,
-  //   只有 priority 最高的那個平面的值會被採用;其他平面的值僅用於不一致警告
-  const planePriority = ["XY", "YZ", "XZ"];
-  const acc = { X: { strong: [], weak: [] }, Y: { strong: [], weak: [] }, Z: { strong: [], weak: [] } };
-  const bindings = listGlobalBindings(g.id);
-  const sources = [];
-  for (const b of bindings) {
-    const f = state.files.find(x => x.id === b.fileId); if (!f) continue;
-    const pg = (f.pages || {})[b.pageIdx]; if (!pg) continue;
-    const j = (pg.joints || []).find(x => x.id === b.jointId); if (!j) continue;
-    const w = joint2DToWorld3D(f, pg, j);
-    if (!w) continue;
-    sources.push({ b, w, fileName: f.name, pageIdx: b.pageIdx });
-    for (const ax of ["X", "Y", "Z"]) {
-      const v = ({ X: w.x, Y: w.y, Z: w.z })[ax];
-      (w.strong[ax] ? acc[ax].strong : acc[ax].weak).push({ v, src: `${f.name}#${b.pageIdx + 1}`, plane: pg.plane });
-    }
-  }
-  // 依平面優先級從 list 挑出最高 priority 的子集(沒命中就回原 list)
-  const pickByPriority = (list) => {
-    for (const plane of planePriority) {
-      const sub = list.filter(e => e.plane === plane);
-      if (sub.length) return sub;
-    }
-    return list;
-  };
-  const warnings = [];
-  const out = { x: g.x, y: g.y, z: g.z };
-  for (const ax of ["X", "Y", "Z"]) {
-    const { strong, weak } = acc[ax];
-    let chosen = null;
-    if (strong.length > 0) {
-      const top = pickByPriority(strong);
-      const avg = top.reduce((s, e) => s + e.v, 0) / top.length;
-      const maxDelta = Math.max(...top.map(e => Math.abs(e.v - avg)));
-      if (maxDelta > tol) {
-        const detail = top.map(e => `${e.src}=${e.v.toFixed(1)}`).join(", ");
-        warnings.push({ axis: ax, delta: maxDelta, message: `${ax} 軸強約束(${top[0].plane})不一致 (Δ=${maxDelta.toFixed(1)}): ${detail}` });
-      }
-      chosen = avg;
-      // 其他平面的強約束跟低優先平面的弱約束都跟採用值比對,差異 > tol 進 warning
-      for (const e of strong) {
-        if (e.plane === top[0].plane) continue;
-        if (Math.abs(e.v - avg) > tol) {
-          warnings.push({ axis: ax, delta: Math.abs(e.v - avg),
-            message: `${ax} 軸強約束 ${e.src}(${e.plane})=${e.v.toFixed(1)} 跟採用值(${top[0].plane})${avg.toFixed(1)} 差 ${Math.abs(e.v - avg).toFixed(1)}` });
-        }
-      }
-      for (const e of weak) {
-        if (Math.abs(e.v - avg) > tol) {
-          warnings.push({ axis: ax, delta: Math.abs(e.v - avg),
-            message: `${ax} 軸弱約束 ${e.src}=${e.v.toFixed(1)} 跟採用值 ${avg.toFixed(1)} 差 ${Math.abs(e.v - avg).toFixed(1)}` });
-        }
-      }
-    } else if (weak.length > 0) {
-      const top = pickByPriority(weak);
-      const avg = top.reduce((s, e) => s + e.v, 0) / top.length;
-      const maxDelta = Math.max(...top.map(e => Math.abs(e.v - avg)));
-      if (maxDelta > tol) {
-        const detail = top.map(e => `${e.src}=${e.v.toFixed(1)}`).join(", ");
-        warnings.push({ axis: ax, delta: maxDelta, message: `${ax} 軸只有弱約束(${top[0].plane})且不一致 (Δ=${maxDelta.toFixed(1)}): ${detail}` });
-      }
-      chosen = avg;
-    }
-    out[ax.toLowerCase()] = chosen;
-  }
-  if (!g.locked) {
-    // 一律 snap 到目前精準度 → 跨檔小數差不會造成 rank bucket 分裂
-    g.x = _snapCoordToPrecision(out.x);
-    g.y = _snapCoordToPrecision(out.y);
-    g.z = _snapCoordToPrecision(out.z);
-  }
-  g.warnings = warnings;
-  // derivedFrom 同步:記錄目前實際採用的來源
-  g.derivedFrom = sources.map(s => ({
-    fileId: s.b.fileId, pageIdx: s.b.pageIdx, jointId: s.b.jointId,
-    plane: s.w.plane,
-  }));
-}
-
-function inferAllGlobalJoints() {
-  for (const g of state.globalJoints) inferGlobalJoint(g);
-}
+// inferGlobalJoint + inferAllGlobalJoints 移到 src/core/globalJoints.ts(Phase 3f)
 
 // 全局原點校準:把指定的 globalJoint(預設 = state.globalOriginId 或第一個 globalJoint)
 //   設為世界原點 (0, 0, 0),並把所有綁定到此 globalJoint 的檔案的 planeOrigin / pageZ
@@ -20279,132 +20195,7 @@ $("snapLinesPriority").onchange = (e) => {
 $("pageZ").onchange = (e) => { pushUndo(); getPage().z = parseFloat(e.target.value) || 0; _afterCalibrationChanged(); };
 
 // ---------- export ----------
-function buildModel() {
-  // 把所有檔案的所有頁聚合成單一 3D 模型(輸出單位:state.unitName,通常 "mm")
-  // 編號:用 displayJointId(rank-based XXYYZZ);member 用 raw m.id。
-  //   同位置(eps=1e-4)節點合併;若 display ID 撞號(rank cap overflow 造成)→ fallback 流水號 + 記錄到 _lastBuildModelCollisions
-  const allJoints = [];
-  const allMembers = [];
-  const seenJointIds = new Set();
-  const seenMemberIds = new Set();
-  const seenGlobalMemberIds = new Set();    // 跨頁同物理桿件 dedup
-  let fallbackJ = 1, fallbackM = 1;
-  // 收集匯出過程中發生的「顯示編號撞號 → fallback」事件;buildModel 結束時掛到 window
-  // 讓匯出端(.xlsx / .std)在輸出後跳對話框告訴使用者。
-  const jointCollisions = [];
-  const memberCollisions = [];
-  for (const file of state.files) {
-    const ratio = (file.scaleRuler && file.scaleRuler.ratio > 0)
-      ? file.scaleRuler.ratio
-      : (state.scale ? 1 / state.scale : 1);
-    const origin = file.planeOrigin || { x: 0, y: 0 };
-    for (const pg of Object.values(file.pages || {})) {
-      if (!pg || pg._orphan) continue;
-      const idMap = new Map();
-      for (const j of pg.joints) {
-        // 世界座標來源:跟 3D popup 同邏輯 — 綁了 globalJoint 用 gj.x/y/z(已 snap 到精準度),
-        // 沒綁 fallback joint2DToWorld3D(套 flipX/Y + plane);兩者皆無再回到 per-page 公式。
-        let X, Y, Z;
-        let w = null;
-        if (j.globalId != null) {
-          const gj = (state.globalJoints || []).find(g => g.id === j.globalId);
-          if (gj && Number.isFinite(gj.x) && Number.isFinite(gj.y) && Number.isFinite(gj.z)) {
-            w = { x: gj.x, y: gj.y, z: gj.z };
-          }
-        }
-        if (!w) {
-          const w2 = (typeof joint2DToWorld3D === "function") ? joint2DToWorld3D(file, pg, j) : null;
-          if (w2) w = { x: w2.x, y: w2.y, z: w2.z };
-        }
-        if (w) {
-          X = w.x; Y = w.y; Z = w.z;
-        } else {
-          X = (j.x - origin.x) * ratio;
-          Y = (origin.y - j.y) * ratio;
-          Z = pg.z || 0;
-        }
-        const eps = 1e-4;
-        let dup = allJoints.find(q => Math.abs(q.x - X) < eps && Math.abs(q.y - Y) < eps && Math.abs(q.z - Z) < eps);
-        if (!dup) {
-          let nid = _displayIdForJointWith(file, pg, j);
-          if (typeof nid !== "number" || !Number.isFinite(nid) || seenJointIds.has(nid)) {
-            const fb = nid;
-            while (seenJointIds.has(fallbackJ)) fallbackJ++;
-            nid = fallbackJ++;
-            console.warn(`[STAAD export] joint display id "${fb}" 撞號或無效 → fallback ${nid}`);
-            jointCollisions.push({
-              originalDisplayId: String(fb), fallbackId: nid,
-              fileName: file.name, pageIdx: +Object.keys(file.pages).find(k => file.pages[k] === pg),
-              jointId: j.id, x: X, y: Y, z: Z,
-            });
-          }
-          seenJointIds.add(nid);
-          dup = { id: nid, x: X, y: Y, z: Z };
-          allJoints.push(dup);
-        }
-        idMap.set(j.id, dup.id);
-      }
-      for (const m of pg.members) {
-        // 跨頁同物理桿件 dedup:m.globalMemberId 已綁過 → 同一條桿件在另一張視圖被再次畫到,
-        //   只輸出第一次出現的那條(避免 fallback 流水號產生 model UI 找不到的「幽靈 M1292」之類)
-        if (m.globalMemberId != null && seenGlobalMemberIds.has(m.globalMemberId)) continue;
-        let nid = (typeof displayMemberId === "function") ? displayMemberId(m) : m.id;
-        if (typeof nid !== "number" || !Number.isFinite(nid) || seenMemberIds.has(nid)) {
-          const fb = nid;
-          while (seenMemberIds.has(fallbackM)) fallbackM++;
-          nid = fallbackM++;
-          memberCollisions.push({
-            originalDisplayId: String(fb), fallbackId: nid,
-            fileName: file.name, pageIdx: +Object.keys(file.pages).find(k => file.pages[k] === pg),
-            memberId: m.id,
-          });
-        }
-        seenMemberIds.add(nid);
-        if (m.globalMemberId != null) seenGlobalMemberIds.add(m.globalMemberId);
-        allMembers.push({ id: nid, j1: idMap.get(m.j1), j2: idMap.get(m.j2) });
-      }
-    }
-  }
-  // 把撞號清單掛到 window 供匯出端(.xlsx / .std)讀取後顯示對話框
-  window._lastBuildModelCollisions = { joints: jointCollisions, members: memberCollisions };
-  return { joints: allJoints, members: allMembers };
-}
-// 顯示「匯出時撞號 fallback」清單(buildModel 之後呼叫)— 集中跳一次 alert,避免使用者只看 console 漏掉
-function showBuildModelCollisionsIfAny(exportLabel) {
-  const c = window._lastBuildModelCollisions;
-  if (!c) return false;
-  const total = c.joints.length + c.members.length;
-  if (total === 0) return false;
-  const lines = [];
-  lines.push(`⚠ ${exportLabel || "匯出"}時偵測到 ${total} 筆「顯示編號撞號」自動 fallback 成流水號:`);
-  lines.push("");
-  if (c.joints.length) {
-    lines.push(`【節點(${c.joints.length} 筆)】`);
-    for (const x of c.joints.slice(0, 15)) {
-      lines.push(`  • 「${x.originalDisplayId}」→ ${x.fallbackId}  @ ${x.fileName}#${x.pageIdx + 1} (X=${Math.round(x.x)} Y=${Math.round(x.y)} Z=${Math.round(x.z)})`);
-    }
-    if (c.joints.length > 15) lines.push(`  …(其餘 ${c.joints.length - 15} 筆請看 console)`);
-    lines.push("");
-  }
-  if (c.members.length) {
-    lines.push(`【桿件(${c.members.length} 筆)】`);
-    for (const x of c.members.slice(0, 15)) {
-      lines.push(`  • 「${x.originalDisplayId}」→ ${x.fallbackId}  @ ${x.fileName}#${x.pageIdx + 1}`);
-    }
-    if (c.members.length > 15) lines.push(`  …(其餘 ${c.members.length - 15} 筆請看 console)`);
-    lines.push("");
-  }
-  lines.push("常見原因:");
-  lines.push("  1. 軸 capacity 太低 → 多個座標被 cap 成同 rank,擠到同一個 display ID");
-  lines.push("  2. 同物理位置在不同檔/頁的世界座標有誤差(eps=0.1 mm),沒被 dedup,各算各的 ID 結果撞");
-  lines.push("");
-  lines.push("處理建議:");
-  lines.push("  • 到「設定」加大 X / Y / Z capacity(99 → 999)");
-  lines.push("  • 或先跑「⚡ 3D 一鍵處理」清光綁定 + 適配關聯,讓同物理點走同 globalJoint");
-  lines.push("  • 匯出檔已生成,fallback 編號是流水號,跟主畫面顯示的編號會不同");
-  alert(lines.join("\n"));
-  return true;
-}
+// buildModel + showBuildModelCollisionsIfAny 移到 src/core/buildModel.ts(Phase 3e)
 
 // staadUnitKeyword / unitToMeter / meterToTarget 移到 src/utils/units.ts(Phase 2)
 
