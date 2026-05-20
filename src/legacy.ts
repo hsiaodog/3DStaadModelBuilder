@@ -13,6 +13,8 @@ import { xlsxCellRef as _xlsxCellRef, xmlEsc as _xmlEsc, xlsxCell as _xlsxCell }
 import { joint2DToWorld3D, world3DToJoint2D } from "./core/projection";
 import { listGlobalBindings } from "./core/globalJoints";
 import { proposeAutoPairings } from "./core/autopair";
+import { _rankCache, invalidateRankCache, _worldForRank, _axisCap, _ensureRankCache } from "./core/rankCache";
+import { _displayIdForJointWith } from "./core/displayId";
 
 // ---------- main app code(原本是 1.13M chars 的大 <script> block) ----------
 "use strict";
@@ -5131,7 +5133,7 @@ function _planeAxisInfo(plane) {
 }
 
 // 檔案是否「設定齊全」(可作為 propagation source)
-function _fileHasFullSetup(f) {
+export function _fileHasFullSetup(f) {
   if (!f) return false;
   const pg = f.pages && f.pages[0];
   if (!pg || !pg.plane) return false;
@@ -23335,8 +23337,7 @@ function fmtMemberInfo(m) {
 //   正交判定:該 joint 的所有連接桿件中,至少有一條水平 + 至少一條垂直(2D 平面內)→ 正交
 //   只有斜桿件 → 非正交,排到該軸 rank 的最後
 //   Cache 會在 invalidateRankCache 被叫時失效;每次 displayJointId 進來時 lazy 重算
-const _rankCache = { dirty: true, x: null, y: null, z: null, signature: null };
-function invalidateRankCache() { _rankCache.dirty = true; }
+// _rankCache + invalidateRankCache 移到 src/core/rankCache.ts(Phase 3d)
 function _isJointOrtho(j, page) {
   if (!page || !Array.isArray(page.members)) return false;
   const tol = 1e-3;
@@ -23375,7 +23376,7 @@ function _jointHasAnyDiagonal(j, page) {
   return false;
 }
 // 取得 joint 連接桿件的「單位方向向量陣列」— 給 perp / collinear 判定共用
-function _getJointMemberDirs(j, page) {
+export function _getJointMemberDirs(j, page) {
   const out = [];
   if (!page || !Array.isArray(page.members) || !page.members.length) return out;
   const tol = 1e-3;
@@ -23393,7 +23394,7 @@ function _getJointMemberDirs(j, page) {
   return out;
 }
 // 任一對方向向量垂直?(2D 上,夾角 90° ± 約 3°)
-function _hasAnyPerpPair(dirs) {
+export function _hasAnyPerpPair(dirs) {
   for (let i = 0; i < dirs.length; i++) {
     for (let k = i + 1; k < dirs.length; k++) {
       const dot = dirs[i].dx * dirs[k].dx + dirs[i].dy * dirs[k].dy;
@@ -23403,7 +23404,7 @@ function _hasAnyPerpPair(dirs) {
   return false;
 }
 // 所有方向向量是否與第一條共線(平行或反向)— 用來判定「純連續直桿件」(2+ V 共線、無分岔)
-function _allDirsCollinear(dirs) {
+export function _allDirsCollinear(dirs) {
   if (dirs.length < 2) return false;
   const d0 = dirs[0];
   for (let i = 1; i < dirs.length; i++) {
@@ -23444,356 +23445,8 @@ function _jointConnectivityKind(j, page) {
 // 取得節點「用來算 rank 的世界座標」:
 //   - 若 joint.globalId 對應的 globalJoint 有 x/y/z(三軸都齊全) → 用全局位置(同 globalId 的各檔節點拿到同 rank → 同 display ID)
 //   - 否則用節點本身的世界座標
-function _worldForRank(file, page, joint) {
-  if (joint && joint.globalId != null && Array.isArray(state.globalJoints)) {
-    const gj = state.globalJoints.find(g => g.id === joint.globalId);
-    if (gj && Number.isFinite(gj.x) && Number.isFinite(gj.y) && Number.isFinite(gj.z)) {
-      return { x: gj.x, y: gj.y, z: gj.z };
-    }
-  }
-  return joint2DToWorld3D(file, page, joint);
-}
-function _axisCap(ax) {
-  const v = (ax === "x") ? state.numberCapacityX
-          : (ax === "y") ? state.numberCapacityY
-          : state.numberCapacityZ;
-  const n = Number(v);
-  // 只接受 9 / 99 / 999;其他都退回 99
-  return (n === 9 || n === 99 || n === 999) ? n : 99;
-}
-function _ensureRankCache() {
-  // bucket 規則:以「目前顯示小數位數」為準(對應 state.measureDecimals)
-  //   measureDecimals=0 → 整數 mm bucket;measureDecimals=1 → 0.1 mm bucket;…
-  //   兩顆節點若顯示成同一數字,rank 必然落在同 bucket
-  //   注意:不再使用 numberTolerance 做合併,避免「2mm bucket 把 225 推成 226」這類非顯示對齊
-  const md = Math.max(0, Math.min(6, Number.isFinite(state.measureDecimals) ? state.measureDecimals : 0));
-  const capX = _axisCap("x"), capY = _axisCap("y"), capZ = _axisCap("z");
-  // floorTypes 影響 Y 軸 rank → signature 加入該設定;pg.floorType 改動時呼叫 invalidateRankCache 即可
-  const ftSig = (Array.isArray(state.floorTypes) ? state.floorTypes : [])
-    .map(t => `${t.key}:${t.yyStart || 1}`).join(",");
-  // signature 含全部影響因子,任一變就重算(含 measureDecimals)
-  const sig = `p=${state.numberPriority}|md=${md}|cx=${capX}|cy=${capY}|cz=${capZ}|files=${state.files.length}|gj=${(state.globalJoints || []).length}|ft=${ftSig}|sort=wrap`;
-  if (!_rankCache.dirty && _rankCache.signature === sig) return;
-  // cls[ax].ortho:該軸所有 unique 座標(union)
-  // cls[ax].anchorVal:有「強 anchor joint」(perp pair / 3-plane / manual)的座標 → 排 rank 1..K(連續)
-  // 其餘 → demote-only 座標,排 K+1..
-  const cls = {
-    x: { ortho: new Set(), anchorVal: new Set() },
-    y: { ortho: new Set(), anchorVal: new Set() },
-    z: { ortho: new Set(), anchorVal: new Set() },
-  };
-  const demotedGids = new Set();    // 個別 joint demote:displayId 加 offset
-  const manualAnchorGids = new Set();
-  const unboundDemoted = new WeakSet();
-  const gidPlanes = new Map();      // gid → Set<plane>
-  // 兩階段判定的暫存:[{j, pg, w, gid, hasPerpPair, localIsAnchor}]
-  //   hasPerpPair:per-joint 嚴格判定(用來決定 coord 是否 anchor)
-  //   localIsAnchor:寬鬆 anchor 判定(用來決定 per-joint demote offset 是否套用)
-  const _scanInfos = [];
-  // 用「顯示精度」對齊:toFixed 收到顯示位數,再 parseFloat 收回數值,bucket = 顯示值本身
-  // 注意:-0 與 0 在 JS 中 ===,但 toFixed 會輸出 "-0" 進 parseFloat 拿到 -0,
-  //   存進 Set 雖然 SameValueZero 視為同 key,但日後若做 strict 比較會分歧 → 一律正規化成 0
-  const round = (v) => {
-    const r = parseFloat(v.toFixed(md));
-    return r === 0 ? 0 : r;
-  };
-  const tol = Math.pow(10, -md);    // 給 tightPairs 統計用
-  for (const f of state.files) {
-    if (!_fileHasFullSetup(f)) continue;
-    for (const pg of Object.values(f.pages || {})) {
-      if (!pg || pg._orphan) continue;
-      for (const j of (pg.joints || [])) {
-        const w = _worldForRank(f, pg, j);
-        if (!w) continue;
-        for (const ax of ["x", "y", "z"]) cls[ax].ortho.add(round(w[ax]));
-        if (j.globalId != null && pg.plane) {
-          let pl = gidPlanes.get(j.globalId);
-          if (!pl) { pl = new Set(); gidPlanes.set(j.globalId, pl); }
-          pl.add(pg.plane);
-        }
-        if (j.isAnchor && j.globalId != null) manualAnchorGids.add(j.globalId);
-        const dirs = _getJointMemberDirs(j, pg);
-        const hasPerpPair = _hasAnyPerpPair(dirs);
-        const localIsAnchor =
-          !!j.isAnchor ||
-          dirs.length < 2 ||
-          hasPerpPair ||
-          _allDirsCollinear(dirs);
-        _scanInfos.push({ j, pg, w, gid: j.globalId, hasPerpPair, localIsAnchor });
-      }
-    }
-  }
-  const caps = { x: capX, y: capY, z: capZ };
-  const overflow = { x: 0, y: 0, z: 0 };
-  // 從原點(0)往正方向循環遞增:rank 1 = 原點,然後 +X / +Y / +Z 方向逐一遞增,
-  //   到最大正值後「循環」回最小負值,再朝 0 方向繼續遞增到 -1。
-  //   排序順序:0, +1, +2, …, +N, -N, -N+1, …, -1
-  const _wrapPosSort = (a, b) => {
-    if (a === 0) return b === 0 ? 0 : -1;
-    if (b === 0) return 1;
-    if (a > 0 && b < 0) return -1;
-    if (a < 0 && b > 0) return 1;
-    return a - b;
-  };
-  // === 後處理 ===
-  // (1) 計算「coord-anchor 強條件」對應的 gid 集合(per-joint 嚴格 hasPerpPair / 3-plane / manual)
-  const coordAnchorGids = new Set(manualAnchorGids);
-  for (const [gid, pl] of gidPlanes) {
-    if (pl.size >= 3) coordAnchorGids.add(gid);
-  }
-  for (const info of _scanInfos) {
-    if (info.gid != null && info.hasPerpPair) coordAnchorGids.add(info.gid);
-  }
-  // (2) 標記每個 unique 座標是否為「anchor coord」(該座標上至少有一顆 strong anchor joint)
-  for (const info of _scanInfos) {
-    const isCoordAnchor = info.gid != null
-      ? coordAnchorGids.has(info.gid)
-      : (info.hasPerpPair || info.localIsAnchor && info.j.isAnchor);   // unbound:用 local hasPerpPair / 手動
-    if (isCoordAnchor) {
-      for (const ax of ["x", "y", "z"]) cls[ax].anchorVal.add(round(info.w[ax]));
-    }
-  }
-  // (3) Per-joint demote(寬鬆規則):任一 binding 不是 localIsAnchor → demote
-  //   保留 manualAnchor / 3-plane override
-  const finalAnchorGids = new Set(manualAnchorGids);
-  for (const [gid, pl] of gidPlanes) {
-    if (pl.size >= 3) finalAnchorGids.add(gid);
-  }
-  for (const info of _scanInfos) {
-    if (info.gid != null && info.localIsAnchor) finalAnchorGids.add(info.gid);
-  }
-  for (const info of _scanInfos) {
-    const isAnchor = info.gid != null
-      ? finalAnchorGids.has(info.gid)
-      : info.localIsAnchor;
-    if (!isAnchor) {
-      if (info.gid != null) demotedGids.add(info.gid);
-      else unboundDemoted.add(info.j);
-    }
-  }
-  // (4) 排 rank:anchor 座標 1..K(連續),demote-only 座標 K+1..
-  //   Y 軸特例:依 floorType / braceType 分桶(共用同一 YY 階池,每桶從 type.yyStart 起編)
-  //   其他軸維持原本邏輯
-  const _anchorMax = { x: 0, y: 0, z: 0 };
-  // Y → typeKey 對應規則:
-  //   1) 優先 floor:XZ page 的 pg.z(該頁 Y 標高)→ 其 pg.floorType。樓層 Y 值跨平面對齊。
-  //   2) 次:brace:YZ / XY page 的 pg.braceType → 該頁所有 joint 的 Y(不重複佔已被 floor 佔走的 Y)。
-  //   3) 都沒有 → fallback "default"
-  const yToType = new Map();
-  for (const f of state.files) {
-    for (const pg of Object.values(f.pages || {})) {
-      if (!pg || pg._orphan || pg.plane !== "XZ") continue;
-      if (pg.z == null || !Number.isFinite(pg.z)) continue;
-      const ry = round(pg.z);
-      const tk = pg.floorType || "default";
-      if (!yToType.has(ry)) yToType.set(ry, tk);
-    }
-  }
-  // 優先度:樓層(yToType,上面已建) → 斜撐 YZ → 斜撐 XY
-  //   先 YZ pass 後 XY pass,用 "first wins" 確保 YZ 對同 Y 的優先級高於 XY。
-  const yToBraceType = new Map();
-  for (const wantPlane of ["YZ", "XY"]) {
-    for (const f of state.files) {
-      if (!_fileHasFullSetup(f)) continue;
-      for (const pg of Object.values(f.pages || {})) {
-        if (!pg || pg._orphan) continue;
-        if (pg.plane !== wantPlane) continue;
-        const btk = pg.braceType;
-        if (!btk || btk === "default") continue;   // 沒指派 brace type → 不參與 brace bucket
-        for (const j of (pg.joints || [])) {
-          const w = _worldForRank(f, pg, j);
-          if (!w) continue;
-          const ry = round(w.y);
-          if (yToType.has(ry)) continue;             // 已被樓層拿走 → 不蓋
-          if (!yToBraceType.has(ry)) yToBraceType.set(ry, btk);   // YZ 先填,XY 後到不蓋
-        }
-      }
-    }
-  }
-  for (const ax of ["x", "y", "z"]) {
-    const c = caps[ax];
-    if (ax === "y") {
-      // 依 floorType + braceType 分桶(共用一池):每桶內部 anchor 段 → demote 段,從 type.yyStart 起編
-      const types = Array.isArray(state.floorTypes) && state.floorTypes.length
-        ? state.floorTypes : [{ key: "default", label: "預設", yyStart: 1, kind: "floor" }];
-      const typeMap = new Map();
-      const braceKeySet = new Set();   // 哪些 type key 是 brace kind(供 _isBraceJoint 識別)
-      for (const t of types) {
-        typeMap.set(t.key, { key: t.key, yyStart: t.yyStart || 1, anchorVals: [], demotedOnly: [], kind: (t.kind === "brace") ? "brace" : "floor" });
-        if ((t.kind || "floor") === "brace") braceKeySet.add(t.key);
-      }
-      if (!typeMap.has("default")) {
-        typeMap.set("default", { key: "default", yyStart: 1, anchorVals: [], demotedOnly: [], kind: "floor" });
-      }
-      // 把 Y unique 值分到對應桶(floor 優先 → brace → default)
-      for (const v of cls.y.ortho) {
-        const tk = yToType.get(v) || yToBraceType.get(v) || "default";
-        const bucket = typeMap.get(tk) || typeMap.get("default");
-        if (cls.y.anchorVal.has(v)) bucket.anchorVals.push(v);
-        else bucket.demotedOnly.push(v);
-      }
-      const map = new Map();
-      const braceRanks = new Set();     // 屬於 brace-kind 桶的 rank 值(_isBraceJoint 用)
-      let overallAnchorMax = 0;          // 只算 floor-kind 的 anchor 末端 rank,讓 brace 落在 BRACE 區
-      for (const t of typeMap.values()) {
-        t.anchorVals.sort(_wrapPosSort);
-        t.demotedOnly.sort(_wrapPosSort);
-        let rank = t.yyStart;
-        const isBraceBucket = (t.kind === "brace");
-        const assign = (arr) => {
-          for (const v of arr) {
-            const r = Math.min(rank, c);
-            map.set(v, r);
-            if (isBraceBucket) braceRanks.add(r);
-            if (rank > c) overflow.y++;
-            rank++;
-          }
-        };
-        assign(t.anchorVals);
-        // 只有 floor-kind 才貢獻 overallAnchorMax;brace-kind 桶不算 anchor 邊界,
-        //   讓 brace-anchored joint 仍歸到 BRACE 輸出區(透過 braceRanks set 識別)
-        if (!isBraceBucket) {
-          const lastAnchorRank = t.anchorVals.length ? (t.yyStart + t.anchorVals.length - 1) : 0;
-          if (lastAnchorRank > overallAnchorMax) overallAnchorMax = Math.min(lastAnchorRank, c);
-        }
-        assign(t.demotedOnly);
-      }
-      _anchorMax.y = overallAnchorMax;
-      _rankCache.y = map;
-      _rankCache.braceRanks = braceRanks;   // 給 _isBraceJoint 用
-      continue;
-    }
-    const anchorVals  = [...cls[ax].anchorVal].sort(_wrapPosSort);
-    const demotedOnly = [...cls[ax].ortho].filter(v => !cls[ax].anchorVal.has(v)).sort(_wrapPosSort);
-    const map = new Map();
-    let rank = 1;
-    const assign = (arr) => {
-      for (const v of arr) {
-        map.set(v, Math.min(rank, c));
-        if (rank > c) overflow[ax]++;
-        rank++;
-      }
-    };
-    assign(anchorVals);
-    _anchorMax[ax] = Math.min(anchorVals.length, c);
-    assign(demotedOnly);
-    _rankCache[ax] = map;
-  }
-  _rankCache.anchorMax = _anchorMax;
-  _rankCache.demotedGids = demotedGids;
-  _rankCache.unboundDemoted = unboundDemoted;
-  _rankCache.gidPlanes = gidPlanes;
-  // 不論有無 overflow,都把每軸 unique 座標數 + 鄰近 bucket 印 console,方便診斷「為什麼 ZZ 跑到 15、16」這類問題
-  {
-    const stats = {};
-    for (const ax of ["x", "y", "z"]) {
-      const all = [...cls[ax].ortho];
-      const sorted = [...new Set(all)].sort((a, b) => a - b);
-      const tightPairs = [];
-      for (let i = 1; i < sorted.length; i++) {
-        const d = sorted[i] - sorted[i - 1];
-        if (d < tol * 5) tightPairs.push({ a: sorted[i - 1], b: sorted[i], d: +d.toFixed(2) });
-      }
-      tightPairs.sort((p, q) => p.d - q.d);
-      stats[ax.toUpperCase()] = {
-        uniqueCount: sorted.length,
-        cap: caps[ax],
-        firstFew: sorted.slice(0, 30).map(v => +v.toFixed(1)),
-        nearAdjacentPairs: tightPairs.slice(0, 10),
-      };
-    }
-    console.log("[rank cache] 每軸 unique 座標統計", stats, "(tol=" + tol + " mm)");
-    window._lastRankCacheStats = stats;   // 暴露給 console:可手動 `_lastRankCacheStats` 查
-  }
-  if (overflow.x || overflow.y || overflow.z) {
-    const overflowParts = [];
-    const axisDiag = {};   // 軸 → { unique, cap, top values 顯示給 user 看哪些座標跑出來 }
-    for (const ax of ["x", "y", "z"]) {
-      if (!overflow[ax]) continue;
-      const all = [...cls[ax].ortho];
-      const sorted = [...new Set(all)].sort((a, b) => a - b);
-      const cap = caps[ax];
-      overflowParts.push(`${ax.toUpperCase()} 有 ${sorted.length} 個 unique 座標(cap ${cap})`);
-      // 取「相鄰差距較小」的前幾組顯示,通常是校準誤差造成的細微多 bucket
-      const tightPairs = [];
-      for (let i = 1; i < sorted.length; i++) {
-        const d = sorted[i] - sorted[i - 1];
-        if (d < tol * 5) tightPairs.push({ a: sorted[i - 1], b: sorted[i], d });
-      }
-      tightPairs.sort((p, q) => p.d - q.d);
-      axisDiag[ax] = { unique: sorted.length, cap, sample: sorted, tightPairs: tightPairs.slice(0, 5) };
-    }
-    console.warn(`[rank cache] 超出 capacity(X=${capX}/Y=${capY}/Z=${capZ}):${overflowParts.join("、")}`, axisDiag);
-    // 跳 modal alert(節流:5 秒內只跳一次,避免每次 render 重複)
-    if (Date.now() - (_rankCache._lastOverflowAlertAt || 0) > 5000) {
-      _rankCache._lastOverflowAlertAt = Date.now();
-      setTimeout(() => {
-        const lines = ["⚠ 節點編號 capacity 超出 — 多個座標被 cap 成同 rank,導致 ID 重複\n"];
-        for (const ax of ["x", "y", "z"]) {
-          if (!axisDiag[ax]) continue;
-          const d = axisDiag[ax];
-          lines.push(`【${ax.toUpperCase()} 軸】 unique ${d.unique} 個(cap ${d.cap})`);
-          if (d.tightPairs.length) {
-            lines.push("  疑似校準誤差造成的鄰近 bucket(差距小於 tol×5):");
-            for (const p of d.tightPairs) {
-              lines.push(`    ${p.a.toFixed(2)} ↔ ${p.b.toFixed(2)} (差 ${p.d.toFixed(2)} mm)`);
-            }
-          }
-          lines.push(`  前 20 個座標值:[${d.sample.slice(0, 20).map(v => v.toFixed(1)).join(", ")}]${d.sample.length > 20 ? ` …(共 ${d.sample.length})` : ""}`);
-          lines.push("");
-        }
-        lines.push("可能原因:");
-        lines.push("  1. 跨檔案 / 跨頁的 calibration(planeOrigin / scaleRuler)有誤差 → 同物理位置在不同檔案得到稍不同的世界座標");
-        lines.push("  2. 「誤差範圍」(numberTolerance) 太小,鄰近 bucket 沒合併");
-        lines.push("  3. 真的存在那麼多 unique 位置(超過軸 capacity)");
-        lines.push("");
-        lines.push("建議:");
-        lines.push("  • 先把「誤差範圍」調大(右側欄,現在 " + tol + " mm → 試 10 mm)");
-        lines.push("  • 或把該軸最大編號調成 999");
-        lines.push("  • 跨檔的「同物理位置」joint 用「三視圖自動配對」綁同一個 globalJoint,讓世界座標統一");
-        alert(lines.join("\n"));
-      }, 0);
-    }
-  } else {
-    _rankCache._lastOverflowAlertAt = 0;   // 清掉 throttle,下次 overflow 立即跳
-  }
-  _rankCache.signature = sig;
-  _rankCache.dirty = false;
-}
-function _displayIdForJointWith(file, page, j) {
-  if (!file || !page || !j) return j ? j.id : "?";
-  if (!_fileHasFullSetup(file)) return j.id;
-  _ensureRankCache();
-  // 用 globalId(若有)取共同位置;否則本地世界座標
-  const w = _worldForRank(file, page, j);
-  if (!w) return j.id;
-  // round 必須與 _ensureRankCache 內的 round 對齊(以 measureDecimals 為 bucket 大小,
-  //   且 -0 正規化成 0),否則 cache 的 key 與 lookup 不匹配,永遠回 fallback j.id
-  const md = Math.max(0, Math.min(6, Number.isFinite(state.measureDecimals) ? state.measureDecimals : 0));
-  const round = (v) => {
-    const r = parseFloat(v.toFixed(md));
-    return r === 0 ? 0 : r;
-  };
-  const xr = _rankCache.x.get(round(w.x));
-  const yr = _rankCache.y.get(round(w.y));
-  const zr = _rankCache.z.get(round(w.z));
-  if (xr == null || yr == null || zr == null) return j.id;
-  // 各軸 padding 位數從各自 capacity 推得:9 → 1 位、99 → 2 位、999 → 3 位
-  const Nx = String(_axisCap("x")).length;
-  const Ny = String(_axisCap("y")).length;
-  const Nz = String(_axisCap("z")).length;
-  // 軸序:X · Z · Y(水平優先)/ Y · Z · X(垂直優先)
-  //   例:N=2 水平 → XXZZYY;N=3 水平 → XXXZZZYYY
-  const composed = state.numberPriority === "v"
-    ? String(yr).padStart(Ny, "0") + String(zr).padStart(Nz, "0") + String(xr).padStart(Nx, "0")
-    : String(xr).padStart(Nx, "0") + String(zr).padStart(Nz, "0") + String(yr).padStart(Ny, "0");
-  // 字串轉整數 → 自動去掉前導 0(例:"030501" → 30501)
-  const num = Number(composed);
-  return Number.isFinite(num) ? num : composed;
-  // 註:不再在 displayId 加 +offset(100000)做 per-joint demote。Demote 純粹靠 per-coord 分群:
-  //     anchor 座標 rank 1..K → 在前;demote-only 座標 K+1.. → 在後,自然就讓 demote joint 的 XX/YY/ZZ
-  //     落在較高的 rank,跟在 anchor 之後遞增。
-}
+// _worldForRank / _axisCap / _ensureRankCache 移到 src/core/rankCache.ts(Phase 3d)
+// _displayIdForJointWith 移到 src/core/displayId.ts(Phase 3d)
 export function displayJointId(j) {
   return _displayIdForJointWith(getActiveFile(), getPage(), j);
 }
