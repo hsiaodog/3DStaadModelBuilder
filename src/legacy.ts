@@ -16,6 +16,7 @@ import { proposeAutoPairings } from "./core/autopair";
 import { _rankCache, invalidateRankCache, _worldForRank, _axisCap, _ensureRankCache } from "./core/rankCache";
 import { _displayIdForJointWith } from "./core/displayId";
 import { buildModel, showBuildModelCollisionsIfAny } from "./core/buildModel";
+import { buildExportContext } from "./export/shared";
 
 // ---------- main app code(原本是 1.13M chars 的大 <script> block) ----------
 "use strict";
@@ -20200,125 +20201,24 @@ $("pageZ").onchange = (e) => { pushUndo(); getPage().z = parseFloat(e.target.val
 // staadUnitKeyword / unitToMeter / meterToTarget 移到 src/utils/units.ts(Phase 2)
 
 $("exportStaad").onclick = () => {
-  // === 共用邏輯:跟 .xlsx 輸出一致(分類 / 來源頁面 / 材料 lookup / TO ranges) ===
+  // === 共用邏輯透過 buildExportContext()(Phase 4 dedup;原本同樣 ~120 行在這跟 exportXlsxFile 各一份)
   const { joints, members } = buildModel();
   const tgt = $("exportUnit").value;
   const kFromCalib = unitToMeter(state.unitName);
   const kToTarget  = meterToTarget(tgt);
   const k = kFromCalib * kToTarget;
-  const _jWorldById = new Map(joints.map(j => [j.id, j]));
-  // 桿件 3D 分類:Y(柱)/ X / Z 軸樑 / DXY / DYZ / DXZ 斜撐
-  const _classifyMember3D = (m) => {
-    const a = _jWorldById.get(m.j1), b = _jWorldById.get(m.j2);
-    if (!a || !b) return "DXZ";
-    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
-    const len = Math.hypot(dx, dy, dz);
-    if (len < 0.5) return "DXZ";
-    const ax = Math.abs(dx) / len, ay = Math.abs(dy) / len, az = Math.abs(dz) / len;
-    const T = 0.9986;
-    if (ay > T) return "Y";
-    if (ax > T) return "X";
-    if (az > T) return "Z";
-    if (az <= ax && az <= ay) return "DXY";
-    if (ax <= ay && ax <= az) return "DYZ";
-    return "DXZ";
-  };
-  // 桿件來源頁面(掃序 XZ → XY → YZ → 其他):匯出 sub-header 用
-  const _memberPageById = new Map();
-  for (const planeFilter of ["XZ", "XY", "YZ", null]) {
-    for (const f of state.files) {
-      for (const k2 of Object.keys(f.pages || {})) {
-        const pg = f.pages[k2];
-        if (!pg || pg._orphan) continue;
-        const pgPlane = pg.plane || null;
-        const match = planeFilter === null
-          ? (pgPlane !== "XZ" && pgPlane !== "XY" && pgPlane !== "YZ")
-          : (pgPlane === planeFilter);
-        if (!match) continue;
-        for (const mm of (pg.members || [])) {
-          const dispId = (typeof displayMemberId === "function" ? displayMemberId(mm) : mm.id);
-          if (!_memberPageById.has(dispId)) {
-            _memberPageById.set(dispId, {
-              pageName: `${f.name}#${(+k2) + 1}`,
-              elev: (Number.isFinite(pg.z) ? pg.z : Infinity),
-            });
-          }
-        }
-      }
-    }
-  }
-  // 材料字串 lookup(name → state.materials entry,取 table 欄)
-  const _memberMat = (m) => {
-    for (const f of state.files) {
-      for (const pg of Object.values(f.pages || {})) {
-        if (!pg || pg._orphan) continue;
-        for (const mm of (pg.members || [])) {
-          if (mm.material && (
-            (typeof displayMemberId === "function" ? displayMemberId(mm) : mm.id) === m.id
-          )) return mm.material;
-        }
-      }
-    }
-    return null;
-  };
-  const _matObjByName = new Map();
-  if (Array.isArray(state.materials)) {
-    for (const mm of state.materials) {
-      const n = mm && mm.name ? String(mm.name).trim() : "";
-      if (n && !_matObjByName.has(n)) _matObjByName.set(n, mm);
-    }
-  }
-  // 節點 rank(MEMBER Y-axis 的 XX/ZZ 小區用)
-  try { _ensureRankCache && _ensureRankCache(); } catch (_) {}
-  const _md = Math.max(0, Math.min(6, Number.isFinite(state.measureDecimals) ? state.measureDecimals : 0));
-  const _rndForRank = (v) => { const r = parseFloat(v.toFixed(_md)); return r === 0 ? 0 : r; };
-  const _rankOf = (j) => {
-    if (!_rankCache || !_rankCache.x) return { xr: null, zr: null };
-    return {
-      xr: _rankCache.x.get(_rndForRank(j.x)) || null,
-      zr: _rankCache.z.get(_rndForRank(j.z)) || null,
-    };
-  };
-  const _rankByJointId = new Map();
-  for (const j of joints) _rankByJointId.set(j.id, _rankOf(j));
-  // 分桶
-  const _memRows = members.map(m => ({ m, cat: _classifyMember3D(m), mat: _memberMat(m) }));
-  const _memY = [], _memXAxis = [], _memZAxis = [], _memBraceXZ = [], _memBraceXY = [], _memBraceYZ = [];
-  for (const mr of _memRows) {
-    switch (mr.cat) {
-      case "Y":   _memY.push(mr); break;
-      case "X":   _memXAxis.push(mr); break;
-      case "Z":   _memZAxis.push(mr); break;
-      case "DXY": _memBraceXY.push(mr); break;
-      case "DYZ": _memBraceYZ.push(mr); break;
-      default:    _memBraceXZ.push(mr);
-    }
-  }
-  const _byId = (a, b) => (a.m.id || 0) - (b.m.id || 0);
-  _memY.sort(_byId); _memXAxis.sort(_byId); _memZAxis.sort(_byId);
-  _memBraceXZ.sort(_byId); _memBraceXY.sort(_byId); _memBraceYZ.sort(_byId);
-  // TO range 壓縮
-  const _idsToSegs = (ids) => {
-    const sorted = [...ids].sort((a, b) => {
-      const na = Number(a), nb = Number(b);
-      if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
-      return String(a).localeCompare(String(b), undefined, { numeric: true });
-    });
-    const segs = [];
-    let i = 0;
-    while (i < sorted.length) {
-      let j = i;
-      while (j + 1 < sorted.length) {
-        const cur = Number(sorted[j]), nxt = Number(sorted[j + 1]);
-        if (Number.isFinite(cur) && Number.isFinite(nxt) && nxt === cur + 1) j++;
-        else break;
-      }
-      if (j === i) segs.push(`${sorted[i]}`);
-      else segs.push(`${sorted[i]} TO ${sorted[j]}`);
-      i = j + 1;
-    }
-    return segs;
-  };
+  const _ctx = buildExportContext({ joints, members });
+  const {
+    jWorldById: _jWorldById, rankByJointId: _rankByJointId,
+    classifyMember3D: _classifyMember3D, planeForDiagMember: _planeForDiagMember,
+    memberMat: _memberMat, matObjByName: _matObjByName, memberPageById: _memberPageById,
+    memY: _memY, memXAxis: _memXAxis, memZAxis: _memZAxis,
+    memBraceXZ: _memBraceXZ, memBraceXY: _memBraceXY, memBraceYZ: _memBraceYZ,
+    yAnchorMax: _yAnchorMax, braceRanks: _braceRanks,
+    isBraceJoint: _isBraceJoint, braceJointPlane: _braceJointPlane,
+    bySubBlockCoord: _bySubBlockCoord, idsToSegs: _idsToSegs,
+    md: _md, rndForRank: _rndForRank,
+  } = _ctx;
   // === 輸出 STAAD .std ===
   //   規範:INPUT WIDTH 79(STAAD 規定 50–79 之間;原本誤寫 200 會被 STAAD 整行 IGNORE 後續解析錯);* 起頭 = comment;`;` 分隔同列多 statement;`-` 行尾 = 行接續
   const lines = [];
@@ -20342,51 +20242,8 @@ $("exportStaad").onclick = () => {
     }
     return out;
   };
-  // anchor/brace 判定 + brace 平面投票(跟 .xlsx 同邏輯)
-  const _yAnchorMax = (_rankCache && _rankCache.anchorMax && Number.isFinite(_rankCache.anchorMax.y))
-    ? _rankCache.anchorMax.y : 0;
-  const _braceRanks = (_rankCache && _rankCache.braceRanks) || null;
-  // brace 判定:demote-only 段(老邏輯)+ brace-kind 桶的 anchor rank(階段 3 新增)
-  const _isBraceJoint = (j) => {
-    const rk = _rankByJointId.get(j.id) || {};
-    if (rk.yr == null) return false;
-    if (_yAnchorMax > 0 && rk.yr > _yAnchorMax) return true;
-    if (_braceRanks && _braceRanks.has(rk.yr)) return true;
-    return false;
-  };
-  const _planeForDiagMember = (m) => {
-    const a = _jWorldById.get(m.j1), b = _jWorldById.get(m.j2);
-    if (!a || !b) return null;
-    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
-    const len = Math.hypot(dx, dy, dz);
-    if (len < 0.5) return null;
-    const ax = Math.abs(dx) / len, ay = Math.abs(dy) / len, az = Math.abs(dz) / len;
-    const T = 0.9986;
-    if (ax > T || ay > T || az > T) return null;
-    if (az <= ax && az <= ay) return "XY";
-    if (ax <= ay && ax <= az) return "YZ";
-    return "XZ";
-  };
-  const _bracePlaneVotes = new Map();
-  for (const m of members) {
-    const pl = _planeForDiagMember(m);
-    if (!pl) continue;
-    for (const jid of [m.j1, m.j2]) {
-      let pm = _bracePlaneVotes.get(jid);
-      if (!pm) { pm = new Map(); _bracePlaneVotes.set(jid, pm); }
-      pm.set(pl, (pm.get(pl) || 0) + 1);
-    }
-  }
-  const _braceJointPlane = (j) => {
-    const pm = _bracePlaneVotes.get(j.id);
-    if (!pm || pm.size === 0) return null;
-    let best = null, bestCount = 0;
-    for (const pl of ["XY", "YZ", "XZ"]) {
-      const c = pm.get(pl) || 0;
-      if (c > bestCount) { bestCount = c; best = pl; }
-    }
-    return best;
-  };
+  // anchor/brace 判定 + 平面投票:_isBraceJoint / _planeForDiagMember / _braceJointPlane / _bySubBlockCoord
+  // 全部已從 buildExportContext() 拿出(上面 destructure);這裡只需開始用 ─── (Phase 4 dedup)
   // 依 (XX, ZZ) 柱線分桶,內部 anchor + brace by plane
   {
     const linesMap = new Map();
@@ -20414,16 +20271,6 @@ $("exportStaad").onclick = () => {
       if (ax !== bx) return ax - bx;
       return (a.zr || 9999) - (b.zr || 9999);
     });
-    // 小區塊內排序:跟 .xlsx 一致 — 座標優先 (Y → X → Z),ID 當 tie-breaker
-    const _bySubBlockCoord = (a, b) => {
-      const ay = _rndForRank(a.y), by = _rndForRank(b.y);
-      if (ay !== by) return ay - by;
-      const ax = _rndForRank(a.x), bx = _rndForRank(b.x);
-      if (ax !== bx) return ax - bx;
-      const az = _rndForRank(a.z), bz = _rndForRank(b.z);
-      if (az !== bz) return az - bz;
-      return (a.id || 0) - (b.id || 0);
-    };
     for (const line of sortedLines) {
       lines.push(`* XX ${line.xr != null ? String(line.xr).padStart(2, "0") : "?"}`);
       lines.push(`* ZZ ${line.zr != null ? String(line.zr).padStart(2, "0") : "?"}`);
@@ -20762,26 +20609,22 @@ function exportXlsxFile() {
   push(1, 57, "*", 2);   push(1, 58, "J1", 2); push(1, 59, "J2", 2);
   push(1, 70, "*", 2);   push(1, 71, "J1", 2); push(1, 72, "J2", 2);
   push(1, 83, "*", 2);   push(1, 89, "Table", 2);  push(1, 90, "Material", 2);
-  // ── Joint 區塊:按 (XX, ZZ) rank 分區,每區前插一列 *XX nn、再插一列 *ZZ nn;
-  //    區內按 Y 軸升序(柱線內由低到高)。座標以精準度 (state.measureDecimals)
-  //    round 後輸出 — 即「世界座標點」(rank bucket value)而非真實量測值。
-  //    座標原點 / 軸向已由 buildModel() 套用 (X = (j.x - origin.x)*ratio 等)。
-  try { _ensureRankCache && _ensureRankCache(); } catch (_) {}
-  const _md = Math.max(0, Math.min(6, Number.isFinite(state.measureDecimals) ? state.measureDecimals : 0));
-  const _rndForRank = (v) => { const r = parseFloat(v.toFixed(_md)); return r === 0 ? 0 : r; };
-  const _rankOf = (j) => {
-    if (!_rankCache || !_rankCache.x) return { xr: null, yr: null, zr: null };
-    return {
-      xr: _rankCache.x.get(_rndForRank(j.x)) || null,
-      yr: _rankCache.y.get(_rndForRank(j.y)) || null,
-      zr: _rankCache.z.get(_rndForRank(j.z)) || null,
-    };
-  };
-  const _rankByJointId = new Map();
-  for (const j of joints) _rankByJointId.set(j.id, _rankOf(j));
-  const _jWorldById = new Map(joints.map(j => [j.id, j]));
-  // 排序:XX 升序 → ZZ 升序 → 小區內 ID 升序;同 ID(理論上不會,輸出已 dedup)再 fallback 座標
-  //   座標一律用 _rndForRank(跟輸出值對齊),避免浮點尾數造成同列誤判不相等
+  // ── Joint 區塊:按 (XX, ZZ) rank 分區。共用 helper 改由 buildExportContext() 一次建好(Phase 4 dedup)
+  const _ctx = buildExportContext({ joints, members });
+  const {
+    jWorldById: _jWorldById, rankByJointId: _rankByJointId,
+    classifyMember3D: _classifyMember3D, planeForDiagMember: _planeForDiagMember,
+    memberMat: _memberMat, matObjByName: _matObjByName, memberPageById: _memberPageById,
+    memY: _memY, memXAxis: _memXAxis, memZAxis: _memZAxis,
+    memBraceXZ: _memBraceXZ, memBraceXY: _memBraceXY, memBraceYZ: _memBraceYZ,
+    yAnchorMax: _yAnchorMax, braceRanks: _braceRanks,
+    isBraceJoint: _isBraceJoint, braceJointPlane: _braceJointPlane,
+    bySubBlockCoord: _bySubBlockCoord,
+    md: _md, rndForRank: _rndForRank,
+  } = _ctx;
+  // 註:_idsToSegs 不從 ctx 拿(xlsx 用 token-array 格式 [["123"],["123","TO","456"]],
+  //   shared.ts 是 string 格式 ["123","123 TO 456"];兩者 API 不同,xlsx 保留自己 local 版本)
+  // 排序:XX 升序 → ZZ 升序 → 小區內 ID 升序(後備 fallback 座標)
   const _jointsSorted = joints.slice().sort((a, b) => {
     const ra = _rankByJointId.get(a.id) || {}, rb = _rankByJointId.get(b.id) || {};
     const ax = ra.xr || 9999, bx = rb.xr || 9999;
@@ -20795,63 +20638,8 @@ function exportXlsxFile() {
     if (aX !== bX) return aX - bX;
     return _rndForRank(a.z) - _rndForRank(b.z);
   });
-  // anchor → demote 邊界(各軸 anchor 段的最末 rank)— 用來在小區內插「明顯分區」標記列
-  const _yAnchorMax = (_rankCache && _rankCache.anchorMax && Number.isFinite(_rankCache.anchorMax.y))
-    ? _rankCache.anchorMax.y : 0;
-  // Brace joint 判定:
-  //   1) 落在 Y 軸 demote-only 區段(YY rank > K_y,xlsx 小區 `*` 之後)→ brace(老邏輯)
-  //   2) 落在 brace-kind 桶 anchor rank(階段 3 新增,被 pg.braceType 指派的 YZ/XY page 上 joint)
-  //   anchor 區段且非 brace 桶 → 主框架節點,留在 JOINT COORDINATES
-  const _braceRanks = (_rankCache && _rankCache.braceRanks) || null;
-  const _isBraceJoint = (j) => {
-    const rk = _rankByJointId.get(j.id) || {};
-    if (rk.yr == null) return false;
-    if (_yAnchorMax > 0 && rk.yr > _yAnchorMax) return true;
-    if (_braceRanks && _braceRanks.has(rk.yr)) return true;
-    return false;
-  };
   const _regularSorted = _jointsSorted.filter(j => !_isBraceJoint(j));
   const _braceSorted   = _jointsSorted.filter(j =>  _isBraceJoint(j));
-  // BRACE 區內依平面細分(XY / YZ / XZ):看接到 brace joint 的「斜撐」桿件落在哪個 2D 平面
-  //   桿件平面 = depth 軸(三軸分量最小者)對應的 plane:
-  //     az 最小 → XY 平面(brace 在 XY 面)
-  //     ax 最小 → YZ 平面
-  //     ay 最小 → XZ 平面
-  //   只統計「斜撐」桿件(三軸分量都 < cos(3°));純軸向桿件 plane 不唯一,忽略
-  const _planeForDiagMember = (m) => {
-    const a = _jWorldById.get(m.j1), b = _jWorldById.get(m.j2);
-    if (!a || !b) return null;
-    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
-    const len = Math.hypot(dx, dy, dz);
-    if (len < 0.5) return null;
-    const ax = Math.abs(dx) / len, ay = Math.abs(dy) / len, az = Math.abs(dz) / len;
-    const axialThresh = 0.9986;   // cos(3°)
-    if (ax > axialThresh || ay > axialThresh || az > axialThresh) return null;
-    if (az <= ax && az <= ay) return "XY";
-    if (ax <= ay && ax <= az) return "YZ";
-    return "XZ";
-  };
-  const _bracePlaneVotes = new Map();   // jid → Map<plane, count>
-  for (const m of members) {
-    const pl = _planeForDiagMember(m);
-    if (!pl) continue;
-    for (const jid of [m.j1, m.j2]) {
-      let pm = _bracePlaneVotes.get(jid);
-      if (!pm) { pm = new Map(); _bracePlaneVotes.set(jid, pm); }
-      pm.set(pl, (pm.get(pl) || 0) + 1);
-    }
-  }
-  const _braceJointPlane = (j) => {
-    const pm = _bracePlaneVotes.get(j.id);
-    if (!pm || pm.size === 0) return null;
-    // 投票:多數決;tie 走 priority XY > YZ > XZ
-    let best = null, bestCount = 0;
-    for (const pl of ["XY", "YZ", "XZ"]) {
-      const c = pm.get(pl) || 0;
-      if (c > bestCount) { bestCount = c; best = pl; }
-    }
-    return best;
-  };
   // 渲染單一節點區塊:從 row=2 起,XX/ZZ rank 分小區,小區內 anchor→demote 插 * 標記
   //   baseCol = 該區塊 ID 欄位的 column index(JOINT COORDINATES=0, JOINT BRACE=5)
   //   opts.planeOf:若提供 → 先按 plane 分子群,每子群前插 `* PLANE XX/YZ/XZ` header,
@@ -20954,17 +20742,7 @@ function exportXlsxFile() {
     });
     // 一半放左 (col 0-3),一半放右 (col 5-8);ceil 讓左略長
     const _half = Math.ceil(sortedLines.length / 2);
-    // 小區塊內排序:座標優先 (Y → X → Z),ID 當 tie-breaker。
-    //   Y 為主因為 Y 軸(柱)垂直延伸,同 XX·ZZ 柱線上節點按樓層由低到高排;X、Z 提供穩定次序
-    const _bySubBlockCoord = (a, b) => {
-      const ay = _rndForRank(a.y), by = _rndForRank(b.y);
-      if (ay !== by) return ay - by;
-      const ax = _rndForRank(a.x), bx = _rndForRank(b.x);
-      if (ax !== bx) return ax - bx;
-      const az = _rndForRank(a.z), bz = _rndForRank(b.z);
-      if (az !== bz) return az - bz;
-      return (a.id || 0) - (b.id || 0);
-    };
+    // _bySubBlockCoord 從 buildExportContext destructure 拿(Phase 4 dedup)
     const _renderLineGroup = (lines, baseCol) => {
       let _r = 2;
       for (const line of lines) {
@@ -21003,88 +20781,11 @@ function exportXlsxFile() {
   //                       群間依 page elev(pg.z)升序 → 頁名稱 → ID 升序
   //     BRACE XY / BRACE YZ — 純 ID 升序、無小區分隔
   //   MEMBER PROPERTIES 跨四區彙整,以 ID 升序列出有材料的桿件。
-  const _memberMat = (m) => {
-    for (const f of state.files) {
-      for (const pg of Object.values(f.pages || {})) {
-        if (!pg || pg._orphan) continue;
-        for (const mm of (pg.members || [])) {
-          if (mm.material && (
-            (typeof displayMemberId === "function" ? displayMemberId(mm) : mm.id) === m.id
-          )) return mm.material;
-        }
-      }
-    }
-    return null;
-  };
-  // 桿件 3D 分類:Y / X / Z 軸向 + XY/YZ/XZ 平面斜撐
-  const _classifyMember3D = (m) => {
-    const a = _jWorldById.get(m.j1), b = _jWorldById.get(m.j2);
-    if (!a || !b) return "DXZ";
-    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
-    const len = Math.hypot(dx, dy, dz);
-    if (len < 0.5) return "DXZ";
-    const ax = Math.abs(dx) / len, ay = Math.abs(dy) / len, az = Math.abs(dz) / len;
-    const axialThresh = 0.9986;   // cos(3°)
-    if (ay > axialThresh) return "Y";
-    if (ax > axialThresh) return "X";
-    if (az > axialThresh) return "Z";
-    // diagonal:depth 軸(最小分量)決定平面
-    if (az <= ax && az <= ay) return "DXY";
-    if (ax <= ay && ax <= az) return "DYZ";
-    return "DXZ";
-  };
-  const _memRows = members.map(m => ({ m, cat: _classifyMember3D(m), mat: _memberMat(m) }));
-  // 分桶:依 3D 方向獨立分區
-  const _memY       = [];   // Y 軸柱
-  const _memXAxis   = [];   // X 軸樑(水平)
-  const _memZAxis   = [];   // Z 軸樑(水平)
-  const _memBraceXZ = [];   // XZ 平面斜撐(水平樓板斜撐)
-  const _memBraceXY = [];   // XY 平面斜撐
-  const _memBraceYZ = [];   // YZ 平面斜撐
-  for (const mr of _memRows) {
-    switch (mr.cat) {
-      case "Y":   _memY.push(mr); break;
-      case "X":   _memXAxis.push(mr); break;
-      case "Z":   _memZAxis.push(mr); break;
-      case "DXZ": _memBraceXZ.push(mr); break;
-      case "DXY": _memBraceXY.push(mr); break;
-      case "DYZ": _memBraceYZ.push(mr); break;
-      default:    _memBraceXZ.push(mr);   // fallback
-    }
-  }
+  // _memberMat / _classifyMember3D / _memRows + 6 buckets / _memberPageById
+  // 全部從 buildExportContext destructure 拿(Phase 4 dedup)。
+  // 注意:此處原本的 _memberPageById 額外存 .file / .pg / .k / .plane,但下游 xlsx 邏輯只用 .pageName + .elev,
+  //   shared.ts 版本已涵蓋所需欄位。
   const _byId = (a, b) => (a.m.id || 0) - (b.m.id || 0);
-  _memBraceXY.sort(_byId); _memBraceYZ.sort(_byId);
-  _memBraceXZ.sort(_byId);
-  // 桿件 id → 來源頁面。
-  //   優先掃 XZ 平面頁面 → MEMBER XZ 區的頁面標籤盡量用 XZ 樓板平面圖,而不是 XY / YZ elevation view
-  //   (同一條水平樑常在多張視圖出現,buildModel 已 dedup;這裡僅控制「標籤用哪張」)
-  //   XZ 找不到才退回 XY → YZ → 其他;Pass 順序保證 priority。
-  const _memberPageById = new Map();
-  const _scanPlaneOrder = ["XZ", "XY", "YZ", null];
-  for (const planeFilter of _scanPlaneOrder) {
-    for (const f of state.files) {
-      for (const k of Object.keys(f.pages || {})) {
-        const pg = f.pages[k];
-        if (!pg || pg._orphan) continue;
-        const pgPlane = pg.plane || null;
-        const match = planeFilter === null
-          ? (pgPlane !== "XZ" && pgPlane !== "XY" && pgPlane !== "YZ")
-          : (pgPlane === planeFilter);
-        if (!match) continue;
-        for (const mm of (pg.members || [])) {
-          const dispId = (typeof displayMemberId === "function" ? displayMemberId(mm) : mm.id);
-          if (!_memberPageById.has(dispId)) {
-            _memberPageById.set(dispId, {
-              file: f, pg, k: +k,
-              pageName: `${f.name}#${(+k) + 1}`,
-              elev: (Number.isFinite(pg.z) ? pg.z : Infinity),
-              plane: pgPlane,
-            });
-          }
-        }
-      }
-    }
-  }
   // MEMBER 區塊:一列最多 3 條桿件,以 `;` 分隔。每組占 3 欄(ID, J1, J2)+ 1 欄 `;`(末組無 `;`)
   //   塊寬 = 3*3 + 2 = 11 欄。helper 把一個 rows 陣列從 startRow 開始 pack,回傳結束後下一個可用 row index
   const MEMBER_SETS_PER_ROW = 3, MEMBER_SET_W = 3;
@@ -21247,14 +20948,7 @@ function exportXlsxFile() {
     }
     return rows;
   };
-  // 反查 table:從 m.material → state.materials.table
-  const _matObjByName = new Map();
-  if (Array.isArray(state.materials)) {
-    for (const mm of state.materials) {
-      const n = mm && mm.name ? String(mm.name).trim() : "";
-      if (n && !_matObjByName.has(n)) _matObjByName.set(n, mm);
-    }
-  }
+  // _matObjByName 從 buildExportContext destructure 拿(Phase 4 dedup)
   // 寫一個子區:label = sub header(如 "Y-axis"),rows = 該子區的 _memRows
   let _rMat = 2;
   const _writeSubProp = (label, rows) => {
