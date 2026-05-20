@@ -3,6 +3,14 @@
 // 後續 phase 會把這檔的內容逐步移到 src/core/, src/render/, src/dialogs/ 等
 // @ts-nocheck
 
+// ============================================================================
+// Phase 2 — 已拆出去的 pure utils / constants(從這檔的 inline 定義移到 src/utils/、
+//   src/constants.ts;legacy.ts 透過 import 取得,呼叫位置不必改)
+// ============================================================================
+import { MAX_UNDO, ALLOWED_YY } from "./constants";
+import { staadUnitKeyword, unitToMeter, meterToTarget } from "./utils/units";
+import { xlsxCellRef as _xlsxCellRef, xmlEsc as _xmlEsc, xlsxCell as _xlsxCell } from "./utils/ooxml";
+
 // ---------- main app code(原本是 1.13M chars 的大 <script> block) ----------
 "use strict";
 
@@ -126,7 +134,7 @@ let nextJointId = 1, nextMemberId = 1, nextFileId = 1, nextGlobalJointId = 1, ne
 // ---------- 復原 / 重做 ----------
 const undoStack = [];
 const redoStack = [];
-const MAX_UNDO = 100;
+// MAX_UNDO 移到 src/constants.ts(Phase 2)
 function snapshot() {
   // 只快照可序列化部分:每個 file 的 pages、metadata。pdf/image 物件不存。
   const filesSnap = state.files.map(f => ({
@@ -20542,15 +20550,7 @@ function showBuildModelCollisionsIfAny(exportLabel) {
   return true;
 }
 
-function staadUnitKeyword(v) {
-  return ({ meter: "METER", mmb: "MMS", centimeter: "CENTIMETER", feet: "FEET" })[v] || "METER";
-}
-function unitToMeter(name) {
-  return ({ m: 1, mm: 0.001, cm: 0.01, ft: 0.3048 })[name] || 1;
-}
-function meterToTarget(v) {
-  return ({ meter: 1, mmb: 1000, centimeter: 100, feet: 1/0.3048 })[v] || 1;
-}
+// staadUnitKeyword / unitToMeter / meterToTarget 移到 src/utils/units.ts(Phase 2)
 
 $("exportStaad").onclick = () => {
   // === 共用邏輯:跟 .xlsx 輸出一致(分類 / 來源頁面 / 材料 lookup / TO ranges) ===
@@ -21028,29 +21028,7 @@ function _buildZip(files) {
   return _concat([...parts, ...dir, eocd]);
 }
 
-// 從 1-based 列 + 0-based 欄 index 算出 Excel 儲存格座標,如 (0,0)→"A1", (1,26)→"AA2"
-function _xlsxCellRef(rowIdx /*0-based*/, colIdx /*0-based*/) {
-  let s = "", n = colIdx;
-  do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
-  return s + (rowIdx + 1);
-}
-function _xmlEsc(s) {
-  return String(s == null ? "" : s).replace(/[<>&"']/g, c =>
-    ({"<":"&lt;",">":"&gt;","&":"&amp;","\"":"&quot;","'":"&apos;"}[c]));
-}
-function _xlsxCell(rowIdx, colIdx, val, styleId) {
-  const ref = _xlsxCellRef(rowIdx, colIdx);
-  if (val == null || val === "") {
-    // 沒值但有 styleId → 輸出「純樣式空格」(用於黃色分隔欄之類);沒 styleId 直接略過
-    if (styleId != null) return `<c r="${ref}" s="${styleId}"/>`;
-    return "";
-  }
-  const sAttr = (styleId != null) ? ` s="${styleId}"` : "";
-  if (typeof val === "number" && Number.isFinite(val)) {
-    return `<c r="${ref}"${sAttr}><v>${val}</v></c>`;
-  }
-  return `<c r="${ref}"${sAttr} t="inlineStr"><is><t xml:space="preserve">${_xmlEsc(val)}</t></is></c>`;
-}
+// _xlsxCellRef / _xmlEsc / _xlsxCell 移到 src/utils/ooxml.ts(Phase 2)
 
 // 主匯出函式:依目前模型聚合 → 組 sheet1.xml → 包成 .xlsx ZIP 下載
 function exportXlsxFile() {
@@ -24321,7 +24299,7 @@ function openFloorTypesDialog() {
     state.floorTypes = [{ key: "default", label: "預設", yyStart: 1, kind: "floor" }];
   }
   // 允許的 yyStart 值(每 10 一階,共 10 階)— floor + brace 共用同一池
-  const ALLOWED_YY = [1, 11, 21, 31, 41, 51, 61, 71, 81, 91];
+  // ALLOWED_YY 已移到 src/constants.ts(Phase 2)
   const _normalizeKey = (k) => String(k || "").trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_") || "type";
   // 確保現有 type 有 kind 欄位(舊資料補成 floor)
   for (const t of state.floorTypes) { if (t.kind !== "brace") t.kind = "floor"; }
