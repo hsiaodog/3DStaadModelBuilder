@@ -1,0 +1,257 @@
+// Phase 8g — .std (STAAD) 匯出
+//   依目前模型聚合 → 組 STAAD .std 文字檔下載。共用 buildExportContext 與 xlsx 那條
+//   (Phase 4 dedup),所以這條只負責 STAAD 自己的格式:JOINT / MEMBER / MATERIAL / SUPPORT 等
+//   區塊組裝。
+//
+//   INPUT WIDTH 79 — STAAD 規範介於 50–79;原本被誤寫成 200,STAAD 會整行 IGNORE 後續解析錯。
+//
+//   依賴(全部已 export):
+//     • state / $          — legacy.ts
+//     • buildModel / showBuildModelCollisionsIfAny — core/buildModel
+//     • buildExportContext — export/shared
+//     • unitToMeter / meterToTarget / staadUnitKeyword — utils/units
+// @ts-nocheck
+
+import { state, $ } from "../legacy";
+import { buildModel, showBuildModelCollisionsIfAny } from "../core/buildModel";
+import { buildExportContext } from "./shared";
+import { unitToMeter, meterToTarget, staadUnitKeyword } from "../utils/units";
+
+// 通用下載 helper(blob → <a download> click → revoke URL)
+function download(name, text) {
+  const blob = new Blob([text], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function exportStdFile() {
+  // === 共用邏輯透過 buildExportContext()(Phase 4 dedup;原本同樣 ~120 行在這跟 exportXlsxFile 各一份)
+  const { joints, members } = buildModel();
+  const tgt = $("exportUnit").value;
+  const kFromCalib = unitToMeter(state.unitName);
+  const kToTarget  = meterToTarget(tgt);
+  const k = kFromCalib * kToTarget;
+  const _ctx = buildExportContext({ joints, members });
+  const {
+    jWorldById: _jWorldById, rankByJointId: _rankByJointId,
+    classifyMember3D: _classifyMember3D, planeForDiagMember: _planeForDiagMember,
+    memberMat: _memberMat, matObjByName: _matObjByName, memberPageById: _memberPageById,
+    memY: _memY, memXAxis: _memXAxis, memZAxis: _memZAxis,
+    memBraceXZ: _memBraceXZ, memBraceXY: _memBraceXY, memBraceYZ: _memBraceYZ,
+    yAnchorMax: _yAnchorMax, braceRanks: _braceRanks,
+    isBraceJoint: _isBraceJoint, braceJointPlane: _braceJointPlane,
+    bySubBlockCoord: _bySubBlockCoord, idsToSegs: _idsToSegs,
+    md: _md, rndForRank: _rndForRank,
+  } = _ctx;
+  // === 輸出 STAAD .std ===
+  //   規範:INPUT WIDTH 79(STAAD 規定 50–79 之間;原本誤寫 200 會被 STAAD 整行 IGNORE 後續解析錯);* 起頭 = comment;`;` 分隔同列多 statement;`-` 行尾 = 行接續
+  const lines = [];
+  lines.push("STAAD SPACE");
+  lines.push("START JOB INFORMATION");
+  lines.push(`JOB NAME ${$("jobName").value || "Frame"}`);
+  lines.push(`ENGINEER DATE ${new Date().toISOString().slice(0,10)}`);
+  lines.push("END JOB INFORMATION");
+  lines.push("INPUT WIDTH 79");
+  lines.push(`UNIT ${staadUnitKeyword(tgt)} KN`);
+  // === JOINT COORDINATES:跟 .xlsx 一致 ===
+  //   依 (XX, ZZ) 柱線分桶,每柱線群內:`* Y-axis` 標 anchor 節點;`* BRACE YZ/XY/XZ` 標對應平面斜撐節點
+  //   座標小數位數跟「節點適配位數」(state.measureDecimals)一致
+  lines.push("JOINT COORDINATES");
+  const _fmtJ = (j) => `${j.id} ${(_rndForRank(j.x)*k).toFixed(_md)} ${(_rndForRank(j.y)*k).toFixed(_md)} ${(_rndForRank(j.z)*k).toFixed(_md)}`;
+  // MEMBER INCIDENCES 仍維持「一列 3 個 ;」的 STAAD 慣例
+  const _packLines = (items, fmt) => {
+    const out = [];
+    for (let i = 0; i < items.length; i += 3) {
+      out.push(items.slice(i, i + 3).map(fmt).join("; "));
+    }
+    return out;
+  };
+  // anchor/brace 判定 + 平面投票:_isBraceJoint / _planeForDiagMember / _braceJointPlane / _bySubBlockCoord
+  // 全部已從 buildExportContext() 拿出(上面 destructure);這裡只需開始用 ─── (Phase 4 dedup)
+  // 依 (XX, ZZ) 柱線分桶,內部 anchor + brace by plane
+  {
+    const linesMap = new Map();
+    const _getBucket = (rk) => {
+      const xr = rk.xr || null, zr = rk.zr || null;
+      const key = `${xr}|${zr}`;
+      if (!linesMap.has(key)) {
+        linesMap.set(key, { xr, zr, anchors: [], bracesByPlane: new Map() });
+      }
+      return linesMap.get(key);
+    };
+    for (const j of joints) {
+      const rk = _rankByJointId.get(j.id) || {};
+      const bucket = _getBucket(rk);
+      if (_isBraceJoint(j)) {
+        let pl = _braceJointPlane(j) || "XZ";   // plane 不明 → 併入 XZ
+        if (!bucket.bracesByPlane.has(pl)) bucket.bracesByPlane.set(pl, []);
+        bucket.bracesByPlane.get(pl).push(j);
+      } else {
+        bucket.anchors.push(j);
+      }
+    }
+    const sortedLines = [...linesMap.values()].sort((a, b) => {
+      const ax = a.xr || 9999, bx = b.xr || 9999;
+      if (ax !== bx) return ax - bx;
+      return (a.zr || 9999) - (b.zr || 9999);
+    });
+    for (const line of sortedLines) {
+      lines.push(`* XX ${line.xr != null ? String(line.xr).padStart(2, "0") : "?"}`);
+      lines.push(`* ZZ ${line.zr != null ? String(line.zr).padStart(2, "0") : "?"}`);
+      if (line.anchors.length) {
+        lines.push("* Y-axis");
+        const sorted = line.anchors.slice().sort(_bySubBlockCoord);
+        for (const j of sorted) lines.push(_fmtJ(j));
+      }
+      for (const pl of ["YZ", "XY", "XZ"]) {
+        const items = line.bracesByPlane.get(pl);
+        if (!items || !items.length) continue;
+        lines.push(`* BRACE ${pl}`);
+        const sorted = items.slice().sort(_bySubBlockCoord);
+        for (const j of sorted) lines.push(_fmtJ(j));
+      }
+    }
+  }
+  // === MEMBER INCIDENCES:依分類分區、每列最多 3 個 ===
+  if (members.length) {
+    lines.push("MEMBER INCIDENCES");
+    const _fmtM = (mr) => `${mr.m.id} ${mr.m.j1} ${mr.m.j2}`;
+    // Y-axis:依 j1 (XX, ZZ) rank 分小區
+    if (_memY.length) {
+      lines.push("* MEMBER Y-axis");
+      const ranked = _memY.map(mr => {
+        const j1 = _jWorldById.get(mr.m.j1);
+        const rk = j1 ? (_rankByJointId.get(j1.id) || {}) : {};
+        return { mr, xr: rk.xr || null, zr: rk.zr || null };
+      });
+      ranked.sort((a, b) => {
+        const az = a.zr || 9999, bz = b.zr || 9999;
+        if (az !== bz) return az - bz;
+        const ax = a.xr || 9999, bx = b.xr || 9999;
+        if (ax !== bx) return ax - bx;
+        return (a.mr.m.id || 0) - (b.mr.m.id || 0);
+      });
+      let _prevXr = null, _prevZr = null, _bucket = [];
+      const _flush = () => { if (_bucket.length) { lines.push(..._packLines(_bucket.map(e => e.mr), _fmtM)); _bucket = []; } };
+      for (const e of ranked) {
+        if (e.xr !== _prevXr || e.zr !== _prevZr) {
+          _flush();
+          lines.push(`* XX ${e.xr != null ? String(e.xr).padStart(2, "0") : "?"} / ZZ ${e.zr != null ? String(e.zr).padStart(2, "0") : "?"}`);
+          _prevXr = e.xr; _prevZr = e.zr;
+        }
+        _bucket.push(e);
+      }
+      _flush();
+    }
+    // XZ:外層頁面 → 內層 X-axis / Z-axis
+    if (_memXAxis.length || _memZAxis.length) {
+      lines.push("* MEMBER XZ");
+      const xz = [..._memXAxis, ..._memZAxis];
+      const byPage = new Map();
+      for (const mr of xz) {
+        const info = _memberPageById.get(mr.m.id);
+        const pageName = info ? info.pageName : "?";
+        const elev = info ? info.elev : Infinity;
+        if (!byPage.has(pageName)) byPage.set(pageName, { elev, items: [] });
+        byPage.get(pageName).items.push(mr);
+      }
+      const sortedPages = [...byPage.entries()].sort((a, b) => {
+        if (a[1].elev !== b[1].elev) return a[1].elev - b[1].elev;
+        return a[0].localeCompare(b[0]);
+      });
+      for (const [pageName, info] of sortedPages) {
+        lines.push(`* ${pageName}`);
+        const xRows = info.items.filter(mr => mr.cat === "X").sort(_byId);
+        const zRows = info.items.filter(mr => mr.cat === "Z").sort(_byId);
+        if (xRows.length) {
+          lines.push("* X-axis");
+          lines.push(..._packLines(xRows, _fmtM));
+        }
+        if (zRows.length) {
+          lines.push("* Z-axis");
+          lines.push(..._packLines(zRows, _fmtM));
+        }
+      }
+    }
+    // BRACE XZ:依頁面分小區
+    if (_memBraceXZ.length) {
+      lines.push("* MEMBER BRACE XZ");
+      const withPage = _memBraceXZ.map(mr => {
+        const info = _memberPageById.get(mr.m.id);
+        return { mr, pageName: info ? info.pageName : "?", elev: info ? info.elev : Infinity };
+      });
+      withPage.sort((a, b) => {
+        if (a.elev !== b.elev) return a.elev - b.elev;
+        if (a.pageName !== b.pageName) return a.pageName.localeCompare(b.pageName);
+        return (a.mr.m.id || 0) - (b.mr.m.id || 0);
+      });
+      let _prev = null, _bucket = [];
+      const _flush = () => { if (_bucket.length) { lines.push(..._packLines(_bucket.map(e => e.mr), _fmtM)); _bucket = []; } };
+      for (const e of withPage) {
+        if (e.pageName !== _prev) { _flush(); lines.push(`* ${e.pageName}`); _prev = e.pageName; }
+        _bucket.push(e);
+      }
+      _flush();
+    }
+    // BRACE XY / YZ:扁平 ID 升序
+    if (_memBraceXY.length) {
+      lines.push("* MEMBER BRACE XY");
+      lines.push(..._packLines(_memBraceXY, _fmtM));
+    }
+    if (_memBraceYZ.length) {
+      lines.push("* MEMBER BRACE YZ");
+      lines.push(..._packLines(_memBraceYZ, _fmtM));
+    }
+  }
+  // === MEMBER PROPERTY:跨分類彙整,以 (table, name) 分組壓縮 TO ranges ===
+  //   STAAD 行寬 ≤200,若超出用 `-` 連續行
+  if (_memRows.some(mr => mr.mat && String(mr.mat).trim())) {
+    lines.push("MEMBER PROPERTY");
+    const _writeMatGroup = (label, rows) => {
+      const grouped = new Map();
+      for (const mr of rows) {
+        const name = mr.mat ? String(mr.mat).trim() : "";
+        if (!name) continue;
+        const matObj = _matObjByName.get(name);
+        const tableStr = matObj && matObj.table ? String(matObj.table) : "";
+        const key = `${tableStr}||${name}`;
+        if (!grouped.has(key)) grouped.set(key, { table: tableStr, name, ids: [] });
+        grouped.get(key).ids.push(mr.m.id);
+      }
+      if (!grouped.size) return;
+      lines.push(`* ${label}`);
+      const groupList = [...grouped.values()].sort((a, b) => {
+        if (a.table !== b.table) return a.table.localeCompare(b.table);
+        return a.name.localeCompare(b.name);
+      });
+      for (const g of groupList) {
+        const segs = _idsToSegs(g.ids);
+        const tail = g.table ? `${g.table} ${g.name}` : g.name;
+        // 跟 .xlsx PROPERTIES 區一致 — 每列最多 6 個 ID slot:單 ID = 1 slot,TO 範圍 = 3 slot
+        //   超過 6 slot 就換行;每行各自重複 tail(table + name)讓每行都是完整 MEMBER PROPERTY statement
+        const MAX_SLOTS = 6;
+        let buf = "", used = 0;
+        const _flush = () => { if (buf) { lines.push(`${buf} ${tail}`); buf = ""; used = 0; } };
+        for (const seg of segs) {
+          const segSlots = seg.includes(" TO ") ? 3 : 1;
+          if (used > 0 && used + segSlots > MAX_SLOTS) _flush();
+          buf = buf ? `${buf} ${seg}` : seg;
+          used += segSlots;
+        }
+        _flush();
+      }
+    };
+    _writeMatGroup("Y-axis",    _memY);
+    _writeMatGroup("XZ X-axis", _memXAxis);
+    _writeMatGroup("XZ Z-axis", _memZAxis);
+    _writeMatGroup("BRACE XZ",  _memBraceXZ);
+    _writeMatGroup("BRACE XY",  _memBraceXY);
+    _writeMatGroup("BRACE YZ",  _memBraceYZ);
+  }
+  lines.push("FINISH");
+  download("model.std", lines.join("\n"));
+  // 撞號 fallback 集中通知(buildModel 已收集,console 也有 detail)
+  setTimeout(() => { try { showBuildModelCollisionsIfAny(".std 匯出"); } catch (_) {} }, 50);
+}
