@@ -136,91 +136,22 @@ export const state = {
   floorTypes: [{ key: "default", label: "預設", yyStart: 1, kind: "floor" }],
 };
 
-let nextJointId = 1, nextMemberId = 1, nextFileId = 1, nextGlobalJointId = 1, nextGlobalMemberId = 1;
+export let nextJointId = 1, nextMemberId = 1, nextFileId = 1, nextGlobalJointId = 1, nextGlobalMemberId = 1;
 // Phase 6 fix 3:ESM 不允許跨模組對 `let` 做 post-increment,提供配發 id 的小函式給 render/index.ts
 export function allocJointId() { return nextJointId++; }
 export function allocMemberId() { return nextMemberId++; }
+// Phase 7a:snapshot/applySnap 移到 src/state/snapshot.ts 後,跨模組重設計數器需要 setter
+export function setNextJointId(v: number) { nextJointId = v; }
+export function setNextMemberId(v: number) { nextMemberId = v; }
+export function setNextGlobalJointId(v: number) { nextGlobalJointId = v; }
+export function setNextGlobalMemberId(v: number) { nextGlobalMemberId = v; }
 
 // ---------- 復原 / 重做 ----------
 const undoStack = [];
 const redoStack = [];
 // MAX_UNDO 移到 src/constants.ts(Phase 2)
-function snapshot() {
-  // 只快照可序列化部分:每個 file 的 pages、metadata。pdf/image 物件不存。
-  const filesSnap = state.files.map(f => ({
-    id: f.id, name: f.name, type: f.type,
-    rotation: f.rotation || 0,
-    offsetX: f.offsetX || 0,
-    offsetY: f.offsetY || 0,
-    clipRect: f.clipRect ? { ...f.clipRect } : null,
-    pages: JSON.parse(JSON.stringify(f.pages || {})),
-    sectionLinks: f.sectionLinks ? JSON.parse(JSON.stringify(f.sectionLinks)) : undefined,
-    userBgLines: Array.isArray(f.userBgLines) ? JSON.parse(JSON.stringify(f.userBgLines)) : [],
-    measurements: Array.isArray(f.measurements) ? JSON.parse(JSON.stringify(f.measurements)) : [],
-    _nextMeasureId: f._nextMeasureId || 1,
-    // 重設原點 / 校準 / 旋轉 都會動 planeOrigin & scaleRuler,缺這兩個 → undo 還原不完整
-    planeOrigin: f.planeOrigin ? { ...f.planeOrigin } : null,
-    scaleRuler: f.scaleRuler ? JSON.parse(JSON.stringify(f.scaleRuler)) : null,
-  }));
-  return {
-    files: filesSnap,
-    activeFileId: state.activeFileId,
-    pageIdx: state.pageIdx,
-    scale: state.scale,
-    unitName: state.unitName,
-    globalCapacity: state.globalCapacity,
-    globalOriginId: state.globalOriginId,
-    globalOriginFileId: state.globalOriginFileId,
-    globalJoints: JSON.parse(JSON.stringify(state.globalJoints || [])),
-    globalMembers: JSON.parse(JSON.stringify(state.globalMembers || [])),
-    // 標示距離結果:使用者可以 undo/redo 標示距離動作
-    measure: state.measure ? JSON.parse(JSON.stringify(state.measure)) : null,
-    nextJointId, nextMemberId, nextGlobalJointId, nextGlobalMemberId,
-  };
-}
-function applySnap(s) {
-  // 把現有 file 物件保留(pdf/image 不能透過 JSON 還原),只替換 pages
-  for (const fs of s.files) {
-    const existing = state.files.find(f => f.id === fs.id);
-    if (existing) {
-      existing.pages = fs.pages;
-      existing.rotation = fs.rotation || 0;
-      existing.offsetX = fs.offsetX || 0;
-      existing.offsetY = fs.offsetY || 0;
-      existing.clipRect = fs.clipRect || null;
-      // 衍生模型:undo 還原時也只保留主關聯,autoProp 副本(舊資料 / 升級前快照)直接濾掉
-      existing.sectionLinks = fs.sectionLinks
-        ? JSON.parse(JSON.stringify(fs.sectionLinks)).filter(e => !e.autoProp)
-        : [];
-      existing.userBgLines = Array.isArray(fs.userBgLines) ? JSON.parse(JSON.stringify(fs.userBgLines)) : [];
-      existing.measurements = Array.isArray(fs.measurements) ? JSON.parse(JSON.stringify(fs.measurements)) : [];
-      existing._nextMeasureId = fs._nextMeasureId || 1;
-      // planeOrigin / scaleRuler 同步還原(否則 undo 動原點 / 比例尺後仍停留在新值)
-      existing.planeOrigin = fs.planeOrigin ? { ...fs.planeOrigin } : null;
-      existing.scaleRuler  = fs.scaleRuler  ? JSON.parse(JSON.stringify(fs.scaleRuler))  : null;
-    }
-  }
-  // 移除快照沒有的 file(代表是被加入後又被撤銷)
-  state.files = state.files.filter(f => s.files.some(fs => fs.id === f.id));
-  state.activeFileId = s.activeFileId;
-  state.pageIdx = s.pageIdx;
-  state.scale = s.scale;
-  state.unitName = s.unitName;
-  if (s.globalCapacity) state.globalCapacity = s.globalCapacity;
-  state.globalJoints = Array.isArray(s.globalJoints) ? s.globalJoints : [];
-  state.globalOriginId = (s.globalOriginId != null) ? s.globalOriginId : null;
-  state.globalOriginFileId = (s.globalOriginFileId != null) ? s.globalOriginFileId : null;
-  if (typeof _updateGlobalOriginUI === "function") _updateGlobalOriginUI();
-  nextJointId = s.nextJointId;
-  nextMemberId = s.nextMemberId;
-  if (s.nextGlobalJointId) nextGlobalJointId = s.nextGlobalJointId;
-  if (s.nextGlobalMemberId) nextGlobalMemberId = s.nextGlobalMemberId;
-  // globalMembers 也跟著 undo/redo
-  state.globalMembers = s.globalMembers ? JSON.parse(JSON.stringify(s.globalMembers)) : [];
-  // 還原標示距離 overlay(undo/redo 可回溯標示距離結果)
-  state.measure = s.measure ? JSON.parse(JSON.stringify(s.measure)) : null;
-  state.pendingGlobalPair = null;
-}
+// Phase 7a:snapshot / applySnap 已搬到 src/state/snapshot.ts
+import { snapshot, applySnap } from "./state/snapshot";
 export function pushUndo() {
   undoStack.push(snapshot());
   if (undoStack.length > MAX_UNDO) undoStack.shift();
@@ -18498,7 +18429,7 @@ $("btnClearGlobalOrigin") && ($("btnClearGlobalOrigin").onclick = () => {
 });
 
 // 顯示「解除原點」按鈕的條件 = 已指定全局原點時才顯示
-function _updateGlobalOriginUI() {
+export function _updateGlobalOriginUI() {
   // 沒有 globalJoints → 隱藏 globalJoint-based 校準按鈕,改顯示提示文字
   const hasGJ = Array.isArray(state.globalJoints) && state.globalJoints.length > 0;
   const calibWrap = $("globalOriginCalibBtns");
