@@ -2,11 +2,888 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8" />
-  <title>STAAD 描圖工具</title>
+  <title>STAAD 描圖工具 — 倉儲設計圖</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
 </head>
 <body>
-  <div id="app"></div>
-  <script type="module" src="/src/main.ts"></script>
+<div id="app">
+
+  <div id="menuBar">
+    <div class="menu-item" data-menu="file">
+      <span class="menu-title" data-i18n="menu.file">檔案</span>
+      <div class="menu-dropdown">
+        <div class="menu-entry" data-action="open-new-project" data-i18n="file.openNewProject" title="開啟新專案:建立一份全新的空白專案">開啟新專案</div>
+        <div class="menu-entry has-submenu" id="openProjectMenuEntry" title="開啟先前儲存的 .stproj.json 專案檔(含底圖與標線);右側列出最近開啟過的專案">
+          <span data-i18n="file.openProject">開啟專案</span>
+          <div class="submenu" id="openProjectSubmenu">
+            <div class="menu-entry" data-action="open-project" data-i18n="file.openProjectFromFile" title="從檔案開啟 .stproj.json">從檔案開啟…</div>
+            <div class="menu-sep"></div>
+            <div id="recentProjectList" style="max-height: 320px; overflow-y: auto; min-width: 280px;">
+              <div class="menu-entry" style="opacity:0.5;pointer-events:none;font-style:italic" data-i18n="file.recentEmpty">(尚無最近開啟的專案)</div>
+            </div>
+          </div>
+        </div>
+        <div class="menu-entry" data-action="save-project" data-i18n="file.saveProject" title="儲存專案 (Cmd+S):覆寫先前選取的專案檔(首次儲存會詢問位置)">儲存專案</div>
+        <div class="menu-entry" data-action="save-project-as" data-i18n="file.saveProjectAs" title="另存新檔 (Cmd+Shift+S):選擇新位置或名稱另存一份">另存新檔</div>
+        <div class="menu-sep"></div>
+        <div class="menu-entry" data-action="import-json" data-i18n="file.importJson" title="讀入標線:輕量 JSON 格式(只含節點 / 桿件,不含底圖)">讀入標線</div>
+        <div class="menu-entry" data-action="export-json" data-i18n="file.exportJson" title="儲存標線:把節點 / 桿件輸出成輕量 JSON(不含底圖)">儲存標線</div>
+        <div class="menu-entry" data-action="export-std" data-i18n="file.exportStd" title="匯出 .std:輸出 STAAD 模型檔,所有頁面節點 / 桿件聚合成 3D">匯出 .std</div>
+        <div class="menu-entry" data-action="export-xlsx" data-i18n="file.exportXlsx" title="匯出 .xlsx:依 model_NEW.xlsx 的格式輸出 — 三個區塊:依平面分組的節點座標 / 桿件 incidence / 桿件材料">匯出 .xlsx</div>
+        <div class="menu-sep"></div>
+        <div class="menu-entry" data-action="clear-all" data-i18n="file.clearAll" title="清除所有檔案、節點、桿件 — 不可復原(可用 Cmd+Z 救回)">清除所有節點與桿件</div>
+        <div class="menu-sep"></div>
+        <div class="menu-entry has-submenu" id="tbModeMenu" title="工具列顯示:文字 / 圖示 / 文字+圖示(會記住在 localStorage)"><span data-i18n="file.tbMode">工具列顯示</span>
+          <div class="submenu">
+            <div class="menu-entry" data-action="tb-mode-text"  data-i18n="file.tbModeText">文字</div>
+            <div class="menu-entry" data-action="tb-mode-icon"  data-i18n="file.tbModeIcon">圖示</div>
+            <div class="menu-entry" data-action="tb-mode-both"  data-i18n="file.tbModeBoth">文字 + 圖示</div>
+          </div>
+        </div>
+        <div class="menu-entry has-submenu" id="langMenu" title="切換介面語言(會記住在 localStorage)"><span data-i18n="file.language">語言 / Language</span>
+          <div class="submenu">
+            <div class="menu-entry" data-action="lang-zh" data-i18n="file.langZh">繁體中文</div>
+            <div class="menu-entry" data-action="lang-en" data-i18n="file.langEn">English</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="menu-item" data-menu="project">
+      <span class="menu-title" data-i18n="menu.project">專案</span>
+      <div class="menu-dropdown" id="projectDropdown">
+        <div class="menu-entry" data-action="new-project" data-i18n="project.new" title="開啟空白 canvas,命名新專案">新增專案…</div>
+        <div class="menu-sep"></div>
+        <div id="projectMenuList" style="max-height: 280px; overflow-y: auto;"></div>
+        <div class="menu-sep"></div>
+        <div class="menu-entry" data-action="close-project" data-i18n="project.close" title="關閉當前分頁(若有未儲存的變更會詢問)">關閉當前分頁</div>
+      </div>
+    </div>
+    <div class="menu-item" data-menu="edit">
+      <span class="menu-title" data-i18n="menu.edit">編輯</span>
+      <div class="menu-dropdown">
+        <div class="menu-entry" data-action="consolidate-all-pages" data-i18n="edit.consolidateAll" title="對所有頁面跑「整理」:合併同位置節點、去重複桿件、把節點落在桿件中段的拆段(含共線重疊)。可 Ctrl+Z 還原">整理所有頁面</div>
+        <div class="menu-entry" data-action="extend-check-all" data-i18n="edit.extendCheckAll" title="檢查所有頁面是否有桿件可延伸到既存節點(常見於柱子斷層 / 樑接頭微 gap);跳出逐條檢視視窗,可逐條延伸 / 跳過 / 全部延伸。Ctrl+Z 可還原">檢查可延伸桿件(全部頁面)</div>
+        <div class="menu-sep"></div>
+        <div class="menu-entry" data-action="infer-all-both" data-i18n="edit.inferAll" title="適配關聯(精準度):會先清除所有既有綁定(globalJoint + globalMember + joint.globalId + m.globalMemberId),然後用左欄『節點適配位數』(精準度)把每顆 joint 的世界座標 round 後當 bucket key,bucket 內 ≥ 2 顆來自不同檔 / 不同頁的 joint 視為同一物理點,綁同一 globalJoint。Ctrl+Z 可還原">適配關聯(精準度)</div>
+        <div class="menu-entry" data-action="recompute-world-all" data-i18n="edit.recomputeWorldAll" title="重新計算 3D 座標(全部頁面):本 codebase 的 3D 世界座標永遠是即時計算 (joint2DToWorld3D),本鈕當作緊急 manual safety net — 跑校準變動共同收尾流程(rank 失效 + globalJoint 重 infer + section link resync + UI 重整 + 重畫)。一般情況改原點 / 比例尺 / 平面 / 翻轉 / 旋轉 / page.z 都會自動觸發,只有偵測到顯示沒同步時才需手動點。Ctrl+Z 可還原">重新計算 3D 座標(全部頁面)</div>
+        <div class="menu-sep"></div>
+        <div class="menu-entry" data-action="relayout-all" data-i18n="edit.relayoutAll" title="編排節點編號(全部頁面):依「節點編號(全局)」設定逐頁重新編排節點與桿件編號(XXZZYY 或 YYZZXX)。各頁編號獨立,從 1 開始。流程內建:綁定 globalMember → 同頁去重桿件 → 逐頁重編 → 跨頁同物理桿件 ID 融合。Ctrl+Z 可還原">編排節點編號(全部頁面)</div>
+        <div class="menu-entry" data-action="relayout-members-all" data-i18n="edit.relayoutMembersAll" title="編排桿件編號(全部頁面):只重編桿件 ID(不動節點 ID)。Y 軸 → X 軸 → Z 軸 → 斜撐 順序,從 planeOrigin 遞增。Plane 處理順序 XY → YZ → XZ。流程內建:綁定 globalMember → 同頁去重桿件 → 逐頁重編 → 跨頁同物理桿件 ID 融合(保證一條桿件在 3D 中只有一個 ID)。Ctrl+Z 可還原">編排桿件編號(全部頁面)</div>
+        <div class="menu-sep"></div>
+        <div class="menu-entry" data-action="run-3d-pipeline" data-i18n="edit.run3DPipeline" title="3D 一鍵處理:依序跑完整 pipeline — 整理所有頁面 → 清除所有 globalJoint 綁定 → 適配關聯(精準度)重建 → 編排節點編號 → 編排桿件編號 → 重算 3D。各步驟個別 pushUndo,可用 Ctrl+Z 逐步還原。等同 3D 預覽視窗的「⚡ 一鍵處理」">⚡ 3D 一鍵處理</div>
+        <div class="menu-sep"></div>
+        <div class="menu-entry" data-action="copy-page-to-same-plane" data-i18n="edit.copyPageSamePlane" title="把當前頁的所有節點 + 桿件複製到另一個同平面頁面;座標依目標頁的 planeOrigin + scaleRuler 換算,並自動綁同一 globalJoint。Ctrl+Z 可還原">複製本頁節點+桿件到同平面頁</div>
+      </div>
+    </div>
+    <div class="menu-item" data-menu="tools">
+      <span class="menu-title" data-i18n="menu.tools">工具</span>
+      <div class="menu-dropdown">
+        <div class="menu-entry" data-action="open-material-mgr" data-i18n="tools.openMatMgr" title="材料管理:CRUD 此專案的材料清單(會隨專案儲存)。搜尋桿件時可從下拉選用,逐字過濾">材料管理</div>
+        <div class="menu-entry" data-action="open-floor-types" data-i18n="tools.openFloorTypes" title="節點編號管理:管理樓層類型(XZ 頁面) + 斜撐起始(YZ / XY 頁面),共用同一 YY 階池;為每個頁面指派類型(每頁每 kind 只能一種)">節點編號管理</div>
+        <div class="menu-entry" data-action="open-global-joint-mgr" data-i18n="tools.openGlobalJointMgr" title="全局節點管理:列出 / 搜尋 / 篩選所有 globalJoint,可改 label、跳到任一綁定頁、解除單一綁、設世界原點、刪節點。右側欄區塊縮為「僅當頁有」、點擊跳轉時用 popup 選目標頁">全局節點管理</div>
+        <div class="menu-sep"></div>
+        <div class="menu-entry" data-action="bg-repair" data-i18n="tools.bgRepair" title="底圖修復:重新渲染當前頁面的底圖(從 cachedBgSvg / cachedBgImg / pdf / image 重建);用於底圖偶爾突然消失時恢復顯示。節點 / 桿件 / 標線不受影響">底圖修復</div>
+        <div class="menu-entry" data-action="cleanup-bad-globaljoints" data-i18n="tools.cleanupBad" title="清除「綁定錯誤」的 globalJoint:掃描所有 globalJoint,偵測綁定的 joint 實際世界座標分歧 > 100 mm 的,移除這些錯誤的 globalJoint + 解除對應 joint.globalId。清完後建議跑「三視圖自動配對」重建。Ctrl+Z 可還原">清除錯誤的 globalJoint 綁定</div>
+        <div class="menu-entry" data-action="cleanup-all-globaljoints" data-i18n="tools.cleanupAll" title="清除「所有」globalJoint 與 globalMember 綁定:全部一次清光,包括綁定正確的。等於完全重置全局節點 + 全局桿件。清完後通常立刻跑「三視圖自動配對」重建;若要同時重建桿件綁定,直接跑「適配關聯(精準度)」(它會自動先清後建)。Ctrl+Z 可還原">清除所有 globalJoint 綁定</div>
+      </div>
+    </div>
+    <div class="menu-icon-btn" id="menuBar3DBtn" data-i18n-title="tools.open3D" title="3D 立體預覽:跳出獨立浮動視窗顯示模型在 3D 空間的節點 / 桿件。中鍵拖曳 = 旋轉、滾輪 = 縮放、Shift+中鍵或右鍵 = 平移、Hover 看細節、可切面拼減、視角預設(俯視 / 正面 / 側面 / 等軸)、顯示控制節點 / 桿件 / 標號 / 軸線 / 地網格。可與主畫面同時開啟,不影響主操作" style="font-weight:700;font-size:11px;letter-spacing:0.5px">3D</div>
+    <div class="menu-icon-btn" id="menuBarSearchBtn" title="搜尋桿件 / 節點(Cmd+F):跳出獨立視窗,可依方向(Y/X/Z/斜撐)、節點範圍(單點 / 關聯桿件 / 整條軸線)、編號、檔案頁面過濾;結果可一鍵 zoom 主畫面 + 3D 視窗">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"></circle>
+        <line x1="20.5" y1="20.5" x2="16.65" y2="16.65"></line>
+      </svg>
+    </div>
+    <div id="projectTabs"><div class="pt-scroll"></div></div>
+    <div id="tabBar" style="display:none"></div>
+  </div>
+
+  <div class="sidebar left" id="sbLeft">
+    <h2 data-i18n="sb.title">STAAD 描圖工具</h2>
+
+    <div class="section">
+      <h3 data-i18n="sb.bg">底圖</h3>
+      <div class="file-input-wrap">
+        <input type="file" id="file" accept="application/pdf,image/*,.dxf,.dwg" multiple title="支援 PDF / 圖片 / DXF。DWG 不支援(請先用 ODA File Converter 轉成 DXF)" />
+        <label for="file" class="file-btn" data-i18n="sb.chooseFile">選擇檔案</label>
+        <span class="file-state" id="fileState" data-i18n="sb.noFileChosen">未選擇任何檔案</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3 style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+        <span data-i18n="sb.filesLoaded">已載入檔案</span>
+        <button id="fileListShowBtn" title="自訂清單欄位:類型 / 平面 / 統計" style="font-size:11px;padding:1px 6px;text-transform:none;letter-spacing:0;line-height:1.4">⚙</button>
+      </h3>
+      <div id="fileList" class="file-list"></div>
+      <div id="fileListShowPopup" style="display:none">
+        <div class="flsp-title" data-i18n="sb.fileList.show">清單顯示欄位</div>
+        <label class="flsp-row"><input type="checkbox" id="fileListShowType" checked /><span data-i18n="sb.fileList.colType">類型圖示(DXF / PDF / IMG)</span></label>
+        <label class="flsp-row"><input type="checkbox" id="fileListShowPlane" checked /><span data-i18n="sb.fileList.colPlane">平面 + 第三軸</span></label>
+        <label class="flsp-row"><input type="checkbox" id="fileListShowStats" checked /><span data-i18n="sb.fileList.colStats">節點 / 桿件數</span></label>
+        <div class="flsp-foot" data-i18n="sb.fileList.colNote">(檔名永遠顯示)</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3 data-i18n="sb.snap">吸附</h3>
+      <label data-i18n="sb.snap.radius">吸附半徑(畫面像素)</label>
+      <input type="number" id="snapPx" value="12" min="2" max="50" title="吸附半徑(畫面像素):游標距離節點 / 線端 / 中點此距離以內,自動吸附到該點" />
+      <label style="display:flex; align-items:center; gap:6px; margin-top:8px;" title="正交模式:畫線時鎖定為水平 / 垂直方向。按住 Shift 也可暫時切換">
+        <input type="checkbox" id="snapAxis" title="正交模式:畫線時鎖定水平 / 垂直" /> <span data-i18n="sb.snap.ortho">正交模式</span>
+      </label>
+      <label style="display:flex; align-items:center; gap:6px;" title="吸附線段中點:游標靠近桿件中點時自動吸附到中點">
+        <input type="checkbox" id="snapMid" title="吸附線段中點:游標靠近時吸附桿件中點" /> <span data-i18n="sb.snap.mid">吸附線段中點</span>
+      </label>
+      <label style="margin-top:8px" title="鎖點間距:啟用鎖點後,游標吸附到此間距的網格上(單位:mm)"><span data-i18n="sb.snap.gridStep">鎖點間距</span> <span id="snapGridUnit" style="color:#9aa0a6">(mm)</span></label>
+      <input type="number" id="snapGridStep" value="1" min="0.0001" step="0.1" title="鎖點間距(mm):啟用鎖點(Shift+A)後游標會吸附到此距離的網格交點 / 線" />
+      <div class="help" data-i18n="sb.snap.gridHelp" style="margin-top:4px">啟用鎖點(<span class="kbd">Shift+A</span>)後,游標會吸附到此間距的網格上。</div>
+      <label data-i18n="sb.snap.bgTol" style="margin-top:8px" title="底圖誤差(mm):「整理」執行時,會把每個節點吸到此距離內的底圖線端點 / 交點上;節點對齊原始底圖幾何">底圖誤差 (mm)</label>
+      <input type="number" id="bgSnapTolerance" min="0" max="100" step="0.1" value="1" title="預設 1mm。值為 0 → 關閉吸附;值大 → 較積極移動節點到底圖交點(可能移到不該移的)" />
+    </div>
+
+    <div class="section">
+      <h3 data-i18n="sb.precision">精準度設定</h3>
+      <label data-i18n="sb.prec.coordDec" title="顯示坐標 / 長度時保留的小數位數">坐標顯示位數</label>
+      <input type="number" id="coordDecimals" min="0" max="6" step="1" value="0" title="座標 / 桿件長度顯示時保留的小數位數(0 = 四捨五入到整數,常用 0~3)" />
+      <label data-i18n="sb.prec.measureDec" title="節點適配 / 編號 bucket 的精準度(小數位數)。0 = 整數 mm bucket;1 = 0.1mm bucket。兩節點顯示成同一個數值 = 適配為同一點" style="margin-top:8px">節點適配位數</label>
+      <input type="number" id="measureDecimals" min="0" max="6" step="1" value="0" title="精準度(位數):兩節點若四捨五入到此精準度後座標相同,適配關聯時會合併成同一個 globalJoint;rank 編號 bucket 也用此精準度" />
+    </div>
+
+    <div class="section">
+      <h3 data-i18n="sb.jointNum">節點編號(全局)</h3>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <label data-i18n="sb.num.xMax" style="font-size:11px;color:#9aa0a6;margin:0;width:48px" title="X 軸最大編號:每軸 rank 上限,直接決定 X 部分的位數(9 → 1 位、99 → 2 位、999 → 3 位)">X 最大</label>
+        <select id="numberCapacityX" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px" title="X 軸每軸 rank 值上限;超過會 cap + console.warn">
+          <option value="9">9</option>
+          <option value="99" selected>99</option>
+          <option value="999">999</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
+        <label data-i18n="sb.num.yMax" style="font-size:11px;color:#9aa0a6;margin:0;width:48px" title="Y 軸最大編號:Y 部分位數">Y 最大</label>
+        <select id="numberCapacityY" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px" title="Y 軸每軸 rank 值上限">
+          <option value="9">9</option>
+          <option value="99" selected>99</option>
+          <option value="999">999</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
+        <label data-i18n="sb.num.zMax" style="font-size:11px;color:#9aa0a6;margin:0;width:48px" title="Z 軸最大編號:Z 部分位數">Z 最大</label>
+        <select id="numberCapacityZ" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px" title="Z 軸每軸 rank 值上限">
+          <option value="9">9</option>
+          <option value="99" selected>99</option>
+          <option value="999">999</option>
+        </select>
+      </div>
+      <label data-i18n="sb.num.tol" title="軸坐標誤差範圍(mm):rank 合併容差,世界座標差 < 此值視為同 rank。被 globalId 綁定的節點會用全局位置統一算 rank,不受此值影響" style="margin-top:8px">誤差範圍 (mm)</label>
+      <input type="number" id="numberTolerance" min="0" max="100" step="0.5" value="2" title="預設 2mm。值大 → 同 rank 聚合更多座標;值小 → 區分更嚴格(可能拆出更多 rank,觸及容納數上限)" />
+      <div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap">
+        <label data-i18n="sb.num.priority" style="font-size:11px;color:#9aa0a6;margin:0" title="節點排序優先軸:影響 ID 排列順序(X·Z·Y vs Y·Z·X)">編排優先</label>
+        <select id="numberPriority" style="font-size:11px;padding:2px 4px;flex:1;min-width:90px" title="水平優先:ID = X·Z·Y(XXZZYY,預設);垂直優先:ID = Y·Z·X(YYZZXX)">
+          <option value="h" selected data-i18n="sb.num.priorityH">水平優先</option>
+          <option value="v" data-i18n="sb.num.priorityV">垂直優先</option>
+        </select>
+      </div>
+      <div class="badge" id="idPreview" data-i18n="sb.num.preview" style="margin-top:6px">編號預覽:—</div>
+      <details style="margin-top:6px;font-size:10px;color:#9aa0a6">
+        <summary data-i18n="sb.num.rulesHelp" style="cursor:pointer;color:#9bb6e8">編號規則說明</summary>
+        <div style="padding:4px 2px 0 8px;line-height:1.6">
+          <div style="color:#ddd"><b>軸座標排序</b></div>
+          <div>每軸 unique 座標依數值升序 → rank 1, 2, 3, … 編號格式由「編排優先」決定:</div>
+          <div style="margin-left:8px;color:#ffd23f">水平優先 → XX·ZZ·YY,垂直優先 → YY·ZZ·XX</div>
+          <div style="margin-top:6px;color:#ddd"><b>節點分類(影響 ID 是否加 offset)</b></div>
+          <div style="margin-top:2px;color:#7fd3ff">▸ Anchor(正常編號,任一滿足):</div>
+          <div style="margin-left:10px">
+            ① 手動標 <span style="color:#ff8c00">▼錨點</span>(選取節點後按「設為錨點」)<br>
+            ② 連接桿件 &lt; 2 條(柱腳、樑端、孤立點)<br>
+            ③ 任一對連接桿件互相垂直(2D 90°±3°,含斜桿之間)<br>
+            ④ 純連續直桿件(所有方向向量共線,例:2+ V 共線無分岔)<br>
+            ⑤ 跨三平面 globalJoint(XY + YZ + XZ 都有 binding)
+          </div>
+          <div style="margin-top:4px;color:#ff8c00">▸ Demote(ID 加 offset 推到後段,全滿足):</div>
+          <div style="margin-left:10px">
+            ≥ 2 條 member,沒垂直配對,不是純連續直桿,沒跨三平面,沒手動 anchor。<br>
+            典型:純斜撐端點、連續直桿+斜撐(brace 在柱中段)
+          </div>
+          <div style="margin-top:4px">offset = 10<sup>Nx+Ny+Nz</sup>。例:5 位數編號 → demote 後 ID 加 100000,範圍 100000~199999。</div>
+          <div style="margin-top:6px;color:#ddd"><b>精準度</b></div>
+          <div>節點適配位數 = bucket 大小;兩節點顯示同數值 → 同 rank。所有 globalJoint 座標 round 到此精準度。</div>
+        </div>
+      </details>
+    </div>
+
+    <div class="section">
+      <h3 data-i18n="sb.memberNum">桿件編號(全局)</h3>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap" title="Y 軸方向桿件(柱):同 X 列內最大編號 cap;格式 XX·YY">
+        <label data-i18n="sb.memberNum.yMax" style="font-size:11px;color:#9aa0a6;margin:0;width:64px">Y 軸最大</label>
+        <select id="memberCapY" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px">
+          <option value="9">9</option>
+          <option value="99" selected>99</option>
+          <option value="999">999</option>
+          <option value="9999">9999</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap" title="X 軸方向桿件(水平 XZ 平面樑):格式 ZZ·XX">
+        <label data-i18n="sb.memberNum.xMax" style="font-size:11px;color:#9aa0a6;margin:0;width:64px">X 軸最大</label>
+        <select id="memberCapX" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px">
+          <option value="9">9</option>
+          <option value="99" selected>99</option>
+          <option value="999">999</option>
+          <option value="9999">9999</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap" title="Z 軸方向桿件(水平 XZ 平面樑):格式 XX·ZZ">
+        <label data-i18n="sb.memberNum.zMax" style="font-size:11px;color:#9aa0a6;margin:0;width:64px">Z 軸最大</label>
+        <select id="memberCapZ" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px">
+          <option value="9">9</option>
+          <option value="99" selected>99</option>
+          <option value="999">999</option>
+          <option value="9999">9999</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap" title="斜桿件 cap">
+        <label data-i18n="sb.memberNum.dMax" style="font-size:11px;color:#9aa0a6;margin:0;width:64px">斜桿最大</label>
+        <select id="memberCapDiag" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px">
+          <option value="9">9</option>
+          <option value="99" selected>99</option>
+          <option value="999">999</option>
+          <option value="9999">9999</option>
+        </select>
+      </div>
+      <div data-i18n-html="sb.memberNum.note" style="margin-top:6px;font-size:10px;color:#9aa0a6;line-height:1.5">
+        順序:Y 軸 → 斜撐 → X / Z 軸 → 平面斜撐<br>
+        Plane:XY → YZ → XZ<br>
+        每換方向 / 平面進位到下個 0 整位
+      </div>
+    </div>
+
+    <div class="section">
+      <h3 data-i18n="sb.sectionLink">切面樣式</h3>
+      <label data-i18n="sb.sectionLink.fontPt" title="切面標籤字體大小(pt),固定不隨 zoom 縮放">標籤字體 (pt)</label>
+      <input type="number" id="slFontPt" value="15" min="6" max="200" step="1" title="切面頁面名稱標籤的字體大小,單位為 pt(預設 15)" />
+      <label data-i18n="sb.sectionLink.strokeWidth" title="切面主線、箭頭以及定位預覽虛線的線條粗度(px)" style="margin-top:8px">線條粗度 (px)</label>
+      <input type="number" id="slStrokeWidth" value="30" min="1" max="50" step="1" title="切面主線 + 箭頭 + 定位預覽虛線的 stroke-width(預設 30)" />
+    </div>
+
+    <div class="section" id="floorTypeSection">
+      <h3 data-i18n="sb.floorType">樓層類型</h3>
+      <div id="floorTypeList" style="font-size:11px;line-height:1.5;color:#cfd3d8;margin-bottom:6px"></div>
+      <button id="btnOpenFloorTypeMgr" data-i18n="sb.openFloorTypeMgr" style="width:100%;font-size:11px;padding:5px 8px" title="開啟樓層類型管理視窗:CRUD 樓層類型 + 為每個 XZ 平面圖頁面指派類型(每頁只能一種類型)">管理…</button>
+    </div>
+
+    <div class="section">
+      <h3 data-i18n="sb.help">說明</h3>
+      <div class="help" data-i18n-html="sb.help.body">
+        <span class="kbd">Shift+L</span> 畫線 · <span class="kbd">Shift+S</span> 切換單/多選 · <span class="kbd">Shift+C</span> 選取底線<br>
+        <span class="kbd">Shift+I</span> 自動切交點 · <span class="kbd">Shift+M</span> 合併鄰近節點<br>
+        <span class="kbd">空白</span>+拖曳 平移 · 滾輪 縮放<br>
+        <span class="kbd">Esc</span> 取消 · <span class="kbd">Shift+D</span> 或 <span class="kbd">Del</span> 刪除<br>
+        <span class="kbd">雙擊線段</span> 在點擊處新增節點<br>
+        <span class="kbd">M</span> 移動已選取節點(再點 2 次:基準點→目標點)<br>
+        <span class="kbd">⌘/Ctrl+Z</span> 復原 · <span class="kbd">⌘/Ctrl+⇧+Z</span> 重做<br>
+        <span class="kbd">⌘/Ctrl+S</span> 儲存專案 · <span class="kbd">⌘/Ctrl+⇧+S</span> 另存新檔<br>
+        <span style="color:#888">(工具切換需按住 Shift,避免在輸入時誤觸)</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="canvas-wrap">
+    <div id="toolbar">
+      <div class="tb-section">
+        <div class="tb-title" data-i18n="tb.calib">校準</div>
+        <div class="tb-buttons">
+          <button id="btnScaleRuler" data-i18n-title="tip.btnScaleRuler" title="建立比例尺:自動進入底圖模式,選兩條平行線後輸入真實距離,可沿線拖曳放置標示位置"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/></svg></span><span class="btn-text" data-i18n="tb.scaleRuler">比例尺</span></button>
+          <button id="btnPlaneOrigin" data-i18n-title="tip.btnPlaneOrigin" title="座標原點:三種設定方式 — (1) 已選 1 個節點 → 直接以節點為原點;(2) 沒選節點 → 進入底圖模式,選 2 條相交線取交點;(3) 底圖模式下已選 2 條相交線 → 立刻以交點為原點。設定後同平面其他頁面會跟著對齊到相同物理點,切面 cutValue / 目標 page.z 也自動重算"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><line x1="12" y1="1" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="23"/><line x1="1" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="23" y2="12"/></svg></span><span class="btn-text" data-i18n="tb.planeOrigin">座標原點</span></button>
+          <button id="btnFixLocalOrigin" title="修正本檔原點(純平面移動,無任何連鎖):只把本檔的 planeOrigin pixel 移到新位置,其他完全不動 — pg.z(第三軸)、切面 cutValue、其他檔的 planeOrigin / pg.z 全部維持。本檔 joint 的 in-plane 世界座標會跟著平移 −Δ·ratio,跨檔暫時可能對不齊;若需跨檔對齊請手動按右側欄『全局節點校準』。適用情境:本檔原點放錯位置 / 點偏移,想單獨修正本檔 in-plane 而不波及其他檔或第三軸"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><line x1="12" y1="1" x2="12" y2="6"/><line x1="18" y1="12" x2="23" y2="12"/><path d="M16 18l3 3 5-5" stroke="currentColor" fill="none"/></svg></span><span class="btn-text" data-i18n="tb.fixLocalOrigin">修正本檔原點</span></button>
+          <button id="btnCalibrate" data-i18n-title="tip.btnCalibrate" title="校準:套用比例尺與平面原點,將所有節點的螢幕座標轉換為相對原點的真實位置(必須先建立比例尺與平面原點)"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span class="btn-text" data-i18n="tb.calibrate">校準</span></button>
+          <button id="btnRecomputeWorld" title="重新計算 3D 座標(當頁):本 codebase 的 3D 世界座標永遠是即時計算 (joint2DToWorld3D),本鈕當作緊急 manual safety net — 跑校準變動共同收尾流程(rank 失效 + globalJoint 重 infer + UI 重整 + 重畫)。一般情況改原點 / 比例尺 / 平面 / 翻轉 / 旋轉 / page.z 都會自動觸發,只有偵測到顯示沒同步時才需手動點。實際刷新範圍是全模型(因為 globalJoint / rank 是 model-wide),命名「當頁」是使用情境語意。Ctrl+Z 可還原"><span class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span><span class="btn-text" data-i18n="tb.recomputeWorld">重算 3D 座標</span></button>
+          <button id="btnRotate90" title="底圖順時針旋轉 90°(只在底圖模式可用)— 同時旋轉本頁所有節點與桿件位置,讓底圖跟結構一起轉。比例尺 / 座標原點 / 平面 / clipRect 也一起旋轉。Ctrl+Z 可還原"><span class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="21 4 21 10 15 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L21 10"/></svg></span><span class="btn-text" data-i18n="tb.rotate90">旋轉 90°</span></button>
+          <button id="btnBgToggle" title="顯示 / 隱藏底圖(只影響可見性,節點與桿件繼續顯示)"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span><span class="btn-text" data-i18n="tb.bgToggle">底圖 顯示</span></button>
+          <button id="btnJointVis" title="顯示 / 隱藏節點(圓圈 + 節點編號)"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5" fill="currentColor"/></svg></span><span class="btn-text" data-i18n="tb.jointVis">節點 顯示</span></button>
+          <button id="btnMemberVis" title="顯示 / 隱藏桿件(線 + 桿件編號)"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/><circle cx="5" cy="19" r="2" fill="currentColor"/><circle cx="19" cy="5" r="2" fill="currentColor"/></svg></span><span class="btn-text" data-i18n="tb.memberVis">桿件 顯示</span></button>
+        </div>
+      </div>
+      <div class="tb-section">
+        <div class="tb-title" data-i18n="tb.mode">模式</div>
+        <div class="tb-buttons">
+          <button id="tool-select" class="active" title="選取模式 (Shift+S):點選 / 拉框選取節點與桿件;Cmd+點擊 = 反選"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M4 3l7 18 2.5-7.5L21 11z"/></svg></span><span class="btn-text" data-i18n="tb.toolSelect">選取</span></button>
+          <button id="tool-bgsel" title="底圖 (Shift+C):進入底圖模式,可選取與處理 PDF/DXF 線條,設定比例尺、原點、標示距離等"><span class="btn-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></span><span class="btn-text" data-i18n="tb.toolBgSel">底圖</span></button>
+        </div>
+      </div>
+      <div class="tb-section">
+        <div class="tb-title" data-i18n="tb.tools">工具</div>
+        <div class="tb-buttons">
+          <button id="tool-point" title="節點 (Shift+P):進入畫點模式,每按一次新增一個獨立節點"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg></span><span class="btn-text" data-i18n="tb.toolPoint">節點</span></button>
+          <button id="tool-line" title="桿件 (Shift+L):進入畫線模式,連續點兩個節點建立桿件"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="5" cy="19" r="2.2"/><circle cx="19" cy="5" r="2.2"/><line x1="6.6" y1="17.4" x2="17.4" y2="6.6"/></svg></span><span class="btn-text" data-i18n="tb.toolLine">桿件</span></button>
+          <button id="btnCrossViewSync" title="跨頁同步建點:啟動後,在「節點」模式下建立節點時,自動在所有相容平面的頁面建立對應節點(同一 globalJoint),需先設好平面 + 比例尺 + 原點"><span class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="21 4 21 9 16 9"/><polyline points="3 20 3 15 8 15"/><path d="M3.5 9A9 9 0 0 1 18 5.4L21 9M20.5 15A9 9 0 0 1 6 18.6L3 15"/></svg></span><span class="btn-text" data-i18n="tb.crossViewSync">跨頁同步</span></button>
+          <button id="btnPrewarmBgCache" title="預先掃描所有頁面底圖,建立 bg 交點快取 — 跨頁同步建點時才能吸到目標頁的實際交點(否則用 raw 反投影)。可能要花幾秒到幾十秒"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="20" y1="20" x2="16.65" y2="16.65"/></svg></span><span class="btn-text" data-i18n="tb.prewarmBg">掃描所有底圖</span></button>
+        </div>
+      </div>
+      <div class="tb-section">
+        <div class="tb-title" data-i18n="tb.edit">編輯</div>
+        <div class="tb-buttons">
+          <button id="btnConsolidate" title="整理:合併同位置的節點、刪除重複桿件,並把任何節點落在桿件中段(含共線重疊)的桿件拆段;確保模型內無重複或重疊"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="btn-text" data-i18n="tb.consolidate">整理</span></button>
+          <button id="btnExtendCheck" title="檢查可延伸桿件(當前頁):掃描目前 active 頁,找出桿件延伸後可碰到既存節點的斷點(柱子斷層 / 樑接頭微 gap 都會抓);逐條檢視可選跳過或補上延伸桿件,或一鍵全部延伸。全部頁面請用「編輯」選單。Ctrl+Z 可還原"><span class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="7 8 3 12 7 16"/><polyline points="17 8 21 12 17 16"/><line x1="3" y1="12" x2="21" y2="12"/></svg></span><span class="btn-text" data-i18n="tb.extendCheck">檢查可延伸桿件</span></button>
+          <button id="btnRelayoutCurrent" title="編排節點編號(當頁):依「節點編號(全局)」設定重新編排當前頁面的節點與桿件編號(XXZZYY 或 YYZZXX)。若該頁是 active file 的第一頁,會先跑切面節點/桿件推斷。Ctrl+Z 可還原"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="5" cy="6" r="1.6"/><circle cx="5" cy="12" r="1.6"/><circle cx="5" cy="18" r="1.6"/><line x1="10" y1="6" x2="20" y2="6"/><line x1="10" y1="12" x2="20" y2="12"/><line x1="10" y1="18" x2="20" y2="18"/></svg></span><span class="btn-text" data-i18n="tb.relayoutCur">編排節點編號</span></button>
+          <button id="btnRelayoutMembersCurrent" title="編排桿件編號(當頁):只重編桿件 ID(不動節點 ID)。順序 Y 軸 → X 軸 → Z 軸 → 斜撐(XZ 平面為 X → Z → 斜),從 planeOrigin 遞增。Ctrl+Z 可還原"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="6" y2="6"/><line x1="3" y1="12" x2="6" y2="12"/><line x1="3" y1="18" x2="6" y2="18"/><line x1="10" y1="6" x2="20" y2="6"/><line x1="10" y1="12" x2="20" y2="12"/><line x1="10" y1="18" x2="20" y2="18"/></svg></span><span class="btn-text" data-i18n="tb.relayoutMembers">編排桿件編號</span></button>
+        </div>
+      </div>
+      <div class="tb-section">
+        <div class="tb-title" data-i18n="tb.page">頁面</div>
+        <div class="tb-buttons">
+          <button id="btnSplit" title="把框選的範圍(底圖+幾何)拆分為新頁"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg></span><span class="btn-text" data-i18n="tb.split">拆分頁面</span></button>
+          <button id="btnSectionLink" title="切面:指定一條切線並將此切線綁定到其他頁面(衍生模型,依各檔案的原點 / 比例尺 / 平面 / 第三軸位置即時推算)"><span class="btn-icon"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="7"/><rect x="4" y="13" width="16" height="7"/><line x1="2" y1="12" x2="22" y2="12" stroke-dasharray="3 2"/></svg></span><span class="btn-text" data-i18n="tb.sectionLink">切面</span></button>
+        </div>
+      </div>
+    </div>
+    <div id="selectTools" style="display:flex">
+      <div class="bg-edit-section">
+        <div class="bg-edit-title" data-i18n="subtool.section.select">選取</div>
+        <button id="selToolsAll" title="全選所有節點與桿件 (Cmd/Ctrl+A)">全選</button>
+        <button id="selToolsJoints" title="全選所有節點">點</button>
+        <button id="selToolsMembers" title="全選所有桿件">線</button>
+        <button id="selToolsRepeatHJ" title="擴展到所有水平對齊(同 Y)的節點">點-水平重複</button>
+        <button id="selToolsRepeatVJ" title="擴展到所有垂直對齊(同 X)的節點">點-垂直重複</button>
+        <button id="selToolsRepeatOH" title="擴展到所有正交桿件(水平或垂直)中、與選取桿件中點同 Y 的">正交線-水平重複</button>
+        <button id="selToolsRepeatOV" title="擴展到所有正交桿件(水平或垂直)中、與選取桿件中點同 X 的">正交線-垂直重複</button>
+        <button id="selToolsRepeatDH" title="擴展到所有斜桿件中、與選取桿件中點同 Y 的">斜線-水平重複</button>
+        <button id="selToolsRepeatDV" title="擴展到所有斜桿件中、與選取桿件中點同 X 的">斜線-垂直重複</button>
+      </div>
+      <div class="bg-edit-section">
+        <div class="bg-edit-title" data-i18n="subtool.section.edit">編輯</div>
+        <button id="selToolsExtend"      style="display:none" title="桿件:把選取桿件「靠近的那一端」延伸到下一條相交線">桿件單端延伸</button>
+        <button id="selToolsExtendBoth"  style="display:none" title="桿件:把選取桿件「兩端都」分別延伸到下一條相交線">桿件兩端延伸</button>
+        <button id="selToolsJExtH"       title="端點:從選取節點水平方向拉一條新桿件到最近相交線">端點水平延桿</button>
+        <button id="selToolsJExtV"       title="端點:從選取節點垂直方向拉一條新桿件到最近相交線">端點垂直延桿</button>
+        <button id="selToolsJExtHBoth"   title="端點:從選取節點水平往左右兩側分別拉一條新桿件到最近相交線">端點兩側水平延桿</button>
+        <button id="selToolsJExtVBoth"   title="端點:從選取節點垂直往上下兩側分別拉一條新桿件到最近相交線">端點兩側垂直延桿</button>
+        <button id="selToolsDupJointH"   title="節點水平複製:沿選取節點的水平線掃過,在所有相交桿件上新增節點(並 T 形拆段)">節點水平複製</button>
+        <button id="selToolsDupJointV"   title="節點垂直複製:沿選取節點的垂直線掃過,在所有相交桿件上新增節點(並 T 形拆段)">節點垂直複製</button>
+        <button id="selToolsJConnectH"   title="水平連結選取節點:把選取節點以 Y 座標分群(同列),每群依 X 排序後相鄰兩兩連桿件;不重複既有桿件">點點水平連結</button>
+        <button id="selToolsJConnectV"   title="垂直連結選取節點:把選取節點以 X 座標分群(同欄),每群依 Y 排序後相鄰兩兩連桿件;不重複既有桿件">點點垂直連結</button>
+        <button id="selToolsJConnectD"   title="斜線連結選取節點:找出選取節點中所有共線(非水平/垂直)的子群,沿斜線方向排序後相鄰兩兩連桿件;不重複既有桿件。常用於 X 型支撐 / 桁架斜桿">點點斜線連結</button>
+        <button id="selToolsJMerge"      title="兩點合一:把選取的 2 個節點合併到中點,連到任一端的桿件自動延長或收縮;若兩點本來有桿件相連,該桿件會被移除">兩點合一</button>
+        <button id="selToolsMeasure"     title="標示距離(只讀):選 1 條桿件 → 量該線長度;選 2+ 條桿件 → 找平行對量垂直距離。結果可沿線滑動,點擊確認 / Esc 清除">標示距離</button>
+        <button id="selToolsAnchorToggle" title="標記/取消錨點(anchor):把選取節點標記為座標軸錨點 — 即使該 joint 不是 H+V 真實交點(例如柱腳沒基座樑),也算作該座標的 anchor → rank 編號時跟正常數值一起排,不會被 demote。Cmd+Z 可還原">設為錨點</button>
+        <button id="selToolsIntersectSel" style="display:none" title="切交點(選取):只對目前選取的桿件兩兩求交,在交點處建節點並拆段。需選 ≥2 條桿件;新拆段會自動加入選取以利連續操作">切交點(選取)</button>
+        <button id="btnDel" class="danger" title="刪除選取 (Shift+D / Del):移除選取的節點與桿件">刪除</button>
+      </div>
+      <div class="bg-edit-section">
+        <div class="bg-edit-title" data-i18n="subtool.section.move">移動</div>
+        <button id="selToolsMove"      title="自由移動 (Shift+M):點起點 → 拖移(Shift 鎖水平 / Alt 鎖垂直)→ 點擊確認">移動</button>
+        <button id="selToolsMoveH"     title="水平移動:只能水平方向位移">水平移動</button>
+        <button id="selToolsMoveV"     title="垂直移動:只能垂直方向位移">垂直移動</button>
+        <button id="selToolsMoveDist"  title="距離移動:輸入距離後鎖死,以起始點為基移動;Shift 鎖水平、Alt 鎖垂直">距離移動</button>
+        <button id="selToolsMoveAngle" title="夾角移動:輸入距離 + 夾角">夾角移動</button>
+        <button id="selToolsMoveRect"  title="直角坐標移動:分別輸入水平與垂直位移">直角坐標移動</button>
+      </div>
+    </div>
+    <div id="bgEditTools" style="display:none">
+      <div class="bg-edit-section">
+        <div class="bg-edit-title" data-i18n="subtool.section.select">選取</div>
+        <button id="bgEditSelectAll" title="全選底圖線條 (Cmd/Ctrl+A)">全選</button>
+        <button id="bgEditClear" title="取消選取 (Esc)">取消選取</button>
+        <button id="bgEditMultiSelect" title="多線選取:點擊與匡選預設累加,不需要按 Shift。再按一次或 Esc 關閉">多線選取</button>
+        <button id="bgEditSelSquares" title="正方形匡選模式:啟用後可連續拉方框選取範圍內所有正方形(含一線到底型);再按一次 / Esc 退出">正方形</button>
+        <button id="bgEditSelRects" title="長方形匡選模式:啟用後可連續拉方框選取範圍內所有長方形(含一線到底型);再按一次 / Esc 退出">長方形</button>
+        <button id="bgEditSelCircles" title="圓形匡選模式:挑選 <circle> / <ellipse> 與 bbox 接近正方形且帶曲線的封閉 path;再按一次 / Esc 退出">圓形</button>
+        <button id="bgEditSelStraight" title="直線匡選模式:挑選單段直線元素(SVG <line> 或單段 path / polyline);包含實線與虛線。排除曲線、矩形、多段折線、圓形">直線</button>
+        <button id="bgEditSelStraightSolid" title="直實線匡選模式:同「直線」,但只挑實線(排除 stroke-dasharray 不為空的虛線);常用於選真正的構件線而忽略中心線 / 隱藏線">直實線</button>
+        <button id="bgEditSelDiagonals" title="斜線匡選模式:挑選方向非水平/垂直的「實線」線段(夾角偏離 0°/90° 超過 5°,排除虛線);虛線斜線請改用「虛斜線」。再按一次 / Esc 退出">斜線</button>
+        <button id="bgEditSelDashedDiagonals" title="虛斜線匡選模式:斜線 + 線型為虛線(stroke-dasharray 不為空,如 HIDDEN / DASHED / CENTER 等);常用於選結構圖的支撐 / 中心線">虛斜線</button>
+        <button id="bgEditClearShape" title="取消所有形狀選取類型(正方形/長方形/圓形/斜線),回到一般匡選">取消選取類型</button>
+        <button id="bgEditScaleRulerMove" style="display:none" title="比例尺沿著參考線方向滑動(兩線型 = 沿兩條平行線、線段型 = 沿線段方向);只移動視覺位置,不影響校準">比例尺沿線移動</button>
+        <button id="bgEditMeasureSelect" style="display:none" title="選取目前的標示距離線:點此再拖動游標可重新調整標示距離線位置(單線 = 法向,平行線 = 沿線方向);Esc 取消">標示距離線</button>
+      </div>
+      <div class="bg-edit-section" id="bgEditOpsSection" style="display:none">
+        <div class="bg-edit-title" data-i18n="subtool.section.edit">編輯</div>
+        <button id="bgEditPlaneOrigin" title="平面座標原點:選 2 條 bg 線(交點)或先在選取模式選 1 個節點;設為原點。已建立的原點不能編輯,只能重建">平面座標原點</button>
+        <button id="bgEditScaleRuler" title="比例尺(智能):選 1 條線 → 用該線段長度;選 2 條平行線 → 用兩線垂直距離;沒選 → 提示逐條點選。跟上方「比例尺」按鈕同效">比例尺</button>
+        <button id="bgEditDrawLine" title="畫直線:點選兩個點(支援鎖點吸附),按住 Shift 鎖正交。Esc 取消">畫直線</button>
+        <button id="bgEditDrawDashed" title="畫虛線:同畫直線,但繪出的線是虛線樣式(stroke-dasharray)。點兩個點,按住 Shift 鎖正交,Esc 取消">畫虛線</button>
+        <button id="bgEditCopyLine" title="複製線(實線 / 虛線):若已選 bg 線就直接進入「點基準點」;沒選就先點一條 bg 線當來源。基準點設好後每次點擊放一份新線(保留實線 / 虛線樣式;支援鎖點)。連續複製直到 Esc / 切換工具">複製線</button>
+        <button id="bgEditBisector" style="display:none" title="中分線:選 1 條 bg 線後按此,以該線中點為基準畫垂直中分線,滑鼠決定半長,點擊確認 / Esc 取消">中分線</button>
+        <button id="bgEditEquidist" style="display:none" title="等分線:選 2 條近似平行 bg 線後按此,在兩線中央畫一條等距平行線,滑鼠決定長度(對稱拉長),點擊確認 / Esc 取消">等分線</button>
+        <button id="bgEditToDashed" style="display:none" title="轉虛線:把選取的 bg 線在實線/虛線之間切換(已是虛線 → 變實線;否則套上預設虛線樣式)">轉虛線</button>
+        <button id="bgEditSplit" title="拆分多段 path 成獨立直線">切成直線</button>
+        <button id="bgEditToMember" title="把選取的底圖線條轉為桿件 + 端點">轉為桿件</button>
+        <button id="bgEditMarkIntersect" title="多線轉交點:對所有選取的底圖線段兩兩求交(允許延伸線,範圍 = 圖面尺寸 ×2),在每個唯一交點新增節點" style="display:none">多線轉交點</button>
+        <button id="bgEditMarkIntersectAndMember" title="多線轉交點 + 桿件:只在「線段實際相交 / 端點相觸」處建節點(不延伸),把選取的線轉為桿件,再跑切交點(在交點處拆段)→ 一鍵把選取線變成有節點與桿件的完整骨架" style="display:none">多線轉交點+桿件</button>
+        <button id="bgEditRectToCenterMember" title="長方形模式專用:沿著每個長方形的長邊中軸建立一條桿件" style="display:none">轉為置中桿件</button>
+        <button id="bgEditRectToTopMember" title="長方形模式專用:沿著每個長方形的上水平邊建立一條桿件" style="display:none">轉為上邊桿件</button>
+        <button id="bgEditRectToBottomMember" title="長方形模式專用:沿著每個長方形的下水平邊建立一條桿件" style="display:none">轉為下邊桿件</button>
+        <button id="bgEditSquareToJoint" title="把選取的正方形(4 邊或一線到底)各自的中心點新增為節點" style="display:none">轉為節點</button>
+        <button id="bgEditMeasureMove" style="display:none" title="移動標示距離線:把目前的標示距離線進入 slide 模式(單線 = 法向,平行線 = 沿線方向);點擊確認 / Esc 還原">移動標示距離線</button>
+        <button id="bgEditDel" class="danger" title="刪除選取(Del)">刪除</button>
+      </div>
+      <div class="bg-edit-section" id="bgEditMeasureSection">
+        <div class="bg-edit-title" data-i18n="subtool.section.measure">測量</div>
+        <button id="bgEditMeasure" title="標示距離(只讀,不寫):選 1 條線 → 線段長度;選 2 條平行線 → 兩線垂直距離;沒選 → 提示逐條點選。畫出後可拖游標滑動位置,點擊確認 / Esc 清除">標示距離</button>
+        <button id="bgEditOriginDistH" title="水平原點距離:選一條(或多條共線)的線,計算該線在 y=原點 高度時的 x 座標與原點的水平差距。畫出後可沿線拖曳調整位置,點擊確認">水平原點距離</button>
+        <button id="bgEditOriginDistV" title="垂直原點距離:選一條(或多條共線)的線,計算該線在 x=原點 位置時的 y 座標與原點的垂直差距。畫出後可沿線拖曳調整位置,點擊確認">垂直原點距離</button>
+        <button id="bgEditOriginDistMin" title="與原點最短距離:選一條(或多條共線)的線,計算原點到該線的垂直最短距離(從原點作垂線到線上)。畫出後可沿線拖曳調整位置,點擊確認">與原點最短距離</button>
+        <button id="bgEditMeasureDelLast" style="display:none" class="danger" title="刪除最後一個標示距離(永遠不會自動消失,只能從這裡刪)">刪除最後標示距離</button>
+        <button id="bgEditMeasureClearAll" style="display:none" class="danger" title="清空目前頁面所有標示距離(會跳出確認)">清空所有標示距離</button>
+      </div>
+    </div>
+    <div id="zoomTools">
+      <!-- 平面座標指示器(嵌在 #zoomTools 頂端,就在放大鏡按鈕上方;箭頭被 SVG 框限住,不會擋到按鈕)-->
+      <div id="axisIndicator" title="當前頁面對應的世界平面與軸向(可在右側欄『世界平面』切換)">
+        <svg viewBox="0 0 70 88" width="70" height="88" overflow="visible" style="overflow:visible">
+          <defs>
+            <marker id="arrAxX" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#ff5252"/>
+            </marker>
+            <marker id="arrAxY" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#4ade80"/>
+            </marker>
+            <marker id="arrAxZ" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#3b82f6"/>
+            </marker>
+          </defs>
+          <circle id="axisOrigin" cx="20" cy="44" r="3.5" fill="rgba(255,255,255,0.18)" stroke="#fff" stroke-width="1"/>
+          <line id="axisXLine" x1="20" y1="44" x2="58" y2="44" stroke="#ff5252" stroke-width="2.4" marker-end="url(#arrAxX)"/>
+          <text id="axisXLabel" x="62" y="48" fill="#ff5252" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700">X</text>
+          <line id="axisYLine" x1="20" y1="44" x2="20" y2="14" stroke="#4ade80" stroke-width="2.4" marker-end="url(#arrAxY)"/>
+          <text id="axisYLabel" x="14" y="10" fill="#4ade80" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700">Y</text>
+        </svg>
+      </div>
+      <div class="zt-zoom-row">
+        <button id="btnZoomOut" class="zt-sq" title="縮小 (以畫面中心為基準)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"/>
+            <line x1="21" y1="21" x2="16.5" y2="16.5"/>
+            <line x1="8" y1="11" x2="14" y2="11"/>
+          </svg>
+        </button>
+        <button id="btnZoomIn"  class="zt-sq" title="放大 (以畫面中心為基準)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"/>
+            <line x1="21" y1="21" x2="16.5" y2="16.5"/>
+            <line x1="8"  y1="11" x2="14" y2="11"/>
+            <line x1="11" y1="8"  x2="11" y2="14"/>
+          </svg>
+        </button>
+        <button id="btnZoomSel" class="zt-sq" title="放大選取區域(將視野縮放到所選節點/桿件)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"/>
+            <line x1="21" y1="21" x2="16.5" y2="16.5"/>
+            <circle cx="11" cy="11" r="2.5" fill="currentColor" stroke="none"/>
+          </svg>
+        </button>
+      </div>
+      <div class="zt-zoom-row">
+        <button id="btnZoomRange" title="範圍放大:點兩下對角匡選 (Esc 取消)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="14" height="14" rx="1" stroke-dasharray="2.5 2"/>
+            <circle cx="11" cy="11" r="4"/>
+            <line x1="14" y1="14" x2="22" y2="22"/>
+          </svg>
+        </button>
+        <button id="btnFit" title="回復整圖顯示(將視野縮放到整張底圖)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 8V3h5"/>
+            <path d="M21 8V3h-5"/>
+            <path d="M3 16v5h5"/>
+            <path d="M21 16v5h-5"/>
+            <circle cx="12" cy="12" r="3"/>
+            <line x1="14" y1="14" x2="16" y2="16"/>
+          </svg>
+        </button>
+      </div>
+      <button id="snapGridBtn" class="zt-wide" title="鎖點視覺切換 (Shift+A):網格 / 點 / 關閉,影響游標自動吸附">鎖點 網格</button>
+      <label class="zoom-tools-row" title="網格鎖點:游標吸附到鎖點間距形成的網格『線』(單軸吸附)"><input type="checkbox" id="snapGridLineChk"/> <span data-i18n="zt.snapGridLine">網格鎖點</span></label>
+      <label class="zoom-tools-row" title="線條優先:同時開啟兩種鎖點時,優先吸附網格『線』而非交點"><input type="checkbox" id="snapLinesPriority" checked/> <span data-i18n="zt.snapLinesPriority">線條優先</span></label>
+      <label class="zoom-tools-row" title="網點鎖點:游標吸附到網格『交點』(雙軸吸附)"><input type="checkbox" id="snapGridPointChk"/> <span data-i18n="zt.snapGridPoint">網點鎖點</span></label>
+      <div class="zt-sep"></div>
+      <div class="zt-zoom-row" title="標示字體整體放大 / 縮小">
+        <button id="btnLblSmaller" class="zt-sq" title="標示字體縮小">A−</button>
+        <button id="btnLblReset"   class="zt-sq" title="還原標示字體預設">A</button>
+        <button id="btnLblBigger"  class="zt-sq" title="標示字體放大">A+</button>
+      </div>
+      <button id="btnLblToggle" class="zt-wide" title="標示顯示 / 隱藏">標示 顯示</button>
+    </div>
+    <div id="stage">
+      <canvas id="bg-canvas" width="1200" height="800"></canvas>
+      <svg id="vector" width="1200" height="800" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+    <div id="labelsLayer"></div>
+    <div id="hoverTip"></div>
+    <div id="crosshairH"></div>
+    <div id="crosshairV"></div>
+    <div id="crosshairBox"></div>
+    <div id="rangeZoomPreview"></div>
+    <div id="hud">x: 0 · y: 0 · zoom: 100%</div>
+    <div id="cmdInputBar" style="display:none">
+      <span class="cmd-prompt">命令:</span>
+      <input type="text" id="cmdInputField" autocomplete="off" spellcheck="false"/>
+      <span class="cmd-unit"></span>
+    </div>
+    <div id="busySpinner"><div class="spin"></div><div class="msg">處理中…</div><button class="cancel-btn" id="busyCancelBtn">取消</button></div>
+  </div>
+
+  <div class="sidebar right" id="sbRight">
+    <h2 data-i18n="rb.title">模型</h2>
+
+    <div class="section">
+      <h3 data-i18n="rb.currentPage">當前頁面</h3>
+      <select id="pageSelector" title="當前頁面:選擇要顯示與編輯的頁面。多頁 PDF 或多檔案匯入後,從此切換"></select>
+      <div class="badge" id="stats" style="margin-top:6px">0 節點 · 0 桿件</div>
+    </div>
+
+    <div class="section">
+      <h3 data-i18n="rb.pageCoord">頁面座標</h3>
+      <label data-i18n="rb.worldPlane" title="世界平面:本頁對應 3D 模型中的哪個平面(STAAD 慣例 Y 朝上)">世界平面</label>
+      <select id="planeSelect" title="本頁對應的 3D 平面:XY=立面正視 / YZ=立面側視 / XZ=平面俯視。會影響全局節點的 3D 推算">
+        <option value="" data-i18n="rb.planeNotSet">未設定</option>
+        <option value="XY" data-i18n="rb.planeXY">XY 平面</option>
+        <option value="YZ" data-i18n="rb.planeYZ">YZ 平面</option>
+        <option value="XZ" data-i18n="rb.planeXZ">XZ 平面</option>
+      </select>
+      <div id="pageYWrap" style="display:none;margin-top:6px">
+        <label id="pageZLabel" data-i18n="rb.thirdAxis" title="本頁對應的「第三軸」位置(out-of-plane):決定這張圖代表 3D 模型的哪個切面">第三軸位置</label>
+        <input type="number" id="pageZ" value="0" step="0.1" title="本頁對應的第三軸位置(mm)" />
+      </div>
+      <label id="pageFlipXWrap" style="display:none;align-items:center;gap:6px;margin-top:6px;font-size:11px;cursor:pointer" title="左右翻轉:勾選後本頁的水平軸方向反轉(+X / +Z 改成往螢幕左)。常用於背面立面 / 鏡像圖紙。">
+        <input type="checkbox" id="pageFlipX" />
+        <span data-i18n="rb.flipX">左右翻轉</span>
+      </label>
+      <label id="pageFlipYWrap" style="display:none;align-items:center;gap:6px;margin-top:4px;font-size:11px;cursor:pointer" title="上下翻轉:勾選後本頁的縱軸方向反轉(+Y 改成往螢幕下;XZ 平面則是 +Z 改成往螢幕上)。常用於底視 / 鏡像圖紙。">
+        <input type="checkbox" id="pageFlipY" />
+        <span data-i18n="rb.flipY">上下翻轉</span>
+      </label>
+      <label id="pageFlipSyncWrap" style="display:none;align-items:center;gap:6px;margin-top:4px;font-size:11px;cursor:pointer;color:#9bb6e8" title="勾選後:本頁勾 / 取消「左右翻轉」或「上下翻轉」時,自動把同樣設定套到所有同平面的其他頁面 / 檔案(預設開)。\n取消勾選 → 翻轉只影響本頁(原行為);要批次同步請按下方「套用翻轉到同平面」鈕。">
+        <input type="checkbox" id="pageFlipSync" checked />
+        <span data-i18n="rb.flipSync">同步到全部同平面</span>
+      </label>
+      <button id="btnApplyFlipToSamePlane" data-i18n="rb.applyFlipSamePlane" style="display:none;font-size:10px;padding:3px 8px;text-transform:none;letter-spacing:0;margin-top:6px;width:100%" title="把目前的「左右翻轉 / 上下翻轉」設定套用到所有同平面的其他頁面 / 檔案。常用於整批立面 / 平面圖需要統一翻轉設定。">套用翻轉到同平面</button>
+      <div id="pageFloorTypeWrap" style="display:none;margin-top:8px;font-size:11px" title="樓層類型(XZ 平面圖專用)— 不同種類的層各自從 yyStart 起編 YY rank。例:Main 從 01 起、Mezz 從 51 起。要編輯類型清單請到左欄「樓層類型」區。">
+        <label data-i18n="rb.floorType" style="color:#9bb6e8;display:block;margin-bottom:3px">樓層類型</label>
+        <select id="pageFloorType" style="width:100%;background:#1a1c20;color:#ddd;border:1px solid #444;border-radius:3px;padding:3px 6px;font:inherit;cursor:pointer"></select>
+      </div>
+      <div id="pageBraceTypeWrap" style="display:none;margin-top:8px;font-size:11px" title="斜撐起始(YZ / XY 平面圖專用)— 該頁的「斜撐 joint」會用此起始點對 YY rank 編號。與樓層類型共用同一池 (1, 11, 21, …, 91)。要編輯類型清單請到「節點編號管理」對話框的『斜撐起始』分頁。">
+        <label data-i18n="rb.braceType" style="color:#9bb6e8;display:block;margin-bottom:3px">斜撐起始</label>
+        <select id="pageBraceType" style="width:100%;background:#1a1c20;color:#ddd;border:1px solid #444;border-radius:3px;padding:3px 6px;font:inherit;cursor:pointer"></select>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <button id="btnSetFileAsOrigin" data-i18n="rb.setOrigin" style="font-size:10px;padding:3px 8px;text-transform:none;letter-spacing:0;flex:1;min-width:140px" title="把本頁的 planeOrigin + pageZ 直接當作世界原點 (0,0,0);其他檔案的原點需自行設在同一物理位置才會對齊。改完即重畫">本頁原點 = 世界原點</button>
+        <button id="btnUnsetFileAsOrigin" data-i18n="rb.unsetOrigin" style="font-size:10px;padding:3px 8px;text-transform:none;letter-spacing:0;display:none" title="解除「本頁為全局原點」標記">取消</button>
+      </div>
+      <div id="globalOriginInfo" style="margin-top:6px;font-size:11px;color:#9aa0a6;display:none"></div>
+    </div>
+
+    <div class="section">
+      <h3 style="display:flex;align-items:center;gap:6px;justify-content:flex-start"><span data-i18n="rb.joints">節點 Joints</span><span id="jointListAxisLabel" style="font-size:10px;font-weight:400;color:#9aa0a6;letter-spacing:0;text-transform:none"></span></h3>
+      <div id="jointList" class="list"></div>
+    </div>
+
+    <div class="section">
+      <h3 style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+        <span data-i18n="rb.globalJoints">全局節點 Global</span>
+        <button id="autoPairBtn" data-i18n="rb.autoPair" style="font-size:10px;padding:2px 8px;text-transform:none;letter-spacing:0" title="掃所有已校準頁面,跨平面比對共軸座標,一鍵建立全局節點綁定">三視圖自動配對</button>
+      </h3>
+      <div id="globalJointList" class="list"></div>
+      <div id="globalJointHint" data-i18n="rb.globalJointHint" style="margin-top:6px;font-size:11px;color:#9aa0a6;line-height:1.4;display:none">想設世界原點?到右側欄上方「頁面座標」區用「本頁原點 = 世界原點」最快;要進階「自動推算各檔案位移」則需要先建立全局節點(右鍵節點 → 設為全局節點),再回到此區校準。</div>
+      <div id="globalOriginCalibBtns" style="display:none;gap:6px;margin-top:6px;flex-wrap:wrap">
+        <button id="btnSetGlobalOrigin" data-i18n="rb.setGlobalOrigin" style="font-size:10px;padding:3px 8px;text-transform:none;letter-spacing:0;flex:1;min-width:120px" title="把目前的某個全局節點指定為「世界原點 (0,0,0)」並校準所有檔案的 planeOrigin / pageZ">全局節點校準</button>
+        <button id="btnSetCustomOrigin" data-i18n="rb.setCustomOrigin" style="font-size:10px;padding:3px 8px;text-transform:none;letter-spacing:0;flex:1;min-width:120px" title="自訂世界原點座標:輸入 (x, y, z),所有檔案的 planeOrigin / pageZ 會 shift 讓該世界座標落在 (0, 0, 0)。原點不需要對應任何 joint">自訂原點座標</button>
+        <button id="btnClearGlobalOrigin" data-i18n="rb.clearGlobalOrigin" style="font-size:10px;padding:3px 8px;text-transform:none;letter-spacing:0;display:none" title="解除目前的全局原點指定(只清狀態,不還原檔案的 planeOrigin)">解除節點原點</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3 data-i18n="rb.members">桿件 Members</h3>
+      <div id="memberList" class="list"></div>
+    </div>
+
+    <div class="section">
+      <h3 data-i18n="rb.sections">切面 Sections</h3>
+      <div id="sectionLinkList" class="list"></div>
+    </div>
+
+    <div class="section">
+      <h3 data-i18n="rb.exportSettings">匯出設定</h3>
+      <label data-i18n="rb.jobName" title="專案名稱:用於 STAAD 匯出時的 JOB NAME 與儲存檔名建議">專案名稱</label>
+      <input type="text" id="jobName" value="倉儲鋼構" title="專案名稱:STAAD 匯出時寫入 JOB NAME,儲存專案時也會建議成檔名" />
+      <label data-i18n="rb.exportUnit" title="匯出單位:.std 檔內節點座標與長度的單位">匯出單位</label>
+      <select id="exportUnit" title="匯出至 STAAD .std 時使用的長度單位">
+        <option value="meter" data-i18n="rb.unit.meter">METER 公尺</option>
+        <option value="mmb" selected data-i18n="rb.unit.mmb">MMS 毫米</option>
+        <option value="centimeter" data-i18n="rb.unit.cm">CM 公分</option>
+        <option value="feet" data-i18n="rb.unit.ft">FEET 呎</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 隱藏的檔案 input / 按鈕:由頂部選單「檔案」的對應項目觸發 click() -->
+  <div id="hiddenInputs" style="display:none">
+    <input type="file" id="loadProject" accept="application/json,.stproj.json" title="讀入完整專案檔(含底圖位元組)" />
+    <input type="file" id="importJson" accept="application/json" title="只讀標線資料(底圖需另外重新導入)" />
+    <button id="saveProject" title="把所有圖檔(PDF/圖片含位元組)、標線、比例尺、原點、校準、拆分頁等全部存成單一 .stproj.json,可日後讀回繼續編輯"></button>
+    <button id="exportStaad"></button>
+    <button id="exportJson"></button>
+    <button id="clearAll"></button>
+  </div>
+
+  <div id="leftResizer" class="sidebar-resizer left" title="拖曳調整左欄寬度"></div>
+  <div id="rightResizer" class="sidebar-resizer right" title="拖曳調整右欄寬度"></div>
+  <div id="leftToggle" class="collapser left" title="收合左側欄">‹</div>
+  <div id="rightToggle" class="collapser right" title="收合右側欄">›</div>
+
+  <div id="selectModePopup" style="display:none">
+    <div class="smp-item" data-filter="all">選取</div>
+    <div class="smp-item" data-filter="joints">選取點</div>
+    <div class="smp-item" data-filter="members">選取線</div>
+  </div>
+
+  <div id="ctxMenu" class="ctx-menu" style="display:none">
+    <div class="ctx-head" id="ctxHead"></div>
+    <div id="ctxFilterGroup" style="display:none">
+      <div class="ctx-section-label">選取模式 (Tab 切換)</div>
+      <div class="ctx-radio" data-filter="all">選取</div>
+      <div class="ctx-radio" data-filter="joints">選取點</div>
+      <div class="ctx-radio" data-filter="members">選取線</div>
+    </div>
+    <div class="ctx-list" id="ctxList"></div>
+    <div class="ctx-item" id="ctxPromoteGlobal" style="display:none" title="把這個節點設為跨頁共享的全局節點">設為全局節點</div>
+    <div class="ctx-item" id="ctxBindGlobal" style="display:none" title="綁到一個既有的全局節點(從清單挑)">綁定到既有 N…</div>
+    <div class="ctx-item" id="ctxUnbindGlobal" style="display:none" title="解除全局節點綁定">取消全局綁定</div>
+    <div class="ctx-item" id="ctxOpenTab" style="display:none" title="把選取的檔案在上方分頁列開新分頁,方便快速切換">開啟分頁</div>
+    <div class="ctx-item" id="ctxRename" style="display:none">重新命名</div>
+    <div class="ctx-item" id="ctxDuplicate" style="display:none">複製檔案</div>
+    <div class="ctx-item" id="ctxBgSplit" style="display:none">拆分為直線</div>
+    <div class="ctx-item" id="ctxBgScaleRuler" style="display:none">建立比例尺</div>
+    <div class="ctx-item" id="ctxBgToMember" style="display:none">轉為桿件</div>
+    <div class="ctx-item" id="ctxBgToDashed" style="display:none" title="把選取的底圖線條切換虛線樣式(已是虛線就改回實線)">切換虛線</div>
+    <div class="ctx-item danger" id="ctxDelete">刪除</div>
+  </div>
+
+  <div id="gbindDialog" style="display:none">
+    <div class="dlg-card">
+      <div class="dlg-title">綁定到全局節點</div>
+      <div id="gbindList" class="list" style="max-height:280px;overflow:auto;margin-bottom:8px"></div>
+      <div class="dlg-footer">
+        <button id="gbindCancel">取消</button>
+        <button id="gbindNew" class="primary" title="建立新的全局節點(等同「設為全局節點」)">建立新節點</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="autoPairDialog" style="display:none">
+    <div class="dlg-card" style="max-width:720px;width:92vw">
+      <div class="dlg-title">三視圖自動配對</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;font-size:12px">
+        <label title="座標差距小於此值才視為同一節點">公差</label>
+        <input id="apTol" type="number" value="5" min="0" step="1" style="width:80px"/>
+        <span id="apUnit" style="color:#9aa0a6">mm</span>
+        <label style="margin-left:8px"><input id="apIncludeBound" type="checkbox"/> 含已綁定節點</label>
+        <button id="apRescan" class="primary" style="margin-left:8px">掃描候選</button>
+        <span id="apSummary" style="color:#9aa0a6;margin-left:auto;font-size:11px"></span>
+      </div>
+      <div id="apList" class="list" style="max-height:380px;overflow:auto;margin-bottom:8px;font-size:12px"></div>
+      <div class="dlg-footer">
+        <button id="apCancel">取消</button>
+        <button id="apApply" class="primary" title="把勾選的候選真正建立 globalJoint 綁定">套用所選</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="splitDialog" style="display:none">
+    <div class="dlg-card">
+      <div class="dlg-title">拆分為新頁</div>
+      <label>新頁名稱</label>
+      <input id="splitName" type="text" />
+      <div class="dlg-footer">
+        <button id="splitCancel">取消</button>
+        <button id="splitConfirm" class="primary">確定</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="floorTypesDialog">
+    <div class="ft-mask"></div>
+    <div class="dlg-card">
+      <div class="ft-titlebar">
+        <div id="floorTypesClose" class="ft-close" title="關閉(等同取消)"></div>
+        <div class="ft-title">節點編號管理</div>
+      </div>
+      <div class="ft-tabs">
+        <div class="ft-tab active" data-ft-kind="floor" title="樓層類型 — 套用到 XZ 平面圖頁面">樓層類型<span class="ft-tab-count" id="floorTypesTabCountFloor"></span></div>
+        <div class="ft-tab" data-ft-kind="brace" title="斜撐起始 — 套用到 YZ / XY 平面圖頁面;與樓層類型共用 YY 起始池">斜撐起始<span class="ft-tab-count" id="floorTypesTabCountBrace"></span></div>
+      </div>
+      <div id="floorTypesSummary" class="ft-summary"></div>
+      <div class="ft-content">
+        <table>
+          <colgroup>
+            <col style="width:22px">
+            <col style="width:22%">
+            <col style="width:34%">
+            <col style="width:24%">
+            <col style="width:70px">
+          </colgroup>
+          <thead><tr><th></th><th>Key</th><th>顯示名稱</th><th>YY 起始</th><th></th></tr></thead>
+          <tbody id="floorTypesTbody"></tbody>
+        </table>
+        <div class="ft-actions">
+          <button id="btnAddFloorType">＋ 新增類型</button>
+          <button id="btnAutoDefaultFloorType" title="自動建立 default 型(用下一個可用 YY 起始)並把當前 tab 所有未指派頁面套到它;default 型已存在則只做指派">🎯 自動建立 default 並指派未分配頁</button>
+          <span id="floorTypesHint" class="ft-hint"></span>
+        </div>
+      </div>
+      <div class="ft-body">
+        <div class="ft-left">
+          <div class="ft-pages-head">
+            <div id="floorTypesPagesHead">尚未選擇類型</div>
+            <div class="ft-filter-row">
+              <span style="color:#7b818a">顯示</span>
+              <div class="ft-msel" id="floorTypesFilter">
+                <div class="ft-msel-btn" id="floorTypesFilterBtn" title="勾選要顯示的類型 / 平面 — 未勾的會被隱藏"><span id="floorTypesFilterBtnLabel">全部</span><span class="ft-msel-caret">▾</span></div>
+                <div class="ft-msel-panel" id="floorTypesFilterPanel"></div>
+              </div>
+              <span style="color:#7b818a;margin-left:6px">排序</span>
+              <select id="floorTypesSort" class="ft-sort" title="頁面列表排序方式">
+                <option value="auto">預設(平面→第三軸→名稱)</option>
+                <option value="z-asc">第三軸 升序</option>
+                <option value="z-desc">第三軸 降序</option>
+                <option value="name">名稱</option>
+              </select>
+              <span id="floorTypesFilterCount" style="color:#7b818a;margin-left:auto;font-variant-numeric:tabular-nums"></span>
+            </div>
+            <div class="ft-filter-row">
+              <button id="floorTypesBulkSelectAll" title="把目前可見的頁面全部指派到當前選取的類型" style="font-size:10px;padding:2px 8px">全選可見</button>
+              <button id="floorTypesBulkClearAll" title="把目前可見、已指派到當前類型的頁面取消指派(fallback 到 default)" style="font-size:10px;padding:2px 8px">全取消可見</button>
+              <span id="floorTypesBulkHint" style="color:#7b818a;font-size:10px"></span>
+            </div>
+          </div>
+          <div id="floorTypesPagesList" class="ft-pages-list"></div>
+        </div>
+        <div class="ft-preview">
+          <div class="ft-preview-head">
+            <span id="floorTypesPreviewName" class="ft-preview-name">點選頁面以預覽 ・ 滾輪縮放 / 拖曳平移</span>
+            <span class="ft-zoom">
+              <span style="font-size:10px">縮放</span>
+              <input id="floorTypesPreviewZoom" type="range" min="0.5" max="4" step="0.1" value="1">
+              <span id="floorTypesPreviewZoomVal" style="font-size:10px;color:#7b818a;min-width:32px">100%</span>
+            </span>
+          </div>
+          <div class="ft-preview-stage">
+            <canvas id="floorTypesPreviewCanvas" class="ft-preview-canvas" width="600" height="400"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="ft-footer">
+        <button id="btnCancelFloorTypes" title="放棄此次未套用的勾選變更並關閉視窗(已按過套用的不會被回退)">取消</button>
+        <button id="btnApplyFloorTypes" title="儲存目前的勾選變更,不關閉視窗">套用</button>
+        <button id="btnDoneFloorTypes" class="primary" title="儲存目前的勾選變更並關閉視窗">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="globalJointMgrDialog">
+    <div class="gjm-mask"></div>
+    <div class="dlg-card">
+      <div class="gjm-titlebar">
+        <div id="gjmClose" class="gjm-close" title="關閉"></div>
+        <div class="gjm-title">全局節點管理</div>
+      </div>
+      <div id="gjmSummary" class="gjm-summary"></div>
+      <div class="gjm-toolbar">
+        <input id="gjmSearch" type="text" placeholder="搜尋:label / 內部 id / 顯示編號 / 座標 x,y,z" title="搜尋格式:&#10; • 文字 → 比對 label 子字串&#10; • 單一數字 → 比對 內部 id / 顯示編號&#10; • 三個數字(用逗號或空白分隔)→ 用世界座標找最接近,結果依距離升冪排">
+        <span style="color:#7b818a;font-size:11px">篩選</span>
+        <select id="gjmFilter">
+          <option value="all">全部</option>
+          <option value="this">僅本頁有綁</option>
+          <option value="warn">僅有警告</option>
+          <option value="multi">跨多檔</option>
+          <option value="origin">已是原點</option>
+        </select>
+        <span style="color:#7b818a;font-size:11px">排序</span>
+        <select id="gjmSort">
+          <option value="id">ID</option>
+          <option value="label">標籤</option>
+          <option value="binds">綁定數</option>
+          <option value="warns">警告數</option>
+        </select>
+        <span class="gjm-spacer"></span>
+        <span id="gjmCount" style="color:#7b818a;font-size:11px;font-variant-numeric:tabular-nums"></span>
+      </div>
+      <div class="gjm-body">
+        <div class="gjm-left">
+          <div id="gjmList" class="gjm-list"></div>
+        </div>
+        <div id="gjmDetail" class="gjm-right">
+          <div class="empty">點左側清單任一筆查看詳細資料</div>
+        </div>
+      </div>
+      <div class="gjm-footer">
+        <button id="gjmCloseBtn" class="primary">關閉</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="gjJumpPopup"></div>
+
+  <div id="genericDialog">
+    <div class="gd-mask"></div>
+    <div class="gd-card">
+      <div class="gd-title" id="gdTitle">標題</div>
+      <div class="gd-msg" id="gdMsg"></div>
+      <input id="gdInput" type="text" style="display:none"/>
+      <div class="gd-footer" id="gdFooter"></div>
+    </div>
+  </div>
+
+  <div id="sectionLinkDialog">
+    <div class="sl-mask"></div>
+    <div class="sl-card">
+      <div class="sl-titlebar">
+        <div class="sl-close" title="關閉"></div>
+        <div class="sl-title">切面</div>
+      </div>
+      <div class="sl-info" id="slInfo"></div>
+      <div class="sl-body">
+        <div class="sl-left">
+          <div class="sl-list" id="slList"></div>
+        </div>
+        <div class="sl-preview">
+          <div class="sl-preview-header" id="slPreviewHeader">預覽(移到任一檔案列即顯示)</div>
+          <div class="sl-preview-stage">
+            <canvas class="sl-preview-canvas" id="slPreviewCanvas" width="600" height="400"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="sl-footer">
+        <button id="slCancelBtn">取消</button>
+        <button id="slOkBtn" class="primary">確定</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="planePicker" style="display:none">
+    <svg viewBox="-100 -100 200 200" width="260" height="260">
+      <circle cx="0" cy="0" r="92" fill="rgba(0,0,0,0.7)" stroke="#666" stroke-width="1.5"/>
+      <!-- 北(上,XY) · 東(右,YZ) · 南(下,XZ) · 西(左,取消) 四扇形 -->
+      <path id="ppXY"     d="M-23,-23 L-65,-65 A92,92 0 0,1 65,-65 L23,-23 A32,32 0 0,0 -23,-23 Z" class="pp-sector" data-plane="XY"/>
+      <path id="ppYZ"     d="M23,-23 L65,-65 A92,92 0 0,1 65,65 L23,23 A32,32 0 0,0 23,-23 Z"   class="pp-sector" data-plane="YZ"/>
+      <path id="ppXZ"     d="M23,23 L65,65 A92,92 0 0,1 -65,65 L-23,23 A32,32 0 0,0 23,23 Z"    class="pp-sector" data-plane="XZ"/>
+      <path id="ppCancel" d="M-23,23 L-65,65 A92,92 0 0,1 -65,-65 L-23,-23 A32,32 0 0,0 -23,23 Z" class="pp-sector" data-plane="cancel"/>
+      <circle cx="0" cy="0" r="32" fill="rgba(20,22,28,0.95)" stroke="#666" stroke-width="1"/>
+      <text x="0"   y="-72" text-anchor="middle" dominant-baseline="middle" class="pp-label">XY 平面</text>
+      <text x="72"  y="0"   text-anchor="middle" dominant-baseline="middle" class="pp-label">YZ 平面</text>
+      <text x="0"   y="78"  text-anchor="middle" dominant-baseline="middle" class="pp-label">XZ 平面</text>
+      <text x="-72" y="0"   text-anchor="middle" dominant-baseline="middle" class="pp-label" fill="#aaa">取消</text>
+      <text x="0"   y="2"   text-anchor="middle" dominant-baseline="middle" class="pp-hint">Shift+W</text>
+    </svg>
+  </div>
+
+</div>
+
+<script type="module" src="/src/main.ts"></script>
 </body>
 </html>
