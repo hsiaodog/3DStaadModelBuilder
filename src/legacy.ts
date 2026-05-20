@@ -10,12 +10,15 @@
 import { MAX_UNDO, ALLOWED_YY } from "./constants";
 import { staadUnitKeyword, unitToMeter, meterToTarget } from "./utils/units";
 import { xlsxCellRef as _xlsxCellRef, xmlEsc as _xmlEsc, xlsxCell as _xlsxCell } from "./utils/ooxml";
+import { joint2DToWorld3D, world3DToJoint2D } from "./core/projection";
+import { listGlobalBindings } from "./core/globalJoints";
+import { proposeAutoPairings } from "./core/autopair";
 
 // ---------- main app code(原本是 1.13M chars 的大 <script> block) ----------
 "use strict";
 
 // ---------- state ----------
-const state = {
+export const state = {
   // 多檔案結構:每個 file 有自己的 pages(以該檔案內的 pageIdx 為 key)
   files: [],          // [{ id, name, type, pdf?, image?, imageWidth?, imageHeight?, pages: {} }]
   activeFileId: null,
@@ -418,21 +421,7 @@ function countBindings(gid) {
   }
   return n;
 }
-// 列出所有綁到此 globalId 的 view joint 位置(跨頁)
-function listGlobalBindings(gid) {
-  const out = [];
-  for (const f of state.files) {
-    for (const k in (f.pages || {})) {
-      const pg = f.pages[k];
-      for (const j of (pg.joints || [])) {
-        if (j.globalId === gid) {
-          out.push({ fileId: f.id, fileName: f.name, pageIdx: +k, jointId: j.id });
-        }
-      }
-    }
-  }
-  return out;
-}
+// listGlobalBindings 移到 src/core/globalJoints.ts(Phase 3b)
 
 // ---------- MVP-2:3D 投影與一致性推算 ----------
 // 把 view joint 投影到 3D 世界座標。
@@ -443,30 +432,7 @@ function listGlobalBindings(gid) {
 //   未設定:fallback 視為 XY
 // 回傳 { x, y, z, strong: { X, Y, Z } }(strong[axis] = 該軸是否為 in-plane 強約束)
 //   無比例尺(該檔沒校準且全局 state.scale 也無)→ 回傳 null
-function joint2DToWorld3D(file, page, joint) {
-  const ratio = (file && file.scaleRuler && file.scaleRuler.ratio > 0)
-    ? file.scaleRuler.ratio
-    : (state.scale ? 1 / state.scale : null);
-  if (!ratio) return null;
-  const o = file && file.planeOrigin;
-  // u: 螢幕右為正(原始定義);v: 螢幕上為正(因 pixel-y 反向)
-  let u = o ? (joint.x - o.x) * ratio : joint.x * ratio;
-  let v = o ? (o.y - joint.y) * ratio : -joint.y * ratio;
-  // 左右 / 上下翻轉:把對應的 in-plane 軸方向反轉(用於背面立面 / 鏡像圖紙 / 底視)
-  if (page && page.flipX) u = -u;
-  if (page && page.flipY) v = -v;
-  const off = page.z || 0;
-  const plane = page.plane || "XY";
-  let X, Y, Z, strong;
-  switch (plane) {
-    // XZ 平面:Z 在畫面上「向下」為正(plan view convention)
-    case "XZ": X = u;   Y = off; Z = -v;  strong = { X: true, Y: false, Z: true  }; break;
-    case "YZ": X = off; Y = v;   Z = u;   strong = { X: false, Y: true, Z: true  }; break;
-    case "XY":
-    default:   X = u;   Y = v;   Z = off; strong = { X: true, Y: true, Z: false }; break;
-  }
-  return { x: X, y: Y, z: Z, strong, plane };
-}
+// joint2DToWorld3D 移到 src/core/projection.ts(Phase 3a)
 
 // 把 joint 投影到本頁世界平面的 in-plane 兩軸,並回傳軸名 + 數值(已套 flipX/Y/原點/比例尺)。
 //   軸名對應:XY → (X, Y) / YZ → (Z, Y) / XZ → (X, Z) — 螢幕水平軸放 axisA、垂直軸放 axisB。
@@ -786,43 +752,7 @@ function calibrateAllFilesToCustomOrigin(px, py, pz, opts) {
 //   ratio / origin / plane 全部用目標 page 的設定
 //   檢查 page 的「out-of-plane 軸」是否與 world 對應軸吻合(tol);不吻合回 { ok: false, reason }
 //   無 ratio:回 null
-function world3DToJoint2D(file, page, world, opts) {
-  const ratio = (file && file.scaleRuler && file.scaleRuler.ratio > 0)
-    ? file.scaleRuler.ratio
-    : (state.scale ? 1 / state.scale : null);
-  if (!ratio) return null;
-  const tol = (opts && opts.tol != null) ? opts.tol : 0.5;   // 與 inferGlobalJoint 同數量級;但這裡是「該頁能否容納這個 3D 點」的判定
-  const off = page.z || 0;
-  const plane = page.plane || "XY";
-  // 水平軸 +X / +Z = 螢幕右(u = axis);縱軸僅 XZ 反向(Z 向下 → v = -Z)
-  let u, v, depthAxisVal, depthAxisName;
-  switch (plane) {
-    case "XZ":
-      u = world.x; v = -world.z;
-      depthAxisVal = world.y; depthAxisName = "Y";
-      break;
-    case "YZ":
-      u = world.z; v = world.y;
-      depthAxisVal = world.x; depthAxisName = "X";
-      break;
-    case "XY":
-    default:
-      u = world.x; v = world.y;
-      depthAxisVal = world.z; depthAxisName = "Z";
-      break;
-  }
-  const compatible = Math.abs((depthAxisVal == null ? 0 : depthAxisVal) - off) <= tol;
-  if (!compatible) {
-    return { ok: false, reason: `${depthAxisName}=${depthAxisVal} 與該頁 page.z=${off} 不符` };
-  }
-  // 左右 / 上下翻轉:joint2DToWorld3D 用 u' = -u / v' = -v,反推時也要對應反向
-  if (page && page.flipX) u = -u;
-  if (page && page.flipY) v = -v;
-  const o = file && file.planeOrigin;
-  const jx = (o ? o.x : 0) + u / ratio;
-  const jy = (o ? o.y : 0) - v / ratio;
-  return { ok: true, x: jx, y: jy };
-}
+// world3DToJoint2D 移到 src/core/projection.ts(Phase 3a)
 
 // 找出能容納指定 3D world 的所有頁(任意 file 的任意 page),回傳 [{ file, page, pageIdx, x, y }]
 function findCompatiblePages(world, opts) {
@@ -949,83 +879,7 @@ function snapProjectionToBgIntersection(file, page, projected, opts) {
 // 再收 pair。回傳已篩選的 candidates。
 //   opts.tol           : 匹配公差(state.unitName 同單位,如 mm),預設 50
 //   opts.includeBound  : 是否含已綁定的節點,預設 false
-function proposeAutoPairings(opts) {
-  opts = opts || {};
-  const tol = (opts.tol != null) ? opts.tol : 5;
-  const includeBound = !!opts.includeBound;
-  const buckets = { XY: [], XZ: [], YZ: [] };
-  for (const f of state.files) {
-    for (const k in (f.pages || {})) {
-      const pg = f.pages[k];
-      const plane = pg.plane || "XY";
-      if (!buckets[plane]) continue;
-      for (const j of (pg.joints || [])) {
-        if (!includeBound && j.globalId != null) continue;
-        const w = joint2DToWorld3D(f, pg, j);
-        if (!w) continue;
-        buckets[plane].push({
-          fileId: f.id, fileName: f.name, pageIdx: +k,
-          jointId: j.id, plane, world: w,
-          dispJ: displayJointId(j),
-        });
-      }
-    }
-  }
-  const cands = [];
-  // triples
-  for (const xy of buckets.XY) {
-    for (const xz of buckets.XZ) {
-      const dX = Math.abs(xy.world.x - xz.world.x);
-      if (dX > tol) continue;
-      for (const yz of buckets.YZ) {
-        const dY = Math.abs(xy.world.y - yz.world.y);
-        if (dY > tol) continue;
-        const dZ = Math.abs(xz.world.z - yz.world.z);
-        if (dZ > tol) continue;
-        cands.push({
-          type: "triple", members: [xy, xz, yz],
-          score: Math.max(dX, dY, dZ),
-          axes: { x: dX, y: dY, z: dZ },
-          world: {
-            x: (xy.world.x + xz.world.x) / 2,
-            y: (xy.world.y + yz.world.y) / 2,
-            z: (xz.world.z + yz.world.z) / 2,
-          },
-        });
-      }
-    }
-  }
-  // pairs
-  const pairAxes = [
-    { a: "XY", b: "XZ", axis: "x" },
-    { a: "XY", b: "YZ", axis: "y" },
-    { a: "XZ", b: "YZ", axis: "z" },
-  ];
-  for (const pa of pairAxes) {
-    for (const m1 of buckets[pa.a]) {
-      for (const m2 of buckets[pa.b]) {
-        const d = Math.abs(m1.world[pa.axis] - m2.world[pa.axis]);
-        if (d > tol) continue;
-        cands.push({ type: "pair", members: [m1, m2], score: d, sharedAxis: pa.axis });
-      }
-    }
-  }
-  // 排序:triple 優先,然後 score 由小到大
-  cands.sort((a, b) => {
-    if (a.type !== b.type) return a.type === "triple" ? -1 : 1;
-    return a.score - b.score;
-  });
-  // 貪心:同一 view-joint 不被多組重用
-  const used = new Set();
-  const accepted = [];
-  for (const c of cands) {
-    const keys = c.members.map(m => `${m.fileId}:${m.pageIdx}:${m.jointId}`);
-    if (keys.some(k => used.has(k))) continue;
-    keys.forEach(k => used.add(k));
-    accepted.push(c);
-  }
-  return accepted;
-}
+// proposeAutoPairings 移到 src/core/autopair.ts(Phase 3c)
 
 // 跨頁版 bind:不能用 bindJointToGlobal(它只看當前頁)
 function bindJointAcrossPages(fileId, pageIdx, jointId, gid) {
@@ -23940,10 +23794,10 @@ function _displayIdForJointWith(file, page, j) {
   //     anchor 座標 rank 1..K → 在前;demote-only 座標 K+1.. → 在後,自然就讓 demote joint 的 XX/YY/ZZ
   //     落在較高的 rank,跟在 anchor 之後遞增。
 }
-function displayJointId(j) {
+export function displayJointId(j) {
   return _displayIdForJointWith(getActiveFile(), getPage(), j);
 }
-function displayMemberId(m) {
+export function displayMemberId(m) {
   if (!m) return "?";
   // 直接用 per-page m.id;不再代換為 globalMember.id
   //   原因:globalMember.id 是「適配關聯當時的累加序號」,不會跟 rank-based 重編後的 m.id 同步,
