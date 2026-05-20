@@ -1,0 +1,739 @@
+// Phase 8f — .xlsx 匯出(無外部 lib;簡易 OOXML + STORE-method ZIP)
+//   三個大區塊參考 model_NEW.xlsx:
+//     區塊 1 (col A-D): JOINT COORDINATES  — 全部節點(id, X, Y, Z)
+//     區塊 2 (col F-H): MEMBER INCIDENCES  — 全部桿件(id, j1, j2)
+//     區塊 3 (col J-K): MEMBER PROPERTIES  — 有材料的桿件(id, material)
+//
+//   依賴(全部已 export):
+//     • state / $          — legacy.ts
+//     • buildModel / showBuildModelCollisionsIfAny — core/buildModel
+//     • buildExportContext — export/shared(rank / brace / matObj 等共用脈絡)
+//     • unitToMeter / meterToTarget — utils/units
+//     • _xlsxCell          — utils/ooxml(OOXML cell helper)
+// @ts-nocheck
+
+import { state, $ } from "../legacy";
+import { buildModel, showBuildModelCollisionsIfAny } from "../core/buildModel";
+import { buildExportContext } from "./shared";
+import { unitToMeter, meterToTarget } from "../utils/units";
+import { xlsxCell as _xlsxCell } from "../utils/ooxml";
+
+// ============================================================================
+// .xlsx 匯出(無外部 lib;簡易 OOXML + STORE-method ZIP)
+// 三個區塊參考 model_NEW.xlsx:
+//   區塊 1 (col A-D):    JOINT COORDINATES — 全部節點(id, X, Y, Z)
+//   區塊 2 (col F-H):    MEMBER INCIDENCES — 全部桿件(id, j1, j2)
+//   區塊 3 (col J-K):    MEMBER PROPERTIES — 有材料的桿件(id, material)
+// 三個區塊在同一個工作表上並排,讓使用者可一眼看到模型完整結構。
+// ============================================================================
+
+// CRC32 (table-based) — ZIP 中央目錄與本地檔案頭都需要
+const _CRC32_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function _crc32(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = _CRC32_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+function _strBytes(s) { return new TextEncoder().encode(s); }
+function _u16(v) { return new Uint8Array([v & 0xff, (v >> 8) & 0xff]); }
+function _u32(v) { return new Uint8Array([v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >>> 24) & 0xff]); }
+function _concat(arrs) {
+  let total = 0; for (const a of arrs) total += a.length;
+  const out = new Uint8Array(total);
+  let pos = 0; for (const a of arrs) { out.set(a, pos); pos += a.length; }
+  return out;
+}
+// 建立 STORE-method ZIP(無壓縮 = Excel 接受;檔案會比 DEFLATE 大,但實作極簡)
+function _buildZip(files) {
+  // files: [{ name, data: Uint8Array }]
+  const parts = [];
+  const dir = [];
+  let offset = 0;
+  const now = new Date();
+  const dosTime = ((now.getHours() & 31) << 11) | ((now.getMinutes() & 63) << 5) | ((now.getSeconds() / 2) & 31);
+  const dosDate = (((now.getFullYear() - 1980) & 127) << 9) | (((now.getMonth() + 1) & 15) << 5) | (now.getDate() & 31);
+  for (const f of files) {
+    const nameBytes = _strBytes(f.name);
+    const crc = _crc32(f.data);
+    const localHdr = _concat([
+      _u32(0x04034b50),   // signature
+      _u16(20),           // version needed
+      _u16(0),            // flags
+      _u16(0),            // STORE
+      _u16(dosTime), _u16(dosDate),
+      _u32(crc),
+      _u32(f.data.length),         // compressed size = uncompressed
+      _u32(f.data.length),
+      _u16(nameBytes.length),
+      _u16(0),            // extra
+      nameBytes,
+    ]);
+    parts.push(localHdr, f.data);
+    const dirEntry = _concat([
+      _u32(0x02014b50),   // central dir signature
+      _u16(20),           // version made by
+      _u16(20),           // version needed
+      _u16(0),            // flags
+      _u16(0),            // STORE
+      _u16(dosTime), _u16(dosDate),
+      _u32(crc),
+      _u32(f.data.length),
+      _u32(f.data.length),
+      _u16(nameBytes.length),
+      _u16(0), _u16(0),   // extra, comment len
+      _u16(0), _u16(0),   // disk, internal attrs
+      _u32(0),            // external attrs
+      _u32(offset),
+      nameBytes,
+    ]);
+    dir.push(dirEntry);
+    offset += localHdr.length + f.data.length;
+  }
+  let dirSize = 0;
+  for (const d of dir) dirSize += d.length;
+  const eocd = _concat([
+    _u32(0x06054b50),
+    _u16(0), _u16(0),
+    _u16(files.length), _u16(files.length),
+    _u32(dirSize),
+    _u32(offset),
+    _u16(0),
+  ]);
+  return _concat([...parts, ...dir, eocd]);
+}
+
+// _xlsxCellRef / _xmlEsc / _xlsxCell 移到 src/utils/ooxml.ts(Phase 2)
+
+// 主匯出函式:依目前模型聚合 → 組 sheet1.xml → 包成 .xlsx ZIP 下載
+export function exportXlsxFile() {
+  // 用 buildModel() 把所有檔案 / 頁面聚合成單一 3D 模型(同 .std 匯出)
+  let model;
+  try { model = buildModel(); }
+  catch (e) { alert("匯出 .xlsx 失敗:" + (e && e.message ? e.message : e)); return; }
+  const joints  = model.joints  || [];
+  const members = model.members || [];
+  // 單位換算:跟 .std 匯出同邏輯
+  const tgt = ($("exportUnit") && $("exportUnit").value) || "mmb";
+  const kFromCalib = unitToMeter(state.unitName);
+  const kToTarget  = meterToTarget(tgt);
+  const k = kFromCalib * kToTarget;
+  // joint id → material lookup(同 globalMemberId 共用材料)
+  const jById = new Map(joints.map(j => [j.id, j]));
+  // 區塊 1  — JOINT             (col A-D)   ─ 全部節點(anchor + brace),
+  //                                          依 sub-header 分:`* XX nn / * ZZ nn` 為 anchor 柱線,
+  //                                          `* BRACE YZ` / `* BRACE XY` / `* BRACE XZ` 為對應平面斜撐節點
+  // MEMBER 區塊改成每塊 11 欄寬:一列最多 3 條桿件,以 `;` 分隔(3*3 + 2 = 11);
+  // 區塊 5  — MEMBER Y-axis     (col U-AE,  20-30) ─ Y 軸向桿件(柱)
+  // 區塊 6  — MEMBER XZ         (col AG-AQ, 32-42) ─ X + Z 軸樑(頁面 → X/Z-axis 兩層分群)
+  // 區塊 7  — MEMBER BRACE XZ   (col AS-BC, 44-54) ─ XZ 平面斜撐(樓板斜撐),依頁面分小區
+  // 區塊 8  — MEMBER BRACE XY   (col BF-BP, 57-67) ─ XY 平面斜撐(BRACE 之間 2 條空白)
+  // 區塊 9  — MEMBER BRACE YZ   (col BS-CC, 70-80) ─ YZ 平面斜撐
+  // 黃色分隔欄(col CE, 0-based 82)= MEMBER 類 vs MATERIAL 類
+  // 區塊 10 — MEMBER PROPERTIES (col CF-CM, 83-90) ─ 只列有材料的(8 欄寬)
+  //
+  // 標題樣式:每個 section title 拆成多格 — 首格放 `*`,標題字串用空白拆,各字 / 詞獨立一格;
+  //          (例:"MEMBER BRACE XZ" → `*` | `MEMBER` | `BRACE` | `XZ`,佔 4 格)
+  //          row 2 首欄(原 "ID")改為 "*" 標記,其他欄維持 X/Y/Z 或 J1/J2 / Material
+  //          Sub-header(`* XX nn` / `* <pageName>` / `* X-axis` 等)同樣拆格輸出
+  // header 列:row 0 寫 section title;row 1 寫欄位名稱;row 2 起寫資料
+  // styleId 對照(對應後段組出來的 cellXfs):
+  //   1 = 區塊標題(粗體,深底)
+  //   2 = 欄位標題(粗體)
+  //   3 = comment 列(* XX / * ZZ)— 暖色底
+  //   4 = 節點 ID 欄位 — 淡藍底
+  //   5 = 桿件 ID 欄位 — 淡綠底
+  const cells = [];
+  const push = (rowIdx, colIdx, val, styleId) => {
+    const c = _xlsxCell(rowIdx, colIdx, val, styleId);
+    if (c) cells.push({ r: rowIdx, c: colIdx, s: c });
+  };
+  // Section titles — 每個 title 拆成多格:首格放 `*`,接著用空白拆字、每個字 / 詞獨立一格
+  //   例:"BRACE XY"        → baseCol=*, +1=BRACE, +2=XY
+  //       "MEMBER BRACE XZ" → baseCol=*, +1=MEMBER, +2=BRACE, +3=XZ
+  const _pushTitle = (baseCol, title) => {
+    push(0, baseCol, "*", 1);
+    const words = String(title).split(/\s+/).filter(Boolean);
+    for (let i = 0; i < words.length; i++) {
+      push(0, baseCol + 1 + i, words[i], 1);
+    }
+  };
+  // Sub-header(`* XX nn` / `* ZZ nn` / `* <pageName>` / `* PLANE XY` / 純 `*` 等)拆格輸出:
+  //   用空白分,每段獨立一格,全部套 styleId 3(comment 列暖色底)
+  //   例:"* XX 01"      → `*` | `XX` | `01`
+  //       "* PLANE XY"   → `*` | `PLANE` | `XY`
+  //       "* 倉儲鋼構#1" → `*` | `倉儲鋼構#1`(無內部空白 → 1 + 1 = 2 格)
+  //       "*"            → `*`(單格)
+  const _pushSubHeader = (rowIdx, baseCol, label, styleId) => {
+    const sId = (styleId != null) ? styleId : 3;
+    const parts = String(label).split(/\s+/).filter(Boolean);
+    for (let i = 0; i < parts.length; i++) {
+      push(rowIdx, baseCol + i, parts[i], sId);
+    }
+  };
+  _pushTitle(0,  "JOINT");
+  _pushTitle(5,  "JOINT");   // JOINT 拆成兩大列區塊,左右各 half 的 (XX, ZZ) 柱線
+  // MEMBER 區塊每塊寬 11 欄:3 個桿件 × (ID/J1/J2) + 2 個 `;` 分隔 → 一列最多裝 3 條桿件
+  _pushTitle(20, "MEMBER Y-axis");        // 20-30
+  _pushTitle(32, "MEMBER XZ");            // 32-42(+1 gap)
+  _pushTitle(44, "MEMBER BRACE XZ");      // 44-54(+1 gap)
+  _pushTitle(57, "MEMBER BRACE XY");      // 57-67(+2 gap,BRACE 之間 2 條空白)
+  _pushTitle(70, "MEMBER BRACE YZ");      // 70-80
+  _pushTitle(83, "MEMBER PROPERTIES");    // 83-90(+1 extra + 黃色分隔 col 82)
+  // Column headers — 首欄(ID 欄)用 `*` 取代「ID」;其他欄維持
+  push(1, 0,  "*", 2);   push(1, 1,  "X", 2);  push(1, 2,  "Y", 2);  push(1, 3,  "Z", 2);
+  push(1, 5,  "*", 2);   push(1, 6,  "X", 2);  push(1, 7,  "Y", 2);  push(1, 8,  "Z", 2);   // 第 2 大列區塊的 column header
+  // MEMBER 區塊 row 2:首組 `* J1 J2` 標頭(剩餘的「; ID J1 J2; ID J1 J2」標頭留空,因為視覺已經由 ; 分明)
+  push(1, 20, "*", 2);   push(1, 21, "J1", 2); push(1, 22, "J2", 2);
+  push(1, 32, "*", 2);   push(1, 33, "J1", 2); push(1, 34, "J2", 2);
+  push(1, 44, "*", 2);   push(1, 45, "J1", 2); push(1, 46, "J2", 2);
+  push(1, 57, "*", 2);   push(1, 58, "J1", 2); push(1, 59, "J2", 2);
+  push(1, 70, "*", 2);   push(1, 71, "J1", 2); push(1, 72, "J2", 2);
+  push(1, 83, "*", 2);   push(1, 89, "Table", 2);  push(1, 90, "Material", 2);
+  // ── Joint 區塊:按 (XX, ZZ) rank 分區。共用 helper 改由 buildExportContext() 一次建好(Phase 4 dedup)
+  const _ctx = buildExportContext({ joints, members });
+  const {
+    jWorldById: _jWorldById, rankByJointId: _rankByJointId,
+    classifyMember3D: _classifyMember3D, planeForDiagMember: _planeForDiagMember,
+    memberMat: _memberMat, matObjByName: _matObjByName, memberPageById: _memberPageById,
+    memY: _memY, memXAxis: _memXAxis, memZAxis: _memZAxis,
+    memBraceXZ: _memBraceXZ, memBraceXY: _memBraceXY, memBraceYZ: _memBraceYZ,
+    yAnchorMax: _yAnchorMax, braceRanks: _braceRanks,
+    isBraceJoint: _isBraceJoint, braceJointPlane: _braceJointPlane,
+    bySubBlockCoord: _bySubBlockCoord,
+    md: _md, rndForRank: _rndForRank,
+  } = _ctx;
+  // 註:_idsToSegs 不從 ctx 拿(xlsx 用 token-array 格式 [["123"],["123","TO","456"]],
+  //   shared.ts 是 string 格式 ["123","123 TO 456"];兩者 API 不同,xlsx 保留自己 local 版本)
+  // 排序:XX 升序 → ZZ 升序 → 小區內 ID 升序(後備 fallback 座標)
+  const _jointsSorted = joints.slice().sort((a, b) => {
+    const ra = _rankByJointId.get(a.id) || {}, rb = _rankByJointId.get(b.id) || {};
+    const ax = ra.xr || 9999, bx = rb.xr || 9999;
+    if (ax !== bx) return ax - bx;
+    const az = ra.zr || 9999, bz = rb.zr || 9999;
+    if (az !== bz) return az - bz;
+    if ((a.id || 0) !== (b.id || 0)) return (a.id || 0) - (b.id || 0);
+    const ay = _rndForRank(a.y), by = _rndForRank(b.y);
+    if (ay !== by) return ay - by;
+    const aX = _rndForRank(a.x), bX = _rndForRank(b.x);
+    if (aX !== bX) return aX - bX;
+    return _rndForRank(a.z) - _rndForRank(b.z);
+  });
+  const _regularSorted = _jointsSorted.filter(j => !_isBraceJoint(j));
+  const _braceSorted   = _jointsSorted.filter(j =>  _isBraceJoint(j));
+  // 渲染單一節點區塊:從 row=2 起,XX/ZZ rank 分小區,小區內 anchor→demote 插 * 標記
+  //   baseCol = 該區塊 ID 欄位的 column index(JOINT COORDINATES=0, JOINT BRACE=5)
+  //   opts.planeOf:若提供 → 先按 plane 分子群,每子群前插 `* PLANE XX/YZ/XZ` header,
+  //                  XY > YZ > XZ priority,plane 不明的進 `* PLANE ?` 子群最後
+  const _renderJointBlock = (sortedList, baseCol, opts) => {
+    opts = opts || {};
+    const planeOf = opts.planeOf;
+    // 分子群(若無 planeOf 視為單一群,跳過 plane header)
+    const subGroups = [];   // [{ header: string|null, items: [] }]
+    if (planeOf) {
+      const byPlane = new Map();
+      for (const j of sortedList) {
+        const pl = planeOf(j) || "?";
+        if (!byPlane.has(pl)) byPlane.set(pl, []);
+        byPlane.get(pl).push(j);
+      }
+      for (const pl of ["XY", "YZ", "XZ"]) {
+        if (byPlane.has(pl)) subGroups.push({ header: `* PLANE ${pl}`, items: byPlane.get(pl) });
+      }
+      if (byPlane.has("?")) subGroups.push({ header: `* PLANE ?`, items: byPlane.get("?") });
+    } else {
+      subGroups.push({ header: null, items: sortedList });
+    }
+    let _r = 2;
+    for (const grp of subGroups) {
+      if (grp.header) _pushSubHeader(_r++, baseCol, grp.header);
+      if (planeOf) {
+        // 平面為唯一分群 → 拿掉 XX/ZZ 小區與 anchor→demote 標記,
+        //   同平面節點直接依 ID 升序連續列出
+        const _planeItems = grp.items.slice().sort((a, b) => (a.id || 0) - (b.id || 0));
+        for (const j of _planeItems) {
+          push(_r, baseCol,     j.id, 4);
+          push(_r, baseCol + 1, +(_rndForRank(j.x) * k).toFixed(4));
+          push(_r, baseCol + 2, +(_rndForRank(j.y) * k).toFixed(4));
+          push(_r, baseCol + 3, +(_rndForRank(j.z) * k).toFixed(4));
+          _r++;
+        }
+        continue;
+      }
+      let _prevXr = null, _prevZr = null, _prevYr = null;
+      for (const j of grp.items) {
+        const rk = _rankByJointId.get(j.id) || {};
+        if (rk.xr !== _prevXr || rk.zr !== _prevZr) {
+          _pushSubHeader(_r++, baseCol, `* XX ${rk.xr != null ? String(rk.xr).padStart(2, "0") : "?"}`, 7);
+          _pushSubHeader(_r++, baseCol, `* ZZ ${rk.zr != null ? String(rk.zr).padStart(2, "0") : "?"}`, 7);
+          _prevXr = rk.xr; _prevZr = rk.zr;
+          _prevYr = null;
+        } else if (_yAnchorMax > 0 && _prevYr != null && rk.yr != null
+                   && _prevYr <= _yAnchorMax && rk.yr > _yAnchorMax) {
+          _pushSubHeader(_r++, baseCol, "*");
+        }
+        push(_r, baseCol,     j.id, 4);
+        push(_r, baseCol + 1, +(_rndForRank(j.x) * k).toFixed(4));
+        push(_r, baseCol + 2, +(_rndForRank(j.y) * k).toFixed(4));
+        push(_r, baseCol + 3, +(_rndForRank(j.z) * k).toFixed(4));
+        _r++;
+        _prevYr = rk.yr;
+      }
+    }
+  };
+  // JOINT 區拆成兩個大列區塊(左右並排,各 col 0-3 / col 5-8):
+  //   依 (XX, ZZ) 柱線分桶;sortedLines 一半放左、一半放右
+  //   每個柱線群內:`* XX nn / * ZZ nn` → anchor → BRACE YZ → BRACE XY → BRACE XZ
+  {
+    const _writeJointRow = (_r, j, baseCol) => {
+      push(_r, baseCol,     j.id, 4);
+      push(_r, baseCol + 1, +(_rndForRank(j.x) * k).toFixed(4));
+      push(_r, baseCol + 2, +(_rndForRank(j.y) * k).toFixed(4));
+      push(_r, baseCol + 3, +(_rndForRank(j.z) * k).toFixed(4));
+    };
+    const linesMap = new Map();
+    const _getBucket = (rk) => {
+      const xr = rk.xr || null, zr = rk.zr || null;
+      const key = `${xr}|${zr}`;
+      if (!linesMap.has(key)) {
+        linesMap.set(key, { xr, zr, anchors: [], bracesByPlane: new Map() });
+      }
+      return linesMap.get(key);
+    };
+    for (const j of _regularSorted) {
+      const rk = _rankByJointId.get(j.id) || {};
+      _getBucket(rk).anchors.push(j);
+    }
+    let _unknownBraceCount = 0;
+    for (const j of _braceSorted) {
+      const rk = _rankByJointId.get(j.id) || {};
+      const bucket = _getBucket(rk);
+      let pl = _braceJointPlane(j) || "?";
+      if (pl === "?") { _unknownBraceCount++; pl = "XZ"; }
+      if (!bucket.bracesByPlane.has(pl)) bucket.bracesByPlane.set(pl, []);
+      bucket.bracesByPlane.get(pl).push(j);
+    }
+    if (_unknownBraceCount) {
+      console.warn(`[xlsx] ${_unknownBraceCount} 顆 brace joint 沒接到任何斜撐桿件,plane 投票無結果 → 併入 BRACE XZ`);
+    }
+    const sortedLines = [...linesMap.values()].sort((a, b) => {
+      const ax = a.xr || 9999, bx = b.xr || 9999;
+      if (ax !== bx) return ax - bx;
+      return (a.zr || 9999) - (b.zr || 9999);
+    });
+    // 一半放左 (col 0-3),一半放右 (col 5-8);ceil 讓左略長
+    const _half = Math.ceil(sortedLines.length / 2);
+    // _bySubBlockCoord 從 buildExportContext destructure 拿(Phase 4 dedup)
+    const _renderLineGroup = (lines, baseCol) => {
+      let _r = 2;
+      for (const line of lines) {
+        // 柱線 header(* XX nn / * ZZ nn)用 styleId 7(淡藍底,跟 BRACE 等差色)
+        _pushSubHeader(_r++, baseCol, `* XX ${line.xr != null ? String(line.xr).padStart(2, "0") : "?"}`, 7);
+        _pushSubHeader(_r++, baseCol, `* ZZ ${line.zr != null ? String(line.zr).padStart(2, "0") : "?"}`, 7);
+        // anchor 節點前插一層 `* Y-axis`(跟 BRACE 平面 sub-header 同層級、同色 styleId 3)
+        if (line.anchors.length) {
+          _pushSubHeader(_r++, baseCol, "* Y-axis");
+          const anchors = line.anchors.slice().sort(_bySubBlockCoord);
+          for (const j of anchors) { _writeJointRow(_r, j, baseCol); _r++; }
+        }
+        for (const pl of ["YZ", "XY", "XZ"]) {
+          const items = line.bracesByPlane.get(pl);
+          if (!items || !items.length) continue;
+          _pushSubHeader(_r++, baseCol, `* BRACE ${pl}`);
+          const sorted = items.slice().sort(_bySubBlockCoord);
+          for (const j of sorted) { _writeJointRow(_r, j, baseCol); _r++; }
+        }
+      }
+    };
+    _renderLineGroup(sortedLines.slice(0, _half), 0);
+    _renderLineGroup(sortedLines.slice(_half),    5);
+  }
+  // ── MEMBER 四大區 + MEMBER PROPERTIES ──
+  //   分類規則(3D 方向,cos(3°)≈0.9986 軸向門檻):
+  //     Y 軸(柱)         → MEMBER Y-axis        (col U-W)
+  //     X 軸 / Z 軸 / XZ 平面斜撐 → MEMBER XZ    (col Y-AA)
+  //     XY 平面斜撐(垂直牆)→ MEMBER BRACE XY    (col AC-AE)
+  //     YZ 平面斜撐(垂直牆)→ MEMBER BRACE YZ    (col AG-AI)
+  //   排序:
+  //     MEMBER Y-axis  — 用 j1 端 (XX rank, ZZ rank) 分小區,前插 `* XX nn / * ZZ nn`;
+  //                       區間順序:ZZ 升序(primary)→ XX 升序(secondary)→ ID 升序
+  //                       (Y 軸桿件兩端 X/Z 相同,故 j1 即可代表柱線)
+  //     MEMBER XZ     — 用「來源頁面名稱」分小區(`* <fileName>#<pageIdx+1>`),
+  //                       群間依 page elev(pg.z)升序 → 頁名稱 → ID 升序
+  //     BRACE XY / BRACE YZ — 純 ID 升序、無小區分隔
+  //   MEMBER PROPERTIES 跨四區彙整,以 ID 升序列出有材料的桿件。
+  // _memberMat / _classifyMember3D / _memRows + 6 buckets / _memberPageById
+  // 全部從 buildExportContext destructure 拿(Phase 4 dedup)。
+  // 注意:此處原本的 _memberPageById 額外存 .file / .pg / .k / .plane,但下游 xlsx 邏輯只用 .pageName + .elev,
+  //   shared.ts 版本已涵蓋所需欄位。
+  const _byId = (a, b) => (a.m.id || 0) - (b.m.id || 0);
+  // MEMBER 區塊:一列最多 3 條桿件,以 `;` 分隔。每組占 3 欄(ID, J1, J2)+ 1 欄 `;`(末組無 `;`)
+  //   塊寬 = 3*3 + 2 = 11 欄。helper 把一個 rows 陣列從 startRow 開始 pack,回傳結束後下一個可用 row index
+  const MEMBER_SETS_PER_ROW = 3, MEMBER_SET_W = 3;
+  const _writeMembersPacked = (rows, baseCol, startRow) => {
+    let _r = startRow;
+    for (let i = 0; i < rows.length; i += MEMBER_SETS_PER_ROW) {
+      const slice = rows.slice(i, i + MEMBER_SETS_PER_ROW);
+      for (let j = 0; j < slice.length; j++) {
+        const off = j * (MEMBER_SET_W + 1);
+        const entry = slice[j];
+        const m = entry.m || (entry.mr && entry.mr.m);
+        if (!m) continue;
+        push(_r, baseCol + off,     m.id, 5);
+        push(_r, baseCol + off + 1, m.j1);
+        push(_r, baseCol + off + 2, m.j2);
+        if (j < slice.length - 1) push(_r, baseCol + off + 3, ";");
+      }
+      _r++;
+    }
+    return _r;
+  };
+  const _renderMemberFlat = (rows, baseCol) => { _writeMembersPacked(rows, baseCol, 2); };
+  // MEMBER Y-axis(col 20-30):基於柱線 (XX, ZZ) 分小區 — Y 軸桿件兩端共用 X/Z,可用 j1 端 rank 當 key
+  //   排序:ZZ 升序(primary)→ XX 升序(secondary)→ ID 升序
+  //   每個 (XX, ZZ) 群前插 `* XX nn / * ZZ nn` header,群內走 packed 3-per-row
+  const _rankForMemberJ1 = (mr) => {
+    const j1 = _jWorldById.get(mr.m.j1);
+    if (!j1) return { xr: null, zr: null };
+    const rk = _rankByJointId.get(j1.id) || {};
+    return { xr: rk.xr || null, zr: rk.zr || null };
+  };
+  const _memYRanked = _memY.map(mr => Object.assign({ mr }, _rankForMemberJ1(mr)));
+  _memYRanked.sort((a, b) => {
+    const az = a.zr || 9999, bz = b.zr || 9999;
+    if (az !== bz) return az - bz;
+    const ax = a.xr || 9999, bx = b.xr || 9999;
+    if (ax !== bx) return ax - bx;
+    return (a.mr.m.id || 0) - (b.mr.m.id || 0);
+  });
+  {
+    let _r = 2, _prevXr = null, _prevZr = null, _bucket = [];
+    const _flushBucket = () => {
+      if (!_bucket.length) return;
+      _r = _writeMembersPacked(_bucket, 20, _r);
+      _bucket = [];
+    };
+    for (const entry of _memYRanked) {
+      if (entry.xr !== _prevXr || entry.zr !== _prevZr) {
+        _flushBucket();
+        _pushSubHeader(_r++, 20, `* XX ${entry.xr != null ? String(entry.xr).padStart(2, "0") : "?"}`, 7);
+        _pushSubHeader(_r++, 20, `* ZZ ${entry.zr != null ? String(entry.zr).padStart(2, "0") : "?"}`, 7);
+        _prevXr = entry.xr; _prevZr = entry.zr;
+      }
+      _bucket.push(entry);
+    }
+    _flushBucket();
+  }
+  // MEMBER XZ(col 32-42):兩層分群 — 外層『頁面』→ 內層『X-axis / Z-axis』,各自走 packed 3-per-row
+  //   排序:頁面 elev (pg.z) 升序 → 頁面名稱 → 方向(X 在前 Z 在後) → ID 升序
+  {
+    const _xzCombined = [..._memXAxis, ..._memZAxis];
+    const byPage = new Map();
+    for (const mr of _xzCombined) {
+      const info = _memberPageById.get(mr.m.id);
+      const pageName = info ? info.pageName : "?";
+      const elev = info ? info.elev : Infinity;
+      if (!byPage.has(pageName)) byPage.set(pageName, { elev, items: [] });
+      byPage.get(pageName).items.push(mr);
+    }
+    const sortedPages = [...byPage.entries()].sort((a, b) => {
+      if (a[1].elev !== b[1].elev) return a[1].elev - b[1].elev;
+      return a[0].localeCompare(b[0]);
+    });
+    let _r = 2;
+    for (const [pageName, info] of sortedPages) {
+      _pushSubHeader(_r++, 32, `* ${pageName}`);
+      const xRows = info.items.filter(mr => mr.cat === "X").sort(_byId);
+      const zRows = info.items.filter(mr => mr.cat === "Z").sort(_byId);
+      if (xRows.length) {
+        _pushSubHeader(_r++, 32, `* X-axis`);
+        _r = _writeMembersPacked(xRows, 32, _r);
+      }
+      if (zRows.length) {
+        _pushSubHeader(_r++, 32, `* Z-axis`);
+        _r = _writeMembersPacked(zRows, 32, _r);
+      }
+    }
+  }
+  // BRACE XZ(col 44-54):依頁面分小區(維持單層 page header),群內走 packed 3-per-row
+  const _renderMemberByPage = (rows, baseCol) => {
+    const withPage = rows.map(mr => {
+      const info = _memberPageById.get(mr.m.id);
+      return { mr, pageName: info ? info.pageName : "?", elev: info ? info.elev : Infinity };
+    });
+    withPage.sort((a, b) => {
+      if (a.elev !== b.elev) return a.elev - b.elev;
+      if (a.pageName !== b.pageName) return a.pageName.localeCompare(b.pageName);
+      return (a.mr.m.id || 0) - (b.mr.m.id || 0);
+    });
+    let _r = 2, _prevPage = null, _bucket = [];
+    const _flushBucket = () => {
+      if (!_bucket.length) return;
+      _r = _writeMembersPacked(_bucket, baseCol, _r);
+      _bucket = [];
+    };
+    for (const entry of withPage) {
+      if (entry.pageName !== _prevPage) {
+        _flushBucket();
+        _pushSubHeader(_r++, baseCol, `* ${entry.pageName}`);
+        _prevPage = entry.pageName;
+      }
+      _bucket.push(entry);
+    }
+    _flushBucket();
+  };
+  _renderMemberByPage(_memBraceXZ, 44);
+  _renderMemberFlat(_memBraceXY,   57);
+  _renderMemberFlat(_memBraceYZ,   70);
+  // MEMBER PROPERTIES — 跟 MEMBER 區同樣的分區結構,每子區用 (table, name) 分組壓縮:
+  //   每列最多 6 個 ID-related 欄位(個別 ID 1 格,或 "start TO end" 3 格),不足補空白
+  //   後接 Table(col 46) / Material(col 47)固定欄位
+  const MAT_BASE_COL  = 83;
+  const MAT_ID_SLOTS  = 6;
+  const MAT_TABLE_COL = MAT_BASE_COL + MAT_ID_SLOTS;     // 89
+  const MAT_NAME_COL  = MAT_TABLE_COL + 1;               // 90
+  // sorted ids → segments:連續(差 1)壓成 [start,"TO",end];單個成 [id]
+  //   排序:純數字 → 數值升序;含非數字 → 字典(numeric-aware)升序
+  //   單桿件之間、單桿件 vs 範圍之間 都依此順序排列
+  const _idsToSegs = (ids) => {
+    const sorted = [...ids].sort((a, b) => {
+      const na = Number(a), nb = Number(b);
+      if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+      return String(a).localeCompare(String(b), undefined, { numeric: true });
+    });
+    const segs = [];
+    let i = 0;
+    while (i < sorted.length) {
+      let j = i;
+      // 只有「兩者都是數字」且差 1 才連續;若任一非數字直接斷段
+      while (j + 1 < sorted.length) {
+        const cur = Number(sorted[j]), nxt = Number(sorted[j + 1]);
+        if (Number.isFinite(cur) && Number.isFinite(nxt) && nxt === cur + 1) j++;
+        else break;
+      }
+      if (j === i) segs.push([sorted[i]]);
+      else segs.push([sorted[i], "TO", sorted[j]]);
+      i = j + 1;
+    }
+    return segs;
+  };
+  // segments 攤平 → 切成 6-cell rows(不足補空白)
+  const _segsToRows = (segs) => {
+    const cells = [];
+    for (const s of segs) cells.push(...s);
+    const rows = [];
+    for (let i = 0; i < cells.length; i += MAT_ID_SLOTS) {
+      const row = cells.slice(i, i + MAT_ID_SLOTS);
+      while (row.length < MAT_ID_SLOTS) row.push("");
+      rows.push(row);
+    }
+    return rows;
+  };
+  // _matObjByName 從 buildExportContext destructure 拿(Phase 4 dedup)
+  // 寫一個子區:label = sub header(如 "Y-axis"),rows = 該子區的 _memRows
+  let _rMat = 2;
+  const _writeSubProp = (label, rows) => {
+    const grouped = new Map();   // "<table>||<name>" → { table, name, ids: [] }
+    for (const mr of rows) {
+      const name = mr.mat ? String(mr.mat).trim() : "";
+      if (!name) continue;
+      const matObj = _matObjByName.get(name);
+      const tableStr = matObj && matObj.table ? String(matObj.table) : "";
+      const key = `${tableStr}||${name}`;
+      if (!grouped.has(key)) grouped.set(key, { table: tableStr, name, ids: [] });
+      grouped.get(key).ids.push(mr.m.id);
+    }
+    if (!grouped.size) return;
+    _pushSubHeader(_rMat++, MAT_BASE_COL, `* ${label}`);
+    const groupList = [...grouped.values()].sort((a, b) => {
+      if (a.table !== b.table) return a.table.localeCompare(b.table);
+      return a.name.localeCompare(b.name);
+    });
+    for (const g of groupList) {
+      const idRows = _segsToRows(_idsToSegs(g.ids));
+      for (const r of idRows) {
+        for (let i = 0; i < MAT_ID_SLOTS; i++) {
+          const v = r[i];
+          if (v === "" || v === undefined) continue;
+          // 數字 ID 用 styleId 5(淡綠底,桿件 ID);"TO" 等字串不上色
+          push(_rMat, MAT_BASE_COL + i, v, typeof v === "number" ? 5 : undefined);
+        }
+        if (g.table) push(_rMat, MAT_TABLE_COL, g.table);
+        if (g.name)  push(_rMat, MAT_NAME_COL,  g.name);
+        _rMat++;
+      }
+    }
+  };
+  // Y-axis 特例:在 (table, name) 分組之前先依「來源頁面」分子區(對應 XY elevation 視圖)
+  //   結構:* Y-axis → * <pageName> → (table, name) 群 → 壓縮 TO ranges
+  //   排序:page elev (pg.z) 升序 → page name → 群間 (table, name)
+  //   柱類桿件在 XZ 平面圖通常以「joint 點」呈現,不在 pg.members 裡,所以
+  //   `_memberPageById` 優先序 XZ → XY → YZ 會 fallback 到 XY elevation page,自然分到對應 XY 子區
+  const _writeSubPropForYaxis = () => {
+    const byPage = new Map();   // pageName → { elev, members: [] }
+    for (const mr of _memY) {
+      if (!mr.mat || !String(mr.mat).trim()) continue;
+      const info = _memberPageById.get(mr.m.id);
+      const pageName = info ? info.pageName : "?";
+      const elev = info ? info.elev : Infinity;
+      if (!byPage.has(pageName)) byPage.set(pageName, { elev, members: [] });
+      byPage.get(pageName).members.push(mr);
+    }
+    if (!byPage.size) return;
+    _pushSubHeader(_rMat++, MAT_BASE_COL, "* Y-axis");
+    const sortedPages = [...byPage.entries()].sort((a, b) => {
+      if (a[1].elev !== b[1].elev) return a[1].elev - b[1].elev;
+      return a[0].localeCompare(b[0]);
+    });
+    for (const [pageName, pgInfo] of sortedPages) {
+      _pushSubHeader(_rMat++, MAT_BASE_COL, `* ${pageName}`);
+      const grouped = new Map();
+      for (const mr of pgInfo.members) {
+        const name = String(mr.mat).trim();
+        const matObj = _matObjByName.get(name);
+        const tableStr = matObj && matObj.table ? String(matObj.table) : "";
+        const key = `${tableStr}||${name}`;
+        if (!grouped.has(key)) grouped.set(key, { table: tableStr, name, ids: [] });
+        grouped.get(key).ids.push(mr.m.id);
+      }
+      const groupList = [...grouped.values()].sort((a, b) => {
+        if (a.table !== b.table) return a.table.localeCompare(b.table);
+        return a.name.localeCompare(b.name);
+      });
+      for (const g of groupList) {
+        const idRows = _segsToRows(_idsToSegs(g.ids));
+        for (const r of idRows) {
+          for (let i = 0; i < MAT_ID_SLOTS; i++) {
+            const v = r[i];
+            if (v === "" || v === undefined) continue;
+            push(_rMat, MAT_BASE_COL + i, v, typeof v === "number" ? 5 : undefined);
+          }
+          if (g.table) push(_rMat, MAT_TABLE_COL, g.table);
+          if (g.name)  push(_rMat, MAT_NAME_COL,  g.name);
+          _rMat++;
+        }
+      }
+    }
+  };
+  _writeSubPropForYaxis();
+  _writeSubProp("XZ X-axis", _memXAxis);
+  _writeSubProp("XZ Z-axis", _memZAxis);
+  _writeSubProp("BRACE XZ",  _memBraceXZ);
+  _rMat++;   // BRACE XZ 後加一列空白 — 水平群(Y / XZ / BRACE XZ)與垂直 brace 群之間的視覺分隔
+  _writeSubProp("BRACE XY",  _memBraceXY);
+  _writeSubProp("BRACE YZ",  _memBraceYZ);
+  _rMat++;   // BRACE YZ 後也加一列空白 — PROPERTIES 區結尾收齊,跟 BRACE XZ 後對稱
+  // 大區分隔欄(黃色)改用 OOXML <cols> 元素整欄套色,不再 push per-row 空格(避免大量空格 cell 造成 Excel 開檔抱怨)
+  //   col 19(T)= JOINT 類 vs MEMBER 類;col 39(AN)= MEMBER 類 vs MATERIAL 類
+  //   實際的 <cols> 寫在 sheetXml 組裝那段
+  const _matRowCount = _memRows.filter(mr => mr.mat && String(mr.mat).trim()).length;
+  // 按 row 分組 → 組 sheet 的 <row> 標記;row 內 cells 必須依 column 升序(OOXML 規範)
+  const rowMap = new Map();
+  for (const c of cells) {
+    if (!rowMap.has(c.r)) rowMap.set(c.r, []);
+    rowMap.get(c.r).push(c);
+  }
+  const rowKeys = [...rowMap.keys()].sort((a, b) => a - b);
+  const rowsXml = rowKeys.map(r => {
+    const sorted = rowMap.get(r).slice().sort((a, b) => a.c - b.c);
+    return `<row r="${r+1}">${sorted.map(x => x.s).join("")}</row>`;
+  }).join("");
+  // <cols> 套整欄黃色樣式(1-based col index)
+  //   col 20 → 0-based col 19 (T) :JOINT 類 vs MEMBER 類
+  //   col 83 → 0-based col 82 (CE):MEMBER 類 vs MATERIAL 類
+  //     (MEMBER 每塊擴成 11 欄寬 → PROPERTIES 累積右移到 col 83-90)
+  //   width=2 + customWidth=1 把分隔欄縮窄,視覺上更像分區線
+  const colsXml = `<cols>` +
+    `<col min="20" max="20" width="2" customWidth="1" style="6"/>` +
+    `<col min="83" max="83" width="2" customWidth="1" style="6"/>` +
+    `</cols>`;
+  const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${colsXml}<sheetData>${rowsXml}</sheetData></worksheet>`;
+  // 標準 OOXML container 檔案 + styles.xml(自訂底色 / 字型 / 對齊)
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>`;
+  const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`;
+  const wb = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets><sheet name="Model" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+  const wbRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`;
+  // styles.xml — 8 個 cellXf:
+  //   0 default / 1 區塊大標(深藍底+白字+粗體)/ 2 欄位標題(粗體+淺灰底)
+  //   3 一般 sub-header(* Y-axis / * BRACE YZ / * <pageName> 等,暖橘底,斜體灰字)
+  //   4 節點 ID 欄(淡藍底)
+  //   5 桿件 / 材料 ID 欄(淡綠底)
+  //   6 大區分隔欄(純黃色,JOINT / MEMBER / MATERIAL 三類之間)
+  //   7 柱線 sub-header(* XX nn / * ZZ nn,淡藍底,斜體灰字)— 跟 BRACE 等差色
+  const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts count="4">
+<font><sz val="12"/><name val="Calibri"/></font>
+<font><sz val="12"/><name val="Calibri"/><b/><color rgb="FFFFFFFF"/></font>
+<font><sz val="12"/><name val="Calibri"/><b/></font>
+<font><sz val="12"/><name val="Calibri"/><i/><color rgb="FF666666"/></font>
+</fonts>
+<fills count="9">
+<fill><patternFill patternType="none"/></fill>
+<fill><patternFill patternType="gray125"/></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF1F4E78"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFEDEDED"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFFFE4B5"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFD0E4F5"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFD4EFCC"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFFFFF00"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFCCE5FF"/><bgColor indexed="64"/></patternFill></fill>
+</fills>
+<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="8">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
+<xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
+<xf numFmtId="0" fontId="3" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
+<xf numFmtId="0" fontId="0" fillId="5" borderId="0" xfId="0" applyFill="1"/>
+<xf numFmtId="0" fontId="0" fillId="6" borderId="0" xfId="0" applyFill="1"/>
+<xf numFmtId="0" fontId="0" fillId="7" borderId="0" xfId="0" applyFill="1"/>
+<xf numFmtId="0" fontId="3" fillId="8" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
+</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+  const files = [
+    { name: "[Content_Types].xml",       data: _strBytes(contentTypes) },
+    { name: "_rels/.rels",               data: _strBytes(rels) },
+    { name: "xl/workbook.xml",           data: _strBytes(wb) },
+    { name: "xl/_rels/workbook.xml.rels",data: _strBytes(wbRels) },
+    { name: "xl/styles.xml",             data: _strBytes(stylesXml) },
+    { name: "xl/worksheets/sheet1.xml",  data: _strBytes(sheetXml) },
+  ];
+  const zip = _buildZip(files);
+  const blob = new Blob([zip], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const projectName = ($("jobName") && $("jobName").value.trim()) || "model";
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `${projectName}.xlsx`;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+  if ($("hud")) $("hud").textContent = `匯出 .xlsx 完成・${joints.length} 節點 / ${members.length} 桿件 / ${_matRowCount} 材料`;
+  // 撞號 fallback 集中通知(buildModel 已收集,console 也有 detail)
+  setTimeout(() => { try { showBuildModelCollisionsIfAny(".xlsx 匯出"); } catch (_) {} }, 50);
+}
