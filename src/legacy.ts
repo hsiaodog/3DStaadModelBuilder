@@ -137,6 +137,9 @@ export const state = {
 };
 
 let nextJointId = 1, nextMemberId = 1, nextFileId = 1, nextGlobalJointId = 1, nextGlobalMemberId = 1;
+// Phase 6 fix 3:ESM 不允許跨模組對 `let` 做 post-increment,提供配發 id 的小函式給 render/index.ts
+export function allocJointId() { return nextJointId++; }
+export function allocMemberId() { return nextMemberId++; }
 
 // ---------- 復原 / 重做 ----------
 const undoStack = [];
@@ -829,7 +832,7 @@ function applyAutoPairings(accepted) {
 
 // ---------- DOM ----------
 export const $ = (id) => document.getElementById(id);
-const wrap = $("canvas-wrap");
+export const wrap = $("canvas-wrap");
 const stage = $("stage");
 const bg = $("bg-canvas");
 const bgctx = bg.getContext("2d");
@@ -2638,7 +2641,7 @@ let panning = false, panStart = null;
 let mouseDownPos = null;
 let alignDrag = null;     // 手動對齊拖曳:{ startX, startY, startRot, snapshotPushed }
 let dragMove = null;      // 選取後拖曳節點:{ startX, startY, positions:Map, axis, moved }
-let cKeyDown = false;     // C 鍵按住中:對線段點擊會在中點插入新節點
+export let cKeyDown = false;     // C 鍵按住中:對線段點擊會在中點插入新節點
 wrap.addEventListener("mousedown", (e) => {
   if (state.rangeZoomMode && e.button === 0) {
     // 範圍放大:mousedown 記錄拖曳起點,mouseup 依位移判定拖曳 / 點擊
@@ -4791,7 +4794,7 @@ function _getPageBoundsForFile(file) {
 //     2. 判斷哪一個交點是「往外」(從 bg center 出發、沿 lp 線方向走、離 bg 中心較遠那一邊)
 //     3. tip = 該邊界交點 + 小 gap 出 bg
 //     4. tail = tip + markerLen 沿 outward 方向
-function _computeOutsideMarkerLine(file, lp1, lp2) {
+export function _computeOutsideMarkerLine(file, lp1, lp2) {
   if (!lp1 || !lp2) return null;
   const bounds = _getPageBoundsForFile(file);
   const dxL = lp2.x - lp1.x, dyL = lp2.y - lp1.y;
@@ -4844,7 +4847,7 @@ function _computeOutsideMarkerLine(file, lp1, lp2) {
 
 // 把同一個檔案內幾何重疊的 sectionLink(p1/p2 接近)合併:回傳 [{ rep, allTargets:Set, allEntries:[] }]
 //   render 用這個結果畫:同一條切面只畫 1 個箭頭,標籤合併所有目標檔名(逗號連接)
-function _getMergedSectionLinks(af) {
+export function _getMergedSectionLinks(af) {
   if (!af) return [];
   // 衍生模型:從所有 primaries(包含 af 自己 + 其他檔)即時計算 af 上應顯示的 entries
   const entries = _deriveSectionLinksFor(af);
@@ -7653,7 +7656,7 @@ function evalNumExpr(input) {
 }
 
 // 把世界座標點 p 投影到「通過 a, b 的無限延伸直線」上
-function _projectPointOnLine(p, a, b) {
+export function _projectPointOnLine(p, a, b) {
   const dx = b.x - a.x, dy = b.y - a.y;
   const len2 = dx * dx + dy * dy;
   if (len2 < 1e-9) return { x: a.x, y: a.y };
@@ -11350,7 +11353,7 @@ wrap.addEventListener("contextmenu", (e) => {
 //   優先級:bg-vertex(端點)> bg-cross(交點)。
 //   找不到回 null,呼叫端通常會 fallback 到 snap()(吸節點 / 桿件投影)。
 //   用 page._bgSegsCache(activatePage 後填入,世界座標),不需要重新解析 SVG → 比 snapToBgPaths 快。
-function snapToBgVertex(world, opts) {
+export function snapToBgVertex(world, opts) {
   const page = (typeof getPage === "function") ? getPage() : null;
   const segs = page && page._bgSegsCache;
   if (!Array.isArray(segs) || !segs.length) return null;
@@ -11396,7 +11399,7 @@ function snapToBgVertex(world, opts) {
   return best;
 }
 
-function snapToBgPaths(world) {
+export function snapToBgPaths(world) {
   const bgSvgEl = document.getElementById("bgSvg");
   if (!bgSvgEl) return null;
   const radius = state.snapPx / state.zoom;
@@ -11439,7 +11442,7 @@ function snapToBgPaths(world) {
   return best;
 }
 
-function snap(p) {
+export function snap(p) {
   const radius = state.snapPx / state.zoom;
   let best = null, bestD = radius;
   for (const j of getPage().joints) {
@@ -11877,7 +11880,7 @@ function exitMoveMode() {
   applyTransform();
   render();
 }
-function moveModeTarget(cursorWorld) {
+export function moveModeTarget(cursorWorld) {
   const m = state.moveMode;
   if (!m.active || !m.base) return null;
   switch (m.type) {

@@ -17,6 +17,12 @@ import {
   tryConsumePendingGlobalPair,
   showHoverTip, moveHoverTip, hideHoverTip, fmtJointInfo, fmtMemberInfo,
   clearSelection, pushUndo, _markSelectionSourceIfEmpty,
+  // Phase 6 fix 2:_renderImpl 內仍會呼叫的 helper(snap、merged section links、投影 …)
+  activatePageWithBusy, refreshLists,
+  snap, snapToBgVertex, snapToBgPaths, moveModeTarget,
+  _computeOutsideMarkerLine, _getMergedSectionLinks, _projectPointOnLine,
+  // Phase 6 fix 3:DOM 容器、C 鍵旗標、ID 配發器
+  wrap, cKeyDown, allocJointId, allocMemberId,
 } from "../legacy";
 import { _worldForRank } from "../core/rankCache";
 
@@ -134,12 +140,12 @@ function _renderImpl() {
         if (!a || !b) return;
         pushUndo();
         const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-        const nj = { id: nextJointId++, x: mid.x, y: mid.y };
+        const nj = { id: allocJointId(), x: mid.x, y: mid.y };
         const p = getPage();
         p.joints.push(nj);
         p.members = p.members.filter(x => x !== m);
-        p.members.push({ id: nextMemberId++, j1: m.j1, j2: nj.id });
-        p.members.push({ id: nextMemberId++, j1: nj.id, j2: m.j2 });
+        p.members.push({ id: allocMemberId(), j1: m.j1, j2: nj.id });
+        p.members.push({ id: allocMemberId(), j1: nj.id, j2: m.j2 });
         render(); refreshLists();
         return;
       }
@@ -200,12 +206,12 @@ function _renderImpl() {
         else {
           // 在投影點切割線段,新增節點
           const px = a.x + t * dx, py = a.y + t * dy;
-          const nj = { id: nextJointId++, x: px, y: py };
+          const nj = { id: allocJointId(), x: px, y: py };
           const p = getPage();
           p.joints.push(nj);
           p.members = p.members.filter(x => x !== m);
-          p.members.push({ id: nextMemberId++, j1: m.j1, j2: nj.id });
-          p.members.push({ id: nextMemberId++, j1: nj.id, j2: m.j2 });
+          p.members.push({ id: allocMemberId(), j1: m.j1, j2: nj.id });
+          p.members.push({ id: allocMemberId(), j1: nj.id, j2: m.j2 });
           targetId = nj.id;
         }
         if (state.pendingLineStart && state.pendingLineStart !== targetId) {
@@ -1100,12 +1106,12 @@ function _renderImpl() {
         if (!a || !b) return;
         pushUndo();
         const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-        const nj = { id: nextJointId++, x: mid.x, y: mid.y };
+        const nj = { id: allocJointId(), x: mid.x, y: mid.y };
         const p = getPage();
         p.joints.push(nj);
         p.members = p.members.filter(x => x !== m);
-        p.members.push({ id: nextMemberId++, j1: m.j1, j2: nj.id });
-        p.members.push({ id: nextMemberId++, j1: nj.id, j2: m.j2 });
+        p.members.push({ id: allocMemberId(), j1: m.j1, j2: nj.id });
+        p.members.push({ id: allocMemberId(), j1: nj.id, j2: m.j2 });
         render(); refreshLists();
         return;
       }
