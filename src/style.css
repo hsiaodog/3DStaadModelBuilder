@@ -1,0 +1,9 @@
+/* Phase 0 — 暫時的 placeholder style。Phase 1 會把 index_legacy.html 的 <style> 區塊全部移進來。 */
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #1e1f22;
+  color: #e6e6e6;
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
