@@ -1184,27 +1184,37 @@ export async function activatePage(fileId, pageIdx) {
   try { _maybeShowCollisionPopup(file, state.pageIdx); } catch (e) { console.warn("[collision popup] 失敗:", e); }
 }
 
-// 偵測當前頁有沒有撞號桿件 → 顯示 popup,提供「搜尋」與「確定」按鈕
+// 偵測當前頁有沒有撞號桿件 → 顯示 popup
 function _maybeShowCollisionPopup(file, pageIdx) {
   if (!state.memberCollisions || state.memberCollisions.size === 0) return;
   const pg = file && file.pages && file.pages[pageIdx];
   if (!pg || pg._orphan) return;
-  // 收集當前頁上有哪些撞號桿件 m.id
   const hitIds = [];
   for (const m of pg.members || []) {
     if (state.memberCollisions.has(m.id)) hitIds.push(m.id);
   }
   if (!hitIds.length) return;
-  // 每次切到有撞號的頁面都要跳 popup(使用者要求)
-  // 填 popup 內容並顯示
+  _showCollisionPopup(hitIds, `本頁有 ${hitIds.length} 條桿件編號撞號(跟其他頁的不同物理桿件共用同一個 m.id),已被高亮為亮綠色`);
+}
+
+// 顯示所有撞號桿件 popup(3D 一鍵處理結束時用 / 全局警示)
+function _showAllCollisionsPopup() {
+  if (!state.memberCollisions || state.memberCollisions.size === 0) return;
+  const allIds = [...state.memberCollisions];
+  _showCollisionPopup(allIds, `全模型共 ${allIds.length} 個 m.id 撞號(不同物理桿件共用同 ID),畫面上以亮綠色高亮;切到含撞號桿件的頁時會再次提醒`);
+}
+
+// 共用 popup 顯示邏輯 — caller 傳要列的 m.id 陣列 + 說明訊息
+function _showCollisionPopup(ids, msg) {
+  if (!ids || !ids.length) return;
   const popup = document.getElementById("collisionPopup");
   const msgEl = document.getElementById("collisionPopupMsg");
   const idsEl = document.getElementById("collisionPopupIds");
   const searchBtn = document.getElementById("collisionSearchBtn");
   const okBtn = document.getElementById("collisionOkBtn");
   if (!popup || !msgEl || !idsEl || !searchBtn || !okBtn) return;
-  msgEl.textContent = `本頁有 ${hitIds.length} 條桿件編號撞號(跟其他頁的不同物理桿件共用同一個 m.id),已被高亮為亮綠色`;
-  const sortedIds = [...hitIds].sort((a, b) => a - b);
+  msgEl.textContent = msg;
+  const sortedIds = [...ids].sort((a, b) => a - b);
   idsEl.textContent = sortedIds.join(", ");
   popup.style.display = "block";
   // 確定 → 關 popup
@@ -7135,6 +7145,12 @@ export async function _run3DOneClickPipeline() {
     }
     if ($("hud")) $("hud").textContent = `3D 一鍵處理完成 ・ ${pages} 頁 / ${joints} joint`;
     console.log("[3D 一鍵處理] 完成");
+    // 若有撞號桿件 → 跳 popup 提示(跟切頁時同款,有「搜尋」+ 確定按鈕)
+    try {
+      if (state.memberCollisions && state.memberCollisions.size > 0) {
+        _showAllCollisionsPopup();
+      }
+    } catch (e) { console.warn("[3D 一鍵處理] 撞號 popup 失敗:", e); }
   }
 }
 
