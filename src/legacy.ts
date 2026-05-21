@@ -1195,10 +1195,7 @@ function _maybeShowCollisionPopup(file, pageIdx) {
     if (state.memberCollisions.has(m.id)) hitIds.push(m.id);
   }
   if (!hitIds.length) return;
-  // 同頁不要重複跳(避免 active 同一頁時切回又跳)
-  const pageKey = `${file.id}#${pageIdx}`;
-  if (state.memberCollisionsLastShownPage === pageKey) return;
-  state.memberCollisionsLastShownPage = pageKey;
+  // 每次切到有撞號的頁面都要跳 popup(使用者要求)
   // 填 popup 內容並顯示
   const popup = document.getElementById("collisionPopup");
   const msgEl = document.getElementById("collisionPopupMsg");
