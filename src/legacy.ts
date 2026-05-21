@@ -13340,6 +13340,41 @@ export async function relayoutMembersNumberingAll(opts) {
       }
       console.log(`[Stage 2 XZ] ${pageTag} X[${beforeMain}→max=${xMax}] Z[?→max=${zMax}] D[${beforeDiag}→max=${dMax}] → next main=${mainCurStart} diag=${diagCurStart}`);
     }
+    // Stage 2b:也處理 X 軸在 XY 頁(這些在 user spec 沒提到,但若不處理會留下舊 m.id 跟新 ID 撞號)
+    //   接續 main 累加器
+    for (const t of tasks) {
+      if (t.pg.plane !== "XY") continue;
+      const pageTag = `${t.f.name}#${t.k}(XY,z=${t.pg.z})`;
+      if (typeof setBusyMessage === "function") {
+        setBusyMessage(`[2b/4] X 軸@XY・${pageTag}・main 起始 ${mainCurStart}`);
+      }
+      await busyTick();
+      const beforeMain = mainCurStart;
+      const r = _renumOnePage(t.pg, t.f.planeOrigin, "X", mainCurStart);
+      const xMax = (r && r.catMax) ? r.catMax.X : 0;
+      if (Number.isFinite(xMax) && xMax > 0) {
+        if (xMax > phaseMax.X) phaseMax.X = xMax;
+        mainCurStart = _nextMemberZeroBoundary(xMax);
+      }
+      console.log(`[Stage 2b X@XY] ${pageTag} X[${beforeMain}→max=${xMax}] → next main=${mainCurStart}`);
+    }
+    // Stage 2c:也處理 Z 軸在 YZ 頁
+    for (const t of tasks) {
+      if (t.pg.plane !== "YZ") continue;
+      const pageTag = `${t.f.name}#${t.k}(YZ,z=${t.pg.z})`;
+      if (typeof setBusyMessage === "function") {
+        setBusyMessage(`[2c/4] Z 軸@YZ・${pageTag}・main 起始 ${mainCurStart}`);
+      }
+      await busyTick();
+      const beforeMain = mainCurStart;
+      const r = _renumOnePage(t.pg, t.f.planeOrigin, "Z", mainCurStart);
+      const zMax = (r && r.catMax) ? r.catMax.Z : 0;
+      if (Number.isFinite(zMax) && zMax > 0) {
+        if (zMax > phaseMax.Z) phaseMax.Z = zMax;
+        mainCurStart = _nextMemberZeroBoundary(zMax);
+      }
+      console.log(`[Stage 2c Z@YZ] ${pageTag} Z[${beforeMain}→max=${zMax}] → next main=${mainCurStart}`);
+    }
   }
 
   // ============================================================
