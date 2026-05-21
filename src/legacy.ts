@@ -13020,7 +13020,8 @@ export async function relayoutMembersNumberingAll(opts) {
   let ok = 0, skipped = 0, processed = 0;
   showBusyWithCancel && showBusyWithCancel(`編排桿件編號(全部頁面) 準備中…(共 ${totalPages} 頁)`, () => {});
   await busyTick();
-  const planeOrder = { "XY": 0, "YZ": 1, "XZ": 2 };
+  // XZ 平面(平面圖)優先處理 — 確保 X-axis 編號從 startBase 起就連續,不被 XY/YZ 立面頁先吃掉低位編號
+  const planeOrder = { "XZ": 0, "XY": 1, "YZ": 2 };
   // 樓層類型優先序:用 yyStart 升序排;XZ 頁才看 pg.floorType,其他平面不分樓層型
   const ftOrderOf = (pg) => {
     if (!pg || pg.plane !== "XZ") return 0;
