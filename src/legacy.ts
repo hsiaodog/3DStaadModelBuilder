@@ -12773,32 +12773,27 @@ function _relayoutPageCore(p, opts) {
     const step = m && m >= 2 ? m : 100;
     return (Math.floor(n / step) + 1) * step + 1;
   };
-  // 跨頁累加用:每個方向(Y / X / Z / D)各自有獨立的 startBase,讓「Y 軸全部編完 → X 軸全部編完
-  //   → Z 軸全部編完 → D 全部編完」在跨頁的視覺上成立,不會因為某頁 Z 的群很多就把下一頁 X 推高。
+  // 跨頁累加用:diagStartBase 獨立。讓 D(斜撐)各頁也連續編號,但 D 的高 ID 不會把下一頁
+  //   Y/X/Z 的 startBase 推高。Y/X/Z 仍共用 memberStartBase(跟原本 working 版本一致),保留
+  //   舊的「Y 軸從某頁起始 → X 接續 → Z 接續」的單序列行為。
   //
-  //   opts 接受:
-  //     • catStartBase: { Y, X, Z, D } — 每個 cat 的起始 ID;傳 null 用 memberStartBase fallback
-  //     • diagStartBase 仍接受(向下相容,等同 catStartBase.D)
-  //     • memberStartBase 仍接受作為 fallback(若沒傳 catStartBase 對應 cat)
-  const _catStartBaseIn = (opts.catStartBase && typeof opts.catStartBase === "object") ? opts.catStartBase : null;
-  const _diagFromOpt = (Number.isFinite(opts.diagStartBase) && opts.diagStartBase >= 1)
+  //   opts.diagStartBase 若沒給,fallback 用 startBase 接續(維持單一序列舊行為)。
+  const diagStartBase = (Number.isFinite(opts.diagStartBase) && opts.diagStartBase >= 1)
     ? Math.floor(opts.diagStartBase) : null;
-  const _startBaseFor = (cat) => {
-    if (_catStartBaseIn && Number.isFinite(_catStartBaseIn[cat]) && _catStartBaseIn[cat] >= 1) {
-      return Math.floor(_catStartBaseIn[cat]);
-    }
-    if (cat === "D" && _diagFromOpt != null) return _diagFromOpt;
-    return memberStartBase;   // fallback:跟原本同序列
-  };
-  // 各 cat 的處理後 max(回傳給 caller 跨頁推進)
-  const catMax = { Y: 0, X: 0, Z: 0, D: 0 };
+  let startBase = memberStartBase;
+  let lastMaxId = 0;       // Y + X + Z 累加用(不含 D)
+  let lastDiagMaxId = 0;   // D 累加用
   for (const cat of phaseOrder) {
     const groups = catGroups[cat] || [];
     if (!groups.length) continue;
     const cap = catCap[cat];
     const mult = cap + 1;
-    const startBase = _startBaseFor(cat);
-    let phaseMax = 0;
+    const isDiag = (cat === "D");
+    // D 階段若有獨立 diagStartBase → 從那邊跑,不吃 main 進位結果
+    if (isDiag && diagStartBase != null) {
+      startBase = diagStartBase;
+    }
+    let phaseMax = isDiag ? lastDiagMaxId : lastMaxId;
     for (let gi = 0; gi < groups.length; gi++) {
       const g = groups[gi];
       for (let pi = 0; pi < g.length; pi++) {
@@ -12807,16 +12802,17 @@ function _relayoutPageCore(p, opts) {
         if (id > phaseMax) phaseMax = id;
       }
     }
-    catMax[cat] = phaseMax;
+    if (isDiag) {
+      if (phaseMax > lastDiagMaxId) lastDiagMaxId = phaseMax;
+    } else {
+      if (phaseMax > lastMaxId) lastMaxId = phaseMax;
+    }
+    // 換到下一個非 D phase:用「下一階段的 mult」進位
+    if (!isDiag && lastMaxId > 0) startBase = nextZeroBoundary(lastMaxId, mult);
   }
-  // 回傳 maxMemberId 給 relayoutAll 跨頁累加
-  //   - maxMemberId         = 整頁所有 cat 的最大值(向下相容老 caller)
-  //   - maxMainMemberId     = X+Z 最大值(向下相容上一版 caller)
-  //   - maxDiagMemberId     = D 最大值(向下相容上一版 caller)
-  //   - catMax              = { Y, X, Z, D } 各 cat 的 max,新 caller 用這個拆四條獨立累加器
-  const _pageMaxMainMemberId = Math.max(catMax.X, catMax.Z);
-  const _pageMaxDiagMemberId = catMax.D;
-  const _pageMaxMemberId = Math.max(catMax.Y, catMax.X, catMax.Z, catMax.D);
+  const _pageMaxMainMemberId = lastMaxId;
+  const _pageMaxDiagMemberId = lastDiagMaxId;
+  const _pageMaxMemberId = Math.max(lastMaxId, lastDiagMaxId);
   for (const m of p.members) {
     const nid = memOldToNew.get(m.id);
     if (nid != null) m.id = nid;
@@ -12832,8 +12828,7 @@ function _relayoutPageCore(p, opts) {
            oldToNew, memOldToNew,
            maxMemberId: _pageMaxMemberId,
            maxMainMemberId: _pageMaxMainMemberId,
-           maxDiagMemberId: _pageMaxDiagMemberId,
-           catMax };
+           maxDiagMemberId: _pageMaxDiagMemberId };
 }
 // 進位到下一個 mult 邊界 + 1 — 跨頁累加 startBase 用
 //   舊版用「位數最高位 +1」(digit-based)會造成指數成長:99→101→201→...→1001→2001→...→10001→...
@@ -13053,38 +13048,31 @@ export async function relayoutMembersNumberingAll(opts) {
     if (a.f.name !== b.f.name) return a.f.name.localeCompare(b.f.name);
     return (+a.k) - (+b.k);
   });
-  // 跨頁累加桿件 startBase — 拆成四條完全獨立的序列(Y / X / Z / D):
-  //   • Y(柱)→ 從 1 起    (XY/YZ 立面頁有 Y phase 會吃這條,優先處理低位 ID)
-  //   • X(平面圖橫樑)→ 從 2501 起(XZ + XY 頁的 X phase 共用,跟 Y 不撞號)
-  //   • Z(平面圖縱樑)→ 從 5001 起(XZ + YZ 頁的 Z phase 共用)
-  //   • D(斜撐)→ 從 100001 起(跟 main 視覺分開,自己一個高位範圍)
-  //
-  //   各 cat 跨頁編號會 100-block 連續走;Y/X/Z/D 範圍互不交集 → 沒有撞號風險。
-  //   假設架構合理(柱<2500、X 樑<2500、Z 樑<95000),這套範圍夠用。
-  //   若某 cat 確實爆量,_nextMemberZeroBoundary 仍會推進到下一個 100-block,只是會
-  //   入侵下一個 cat 的初始範圍 → 可能與後續同 cat 撞號(極端情況才會,先不處理)。
-  const catStartBase = { Y: 1, X: 2501, Z: 5001, D: 100001 };
+  // 跨頁累加桿件 startBase — 兩條序列:
+  //   memberStartBase     = Y + X + Z 主序列(每頁所有非 D 桿件接續編,維持舊版單序列行為)
+  //   memberDiagStartBase = D(斜撐)序列;初始 100001 起,避免跟 main 撞號
+  //   讓單頁 D 群組數很多時,下一頁 Y/X/Z 的 startBase 不被 D 推高
+  let memberStartBase = 1;
+  let memberDiagStartBase = 100001;
   let lastMemberMax = 0;
   for (const t of tasks) {
     processed++;
-    if (typeof setBusyMessage === "function") setBusyMessage(`編排桿件編號 ${processed}/${totalPages}・${t.f.name}・頁 ${t.k}・${t.pg.plane || "?"}・Y/X/Z 起始 ${catStartBase.Y}/${catStartBase.X}/${catStartBase.Z}`);
+    if (typeof setBusyMessage === "function") setBusyMessage(`編排桿件編號 ${processed}/${totalPages}・${t.f.name}・頁 ${t.k}・${t.pg.plane || "?"}・起始 ${memberStartBase}`);
     await busyTick();
     const r = _relayoutPageCore(t.pg, {
       interactive: false,
       origin: t.f.planeOrigin || null,
       membersOnly: true,
-      catStartBase: { ...catStartBase },   // 傳 snapshot 進去(避免 _relayoutPageCore 改到外部)
+      memberStartBase,
+      diagStartBase: memberDiagStartBase,
     });
     if (r) {
       ok++;
-      // 各 cat max 各自推進
-      if (r.catMax) {
-        for (const cat of ["Y", "X", "Z", "D"]) {
-          const m = r.catMax[cat];
-          if (Number.isFinite(m) && m > 0) {
-            catStartBase[cat] = _nextMemberZeroBoundary(m);
-          }
-        }
+      if (Number.isFinite(r.maxMainMemberId) && r.maxMainMemberId > 0) {
+        memberStartBase = _nextMemberZeroBoundary(r.maxMainMemberId);
+      }
+      if (Number.isFinite(r.maxDiagMemberId) && r.maxDiagMemberId > 0) {
+        memberDiagStartBase = _nextMemberZeroBoundary(r.maxDiagMemberId);
       }
       if (Number.isFinite(r.maxMemberId) && r.maxMemberId > 0) {
         lastMemberMax = r.maxMemberId;
