@@ -13054,13 +13054,16 @@ export async function relayoutMembersNumberingAll(opts) {
     return (+a.k) - (+b.k);
   });
   // 跨頁累加桿件 startBase — 拆成四條完全獨立的序列(Y / X / Z / D):
-  //   • Y(柱)→ 低位 ID,XY/YZ 立面頁有 Y phase 會吃這條
-  //   • X(平面圖橫樑)→ 自己的範圍,XZ + XY 頁的 X phase 共用
-  //   • Z(平面圖縱樑)→ 自己的範圍,XZ + YZ 頁的 Z phase 共用
-  //   • D(斜撐)→ 高位 ID(從 100001 起),跟 main 視覺分開
-  //   讓某頁 Z 群多、某頁 D 群多的情況不會把下一頁 X 推到高位。
-  //   各條都從 1(或 100001 for D)起,所以同 cat 跨頁編號會連續走 100-block。
-  const catStartBase = { Y: 1, X: 1, Z: 1, D: 100001 };
+  //   • Y(柱)→ 從 1 起    (XY/YZ 立面頁有 Y phase 會吃這條,優先處理低位 ID)
+  //   • X(平面圖橫樑)→ 從 2501 起(XZ + XY 頁的 X phase 共用,跟 Y 不撞號)
+  //   • Z(平面圖縱樑)→ 從 5001 起(XZ + YZ 頁的 Z phase 共用)
+  //   • D(斜撐)→ 從 100001 起(跟 main 視覺分開,自己一個高位範圍)
+  //
+  //   各 cat 跨頁編號會 100-block 連續走;Y/X/Z/D 範圍互不交集 → 沒有撞號風險。
+  //   假設架構合理(柱<2500、X 樑<2500、Z 樑<95000),這套範圍夠用。
+  //   若某 cat 確實爆量,_nextMemberZeroBoundary 仍會推進到下一個 100-block,只是會
+  //   入侵下一個 cat 的初始範圍 → 可能與後續同 cat 撞號(極端情況才會,先不處理)。
+  const catStartBase = { Y: 1, X: 2501, Z: 5001, D: 100001 };
   let lastMemberMax = 0;
   for (const t of tasks) {
     processed++;
