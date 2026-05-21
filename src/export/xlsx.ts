@@ -131,13 +131,14 @@ export function exportXlsxFile() {
   //                                          依 sub-header 分:`* XX nn / * ZZ nn` 為 anchor 柱線,
   //                                          `* BRACE YZ` / `* BRACE XY` / `* BRACE XZ` 為對應平面斜撐節點
   // MEMBER 區塊改成每塊 11 欄寬:一列最多 3 條桿件,以 `;` 分隔(3*3 + 2 = 11);
-  // 區塊 5  — MEMBER Y-axis     (col K-U,  10-20) ─ Y 軸向桿件(柱)
-  // 區塊 6  — MEMBER XZ         (col W-AG, 22-32) ─ X + Z 軸樑(頁面 → X/Z-axis 兩層分群)
-  // 區塊 7  — MEMBER BRACE XZ   (col AI-AS, 34-44) ─ XZ 平面斜撐(樓板斜撐),依頁面分小區
-  // 區塊 8  — MEMBER BRACE XY   (col AV-BF, 47-57) ─ XY 平面斜撐(BRACE 之間 2 條空白)
-  // 區塊 9  — MEMBER BRACE YZ   (col BI-BS, 60-70) ─ YZ 平面斜撐
-  // 黃色分隔欄(col BU, 0-based 72)= MEMBER 類 vs MATERIAL 類
-  // 區塊 10 — MEMBER PROPERTIES (col BV-CC, 73-80) ─ 只列有材料的(8 欄寬)
+  // col 9 (J) 留空,col 10 (K) = JOINT 類 vs MEMBER 類 黃色分隔欄
+  // 區塊 5  — MEMBER Y-axis     (col L-V,  11-21) ─ Y 軸向桿件(柱)
+  // 區塊 6  — MEMBER XZ         (col X-AH, 23-33) ─ X + Z 軸樑(頁面 → X/Z-axis 兩層分群)
+  // 區塊 7  — MEMBER BRACE XZ   (col AJ-AT, 35-45) ─ XZ 平面斜撐(樓板斜撐),依頁面分小區
+  // 區塊 8  — MEMBER BRACE XY   (col AW-BG, 48-58) ─ XY 平面斜撐(BRACE 之間 2 條空白)
+  // 區塊 9  — MEMBER BRACE YZ   (col BJ-BT, 61-71) ─ YZ 平面斜撐
+  // 黃色分隔欄(col BV, 0-based 73)= MEMBER 類 vs MATERIAL 類
+  // 區塊 10 — MEMBER PROPERTIES (col BW-CD, 74-81) ─ 只列有材料的(8 欄寬)
   //
   // 標題樣式:每個 section title 拆成多格 — 首格放 `*`,標題字串用空白拆,各字 / 詞獨立一格;
   //          (例:"MEMBER BRACE XZ" → `*` | `MEMBER` | `BRACE` | `XZ`,佔 4 格)
@@ -181,24 +182,23 @@ export function exportXlsxFile() {
   _pushTitle(0,  "JOINT");
   _pushTitle(5,  "JOINT");   // JOINT 拆成兩大列區塊,左右各 half 的 (XX, ZZ) 柱線
   // MEMBER 區塊每塊寬 11 欄:3 個桿件 × (ID/J1/J2) + 2 個 `;` 分隔 → 一列最多裝 3 條桿件
-  //   原本 MEMBER 從 col 20 起,JOINT(col 0-8)和 MEMBER 中間留 11 欄空白,視覺太空。
-  //   現改成 MEMBER 從 col 10 起,只保留 col 9(J)當 1 欄黃色分隔,後續每塊整體左移 10。
-  _pushTitle(10, "MEMBER Y-axis");        // 10-20
-  _pushTitle(22, "MEMBER XZ");            // 22-32(+1 gap)
-  _pushTitle(34, "MEMBER BRACE XZ");      // 34-44(+1 gap)
-  _pushTitle(47, "MEMBER BRACE XY");      // 47-57(+2 gap,BRACE 之間 2 條空白)
-  _pushTitle(60, "MEMBER BRACE YZ");      // 60-70
-  _pushTitle(73, "MEMBER PROPERTIES");    // 73-80(+1 extra + 黃色分隔 col 72)
+  //   col 9 (J) 留空,col 10 (K) = 黃色分隔欄,MEMBER 從 col 11 (L) 起。
+  _pushTitle(11, "MEMBER Y-axis");        // 11-21
+  _pushTitle(23, "MEMBER XZ");            // 23-33(+1 gap)
+  _pushTitle(35, "MEMBER BRACE XZ");      // 35-45(+1 gap)
+  _pushTitle(48, "MEMBER BRACE XY");      // 48-58(+2 gap,BRACE 之間 2 條空白)
+  _pushTitle(61, "MEMBER BRACE YZ");      // 61-71
+  _pushTitle(74, "MEMBER PROPERTIES");    // 74-81(+1 extra + 黃色分隔 col 73)
   // Column headers — 首欄(ID 欄)用 `*` 取代「ID」;其他欄維持
   push(1, 0,  "*", 2);   push(1, 1,  "X", 2);  push(1, 2,  "Y", 2);  push(1, 3,  "Z", 2);
   push(1, 5,  "*", 2);   push(1, 6,  "X", 2);  push(1, 7,  "Y", 2);  push(1, 8,  "Z", 2);   // 第 2 大列區塊的 column header
   // MEMBER 區塊 row 2:首組 `* J1 J2` 標頭(剩餘的「; ID J1 J2; ID J1 J2」標頭留空,因為視覺已經由 ; 分明)
-  push(1, 10, "*", 2);   push(1, 11, "J1", 2); push(1, 12, "J2", 2);
-  push(1, 22, "*", 2);   push(1, 23, "J1", 2); push(1, 24, "J2", 2);
-  push(1, 34, "*", 2);   push(1, 35, "J1", 2); push(1, 36, "J2", 2);
-  push(1, 47, "*", 2);   push(1, 48, "J1", 2); push(1, 49, "J2", 2);
-  push(1, 60, "*", 2);   push(1, 61, "J1", 2); push(1, 62, "J2", 2);
-  push(1, 73, "*", 2);   push(1, 79, "Table", 2);  push(1, 80, "Material", 2);
+  push(1, 11, "*", 2);   push(1, 12, "J1", 2); push(1, 13, "J2", 2);
+  push(1, 23, "*", 2);   push(1, 24, "J1", 2); push(1, 25, "J2", 2);
+  push(1, 35, "*", 2);   push(1, 36, "J1", 2); push(1, 37, "J2", 2);
+  push(1, 48, "*", 2);   push(1, 49, "J1", 2); push(1, 50, "J2", 2);
+  push(1, 61, "*", 2);   push(1, 62, "J1", 2); push(1, 63, "J2", 2);
+  push(1, 74, "*", 2);   push(1, 80, "Table", 2);  push(1, 81, "Material", 2);
   // ── Joint 區塊:按 (XX, ZZ) rank 分區。共用 helper 改由 buildExportContext() 一次建好(Phase 4 dedup)
   const _ctx = buildExportContext({ joints, members });
   const {
@@ -446,21 +446,21 @@ export function exportXlsxFile() {
     let _r = 2, _prevXr = null, _prevZr = null, _bucket = [];
     const _flushBucket = () => {
       if (!_bucket.length) return;
-      _r = _writeMembersPacked(_bucket, 10, _r);
+      _r = _writeMembersPacked(_bucket, 11, _r);
       _bucket = [];
     };
     for (const entry of _memYRanked) {
       if (entry.xr !== _prevXr || entry.zr !== _prevZr) {
         _flushBucket();
-        _pushSubHeader(_r++, 10, `* XX ${entry.xr != null ? String(entry.xr).padStart(2, "0") : "?"}`, 7);
-        _pushSubHeader(_r++, 10, `* ZZ ${entry.zr != null ? String(entry.zr).padStart(2, "0") : "?"}`, 7);
+        _pushSubHeader(_r++, 11, `* XX ${entry.xr != null ? String(entry.xr).padStart(2, "0") : "?"}`, 7);
+        _pushSubHeader(_r++, 11, `* ZZ ${entry.zr != null ? String(entry.zr).padStart(2, "0") : "?"}`, 7);
         _prevXr = entry.xr; _prevZr = entry.zr;
       }
       _bucket.push(entry);
     }
     _flushBucket();
   }
-  // MEMBER XZ(col 22-32):兩層分群 — 外層『頁面』→ 內層『X-axis / Z-axis』,各自走 packed 3-per-row
+  // MEMBER XZ(col 23-33):兩層分群 — 外層『頁面』→ 內層『X-axis / Z-axis』,各自走 packed 3-per-row
   //   排序:頁面 elev (pg.z) 升序 → 頁面名稱 → 方向(X 在前 Z 在後) → ID 升序
   {
     const _xzCombined = [..._memXAxis, ..._memZAxis];
@@ -478,20 +478,20 @@ export function exportXlsxFile() {
     });
     let _r = 2;
     for (const [pageName, info] of sortedPages) {
-      _pushSubHeader(_r++, 22, `* ${pageName}`);
+      _pushSubHeader(_r++, 23, `* ${pageName}`);
       const xRows = info.items.filter(mr => mr.cat === "X").sort(_byId);
       const zRows = info.items.filter(mr => mr.cat === "Z").sort(_byId);
       if (xRows.length) {
-        _pushSubHeader(_r++, 22, `* X-axis`);
-        _r = _writeMembersPacked(xRows, 22, _r);
+        _pushSubHeader(_r++, 23, `* X-axis`);
+        _r = _writeMembersPacked(xRows, 23, _r);
       }
       if (zRows.length) {
-        _pushSubHeader(_r++, 22, `* Z-axis`);
-        _r = _writeMembersPacked(zRows, 22, _r);
+        _pushSubHeader(_r++, 23, `* Z-axis`);
+        _r = _writeMembersPacked(zRows, 23, _r);
       }
     }
   }
-  // BRACE XZ(col 34-44):依頁面分小區(維持單層 page header),群內走 packed 3-per-row
+  // BRACE XZ(col 35-45):依頁面分小區(維持單層 page header),群內走 packed 3-per-row
   const _renderMemberByPage = (rows, baseCol) => {
     const withPage = rows.map(mr => {
       const info = _memberPageById.get(mr.m.id);
@@ -518,13 +518,13 @@ export function exportXlsxFile() {
     }
     _flushBucket();
   };
-  _renderMemberByPage(_memBraceXZ, 34);
-  _renderMemberFlat(_memBraceXY,   47);
-  _renderMemberFlat(_memBraceYZ,   60);
+  _renderMemberByPage(_memBraceXZ, 35);
+  _renderMemberFlat(_memBraceXY,   48);
+  _renderMemberFlat(_memBraceYZ,   61);
   // MEMBER PROPERTIES — 跟 MEMBER 區同樣的分區結構,每子區用 (table, name) 分組壓縮:
   //   每列最多 6 個 ID-related 欄位(個別 ID 1 格,或 "start TO end" 3 格),不足補空白
   //   後接 Table(col 46) / Material(col 47)固定欄位
-  const MAT_BASE_COL  = 73;
+  const MAT_BASE_COL  = 74;
   const MAT_ID_SLOTS  = 6;
   const MAT_TABLE_COL = MAT_BASE_COL + MAT_ID_SLOTS;     // 89
   const MAT_NAME_COL  = MAT_TABLE_COL + 1;               // 90
@@ -675,13 +675,13 @@ export function exportXlsxFile() {
     return `<row r="${r+1}">${sorted.map(x => x.s).join("")}</row>`;
   }).join("");
   // <cols> 套整欄黃色樣式(1-based col index)
-  //   col 10 → 0-based col 9 (J) :JOINT 類 vs MEMBER 類
-  //   col 73 → 0-based col 72 (BU):MEMBER 類 vs MATERIAL 類
-  //     (MEMBER 從 col 10 起,5 塊各 11 欄,PROPERTIES 從 col 73 起 8 欄)
+  //   col 11 → 0-based col 10 (K) :JOINT 類 vs MEMBER 類(JOINT 右塊 col I 後留 col J 空欄 + col K 黃線)
+  //   col 74 → 0-based col 73 (BV):MEMBER 類 vs MATERIAL 類
+  //     (MEMBER 從 col 11 起,5 塊各 11 欄,PROPERTIES 從 col 74 起 8 欄)
   //   width=2 + customWidth=1 把分隔欄縮窄,視覺上更像分區線
   const colsXml = `<cols>` +
-    `<col min="10" max="10" width="2" customWidth="1" style="6"/>` +
-    `<col min="73" max="73" width="2" customWidth="1" style="6"/>` +
+    `<col min="11" max="11" width="2" customWidth="1" style="6"/>` +
+    `<col min="74" max="74" width="2" customWidth="1" style="6"/>` +
     `</cols>`;
   const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${colsXml}<sheetData>${rowsXml}</sheetData></worksheet>`;
