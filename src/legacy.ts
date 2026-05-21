@@ -13119,22 +13119,109 @@ export async function relayoutMembersNumberingAll(opts) {
   };
 
   // ============================================================
-  // Stage 1: Y 軸(柱)— XY / YZ 頁面,原始邏輯,從 1 起跑
+  // Stage 1: Y 軸(柱)— ★ 全域處理,不依頁面 / floorType / 節點分桿件順序 ★
+  //
+  //   作法:
+  //     1. 跨頁掃所有 XY / YZ 頁面的 Y 軸 member(2D vertical),投影到 3D world coords
+  //     2. 用 globalMemberId 去重(沒 globalMemberId 的用 (x, y, z) 端點 key 去重)
+  //     3. 把同一根物理柱的多段(同 worldX、同 worldZ,不同 worldY)合成 1 個 group
+  //     4. 群按 (worldX 升序 → worldZ 升序)排序;群內按 worldY 升序(由下而上)排
+  //     5. 序貫編號:gi=0 第 1 根柱,gi=1 第 2 根柱…,IDs 1..N、101..、201..
+  //     6. 把編號寫回所有 page-local 副本(看 globalMemberId 或座標匹配)
+  //
+  //   優點:Y 軸編號完全跟頁面切割無關,同根柱 ID 連續,跨頁副本同步。
   // ============================================================
   {
+    if (typeof setBusyMessage === "function") setBusyMessage(`[1/4] Y 軸(柱)— 全域收集 …`);
+    await busyTick();
+    // 步驟 1+2:掃 XY/YZ 頁的 Y 軸 member,投影 → 3D。用 globalMemberId 去重。
+    type ColMember = { pageMembers: any[]; world: { x: number; y1: number; y2: number; z: number; midY: number } };
+    const colMemberByGm = new Map<number, ColMember>();   // globalMemberId → 物理 member
+    const colMemberAnon: ColMember[] = [];                 // 沒 globalMemberId 的 member(以座標 fallback)
+    const angleTol = 0.05, eps = 0.5;
+    for (const f of state.files) {
+      const ratio = (f.scaleRuler && f.scaleRuler.ratio > 0) ? f.scaleRuler.ratio : (state.scale ? 1 / state.scale : 1);
+      for (const k of Object.keys(f.pages || {})) {
+        const pg = f.pages[k]; if (!pg || pg._orphan) continue;
+        if (pg.plane !== "XY" && pg.plane !== "YZ") continue;
+        const jById = new Map(pg.joints.map(j => [j.id, j]));
+        for (const m of pg.members) {
+          const a = jById.get(m.j1), b = jById.get(m.j2);
+          if (!a || !b) continue;
+          const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y);
+          const len = Math.hypot(dx, dy);
+          if (len < eps) continue;
+          if (dx / len >= angleTol) continue;   // 不是 2D vertical → 不是 Y 軸
+          // 投影:joint2DToWorld3D 用該 page 的 plane/origin/ratio
+          const wa = (typeof joint2DToWorld3D === "function") ? joint2DToWorld3D(f, pg, a) : null;
+          const wb = (typeof joint2DToWorld3D === "function") ? joint2DToWorld3D(f, pg, b) : null;
+          if (!wa || !wb) continue;
+          const wX = (wa.x + wb.x) / 2, wZ = (wa.z + wb.z) / 2;
+          const y1 = Math.min(wa.y, wb.y), y2 = Math.max(wa.y, wb.y);
+          const entry: ColMember = {
+            pageMembers: [{ pg, m, file: f }],
+            world: { x: wX, y1, y2, z: wZ, midY: (y1 + y2) / 2 },
+          };
+          if (m.globalMemberId != null) {
+            const existing = colMemberByGm.get(m.globalMemberId);
+            if (existing) existing.pageMembers.push({ pg, m, file: f });
+            else colMemberByGm.set(m.globalMemberId, entry);
+          } else {
+            colMemberAnon.push(entry);
+          }
+        }
+      }
+    }
+    const allColMembers: ColMember[] = [...colMemberByGm.values(), ...colMemberAnon];
+    // 步驟 3:群組同根柱(同 worldX、同 worldZ,容差 2mm)
+    const _rk = (v) => Math.round(v / 2) * 2;   // 2mm bucket
+    const columnGroups = new Map<string, ColMember[]>();
+    for (const cm of allColMembers) {
+      const key = `${_rk(cm.world.x)}|${_rk(cm.world.z)}`;
+      if (!columnGroups.has(key)) columnGroups.set(key, []);
+      columnGroups.get(key)!.push(cm);
+    }
+    // 步驟 4:外圈群序按 worldX 升序 → worldZ 升序;內圈按 worldY 升序(由下而上)
+    const sortedCols = [...columnGroups.values()].sort((g1, g2) => {
+      const x1 = g1[0].world.x, x2 = g2[0].world.x;
+      if (Math.abs(x1 - x2) > 1) return x1 - x2;
+      return g1[0].world.z - g2[0].world.z;
+    });
+    for (const g of sortedCols) g.sort((a, b) => a.world.midY - b.world.midY);
+    // 步驟 5+6:序貫編號,寫回 page-local m.id
+    const cap = state.memberCapY || 99, mult = cap + 1;
     let curStart = 1;
-    for (const t of tasks) {
-      if (t.pg.plane !== "XY" && t.pg.plane !== "YZ") continue;
-      processed++;
-      if (typeof setBusyMessage === "function") {
-        setBusyMessage(`[1/4] Y 軸(柱)・${t.f.name}#${t.k}(${t.pg.plane})・起始 ${curStart}`);
+    let i = 0;
+    for (const g of sortedCols) {
+      i++;
+      if (typeof setBusyMessage === "function" && (i % 50 === 0 || i === sortedCols.length)) {
+        setBusyMessage(`[1/4] Y 軸(柱)・編號中 ${i}/${sortedCols.length}・起始 ${curStart}`);
+        await busyTick();
       }
-      await busyTick();
-      const r = _renumOnePage(t.pg, t.f.planeOrigin, "Y", curStart);
-      if (r && r.catMax && Number.isFinite(r.catMax.Y) && r.catMax.Y > 0) {
-        if (r.catMax.Y > phaseMax.Y) phaseMax.Y = r.catMax.Y;
-        curStart = _nextMemberZeroBoundary(r.catMax.Y);
+      let phaseMaxLocal = 0;
+      for (let pi = 0; pi < g.length; pi++) {
+        const giOffset = Math.floor(pi / cap);
+        const piIn = pi % cap;
+        const newId = curStart + giOffset * mult + piIn;
+        for (const pm of g[pi].pageMembers) {
+          pm.m.id = newId;
+        }
+        if (newId > phaseMaxLocal) phaseMaxLocal = newId;
       }
+      if (phaseMaxLocal > phaseMax.Y) phaseMax.Y = phaseMaxLocal;
+      curStart = _nextMemberZeroBoundary(phaseMaxLocal);
+    }
+    // 排序更新各頁的 members 陣列(讓 m.id 升序)
+    for (const f of state.files) {
+      for (const k of Object.keys(f.pages || {})) {
+        const pg = f.pages[k]; if (!pg || pg._orphan) continue;
+        if (pg.plane !== "XY" && pg.plane !== "YZ") continue;
+        pg.members.sort((a, b) => a.id - b.id);
+      }
+    }
+    if (sortedCols.length) {
+      processed += sortedCols.length;
+      console.log(`[Stage 1] Y 軸全域編號完成:${sortedCols.length} 根柱,${allColMembers.length} 個段,max ID = ${phaseMax.Y}`);
     }
   }
 
