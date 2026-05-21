@@ -1,0 +1,228 @@
+// Phase 8m — 頂部主選單列(File / Project / Edit / Tools / View / Language)
+//   • _refreshRecentProjectMenu: 從 state/recentProjects IDB 抓清單渲染到「File → 開啟專案 → 最近開啟」
+//   • IIFE 主體:hook actions map + menubar entry click + 搜尋 / 3D 按鈕特殊 action
+//
+//   所有 menu action handler 全部走 export function 互動;dispatch layer。
+//
+//   依賴(全部已 export):
+//     legacy: $ / state / pushUndo / withBusy / 一堆 action functions
+//     export/xlsx, dialogs/*, state/recentProjects, i18n: 按需 import
+//
+//   模組載入時即執行 IIFE,跟原本在 legacy 內嵌的位置等價。
+//   _refreshRecentProjectMenu 也順手暴露到 window,讓 state/recentProjects 的 callback 能找到。
+// @ts-nocheck
+
+import {
+  $, state, pushUndo, withBusy,
+  _afterCalibrationChanged, _applyToolbarMode,
+  _runBgRepair, _run3DOneClickPipeline, _runFitMergeByPrecision,
+  cleanupBadGlobalJoints, closeCurrentProject,
+  consolidateAllPagesWithConfirm, copyPageJointsMembersToSamePlanePage,
+  ensureRwPermission, loadProjectFull, newProjectPrompt,
+  relayoutNumberingAll, relayoutMembersNumberingAll,
+  startExtendableMemberCheck, _startSaveWithHook,
+} from "../legacy";
+import { exportXlsxFile } from "../export/xlsx";
+import { openFloorTypesDialog } from "../dialogs/floorTypes";
+import { openGlobalJointMgrDialog } from "../dialogs/globalJoints";
+import { openMaterialMgrWindow } from "../dialogs/materialMgr";
+import { open3DPreviewDialog } from "../dialogs/preview3d";
+import { openSearchWindow } from "../dialogs/search";
+import { _getRecentProjects, _openRecentProject, _removeRecentProject } from "../state/recentProjects";
+import { _t, _setLanguage } from "../i18n";
+
+// ---------- 頂部主選單列 ----------
+// 開啟專案 → 子選單裡的「最近開啟」清單(IDB 持久化,點即重開)
+async function _refreshRecentProjectMenu() {
+  const cont = document.getElementById("recentProjectList");
+  if (!cont) return;
+  const list = await _getRecentProjects();
+  cont.innerHTML = "";
+  if (!list.length) {
+    const e = document.createElement("div");
+    e.className = "menu-entry";
+    e.style.cssText = "opacity:0.5;pointer-events:none;font-style:italic";
+    e.textContent = (typeof _t === "function" && _t("file.recentEmpty")) || "(尚無最近開啟的專案)";
+    cont.appendChild(e);
+    return;
+  }
+  for (const item of list) {
+    const row = document.createElement("div");
+    row.className = "menu-entry";
+    row.style.cssText = "display:flex;align-items:center;gap:6px;justify-content:space-between";
+    const main = document.createElement("span");
+    main.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+    main.textContent = item.name;
+    const when = document.createElement("span");
+    when.style.cssText = "font-size:10px;color:#9aa0a6;flex-shrink:0";
+    try {
+      const d = new Date(item.lastOpened || 0);
+      when.textContent = isNaN(d.getTime()) ? "" : d.toLocaleString();
+    } catch (_) {}
+    const del = document.createElement("span");
+    del.textContent = "×";
+    del.title = "從清單移除";
+    del.style.cssText = "padding:0 4px;color:#9aa0a6;cursor:pointer;flex-shrink:0;border-radius:3px";
+    del.onmouseenter = () => { del.style.background = "rgba(255,80,80,0.25)"; del.style.color = "#fff"; };
+    del.onmouseleave = () => { del.style.background = "transparent"; del.style.color = "#9aa0a6"; };
+    del.onclick = async (e) => {
+      e.stopPropagation();
+      await _removeRecentProject(item.name);
+      _refreshRecentProjectMenu();
+    };
+    row.title = `${item.name}${when.textContent ? " · " + when.textContent : ""}`;
+    row.appendChild(main);
+    row.appendChild(when);
+    row.appendChild(del);
+    row.addEventListener("click", (e) => {
+      // 不被父選單的 close-all 截斷:讓父選單先 close 後再開
+      e.stopPropagation();
+      const items = document.querySelectorAll("#menuBar .menu-item");
+      items.forEach(m => m.classList.remove("open"));
+      _openRecentProject(item);
+    });
+    cont.appendChild(row);
+  }
+}
+(function setupMenuBar() {
+  const items = Array.from(document.querySelectorAll("#menuBar .menu-item"));
+  const closeAll = () => items.forEach(m => m.classList.remove("open"));
+  items.forEach(item => {
+    const title = item.querySelector(".menu-title");
+    if (!title) return;
+    // 整個 .menu-item(含 14px padding 與背景區域)都可觸發;dropdown 內的 click 透過
+    //   `e.target.closest(".menu-dropdown")` 過濾掉,避免點 dropdown 內部時誤關選單
+    item.addEventListener("click", (e) => {
+      if (e.target.closest(".menu-dropdown")) return;
+      e.stopPropagation();
+      const wasOpen = item.classList.contains("open");
+      closeAll();
+      if (!wasOpen) {
+        item.classList.add("open");
+        // 打開檔案選單時,順便更新「最近開啟」子選單
+        if (item.dataset.menu === "file") _refreshRecentProjectMenu();
+      }
+    });
+    // 滑過已開啟的選單列時,自動切換到目前的項目(類似傳統選單列)
+    item.addEventListener("mouseenter", () => {
+      if (items.some(m => m.classList.contains("open"))) {
+        closeAll();
+        item.classList.add("open");
+        if (item.dataset.menu === "file") _refreshRecentProjectMenu();
+      }
+    });
+  });
+  document.addEventListener("click", closeAll);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeAll();
+  });
+  // 選單項目觸發對應的現有按鈕 / input(保留原有流程)
+  const actions = {
+    "open-new-project":() => newProjectPrompt(),
+    "open-project":    () => openProjectWithPicker(),
+    "save-project":    () => _startSaveWithHook(false),
+    "save-project-as": () => _startSaveWithHook(true),
+    "import-json":     () => $("importJson") && $("importJson").click(),
+    "export-json":     () => $("exportJson") && $("exportJson").click(),
+    "export-std":      () => $("exportStaad") && $("exportStaad").click(),
+    "export-xlsx":     () => exportXlsxFile(),
+    "clear-all":       () => $("clearAll") && $("clearAll").click(),
+    "new-project":     () => newProjectPrompt(),
+    "close-project":   () => closeCurrentProject(),
+    "consolidate-all-pages":   () => consolidateAllPagesWithConfirm(),
+    "extend-check-all":        () => startExtendableMemberCheck(),
+    // 新版「適配關聯」走精準度配對;保留舊 entry id 以相容外部呼叫
+    "infer-all-both":          () => withBusy("適配關聯(精準度)…", () => _runFitMergeByPrecision()),
+    "infer-all-joints":        () => withBusy("適配關聯(精準度)…", () => _runFitMergeByPrecision()),
+    "infer-all-members":       () => withBusy("適配關聯(精準度)…", () => _runFitMergeByPrecision()),
+    "relayout-all":            () => relayoutNumberingAll(),
+    "relayout-members-all":    () => relayoutMembersNumberingAll(),
+    "recompute-world-all":     () => withBusy("重新計算 3D 座標(全部頁面)…", () => {
+      pushUndo();
+      if (typeof _afterCalibrationChanged === "function") _afterCalibrationChanged();
+      let pages = 0, joints = 0;
+      for (const f of state.files) {
+        for (const pg of Object.values(f.pages || {})) {
+          if (!pg || pg._orphan) continue;
+          pages++; joints += (pg.joints || []).length;
+        }
+      }
+      if ($("hud")) $("hud").textContent = `已重算 3D 座標 / ${pages} 頁 / ${joints} 個 joint`;
+    }),
+    "copy-page-to-same-plane": () => copyPageJointsMembersToSamePlanePage(),
+    "run-3d-pipeline":         () => _run3DOneClickPipeline(),
+    "open-3d-preview":         () => open3DPreviewDialog(),
+    "open-material-mgr":       () => openMaterialMgrWindow(),
+    "open-floor-types":        () => { if (typeof openFloorTypesDialog === "function") openFloorTypesDialog(); },
+    "open-global-joint-mgr":   () => { if (typeof openGlobalJointMgrDialog === "function") openGlobalJointMgrDialog(); },
+    "bg-repair":               () => _runBgRepair(),
+    "open-search":             () => openSearchWindow(),
+    "tb-mode-text":            () => _applyToolbarMode("text"),
+    "tb-mode-icon":            () => _applyToolbarMode("icon"),
+    "tb-mode-both":            () => _applyToolbarMode("both"),
+    "lang-zh":                 () => _setLanguage("zh-TW"),
+    "lang-en":                 () => _setLanguage("en"),
+    "cleanup-bad-globaljoints":() => withBusy("清除錯誤 globalJoint 綁定…", () => cleanupBadGlobalJoints({ threshold: 100 })),
+    "cleanup-all-globaljoints":() => withBusy("清除全部 globalJoint 綁定…", () => cleanupBadGlobalJoints({ clearAll: true })),
+  };
+
+  // 開啟專案:優先使用 FSA showOpenFilePicker 取得 handle → 後續「儲存專案」可直接覆寫到同一個檔案
+  async function openProjectWithPicker() {
+    console.log("[開啟專案] showOpenFilePicker available?", !!window.showOpenFilePicker);
+    if (window.showOpenFilePicker) {
+      try {
+        const [handle] = await window.showOpenFilePicker({
+          types: [{
+            description: "STAAD Tracer 專案 / JSON",
+            accept: { "application/json": [".stproj.json", ".json"] },
+          }],
+          multiple: false,
+        });
+        console.log("[開啟專案] got handle:", handle.name, "createWritable=", typeof handle.createWritable);
+        // 立刻在使用者手勢還活著時請求 readwrite,避免之後存檔時 createWritable 因為 gesture 失效而靜默失敗
+        try {
+          const ok = await ensureRwPermission(handle);
+          console.log("[開啟專案] readwrite granted?", ok);
+        }
+        catch (e) { console.warn("[開啟專案] 請求 readwrite 權限時例外:", e); }
+        const f = await handle.getFile();
+        await withBusy("讀入專案中…", () => loadProjectFull(f, handle));
+        console.log("[開啟專案] state.projectFileHandle =", state.projectFileHandle && state.projectFileHandle.name);
+        return;
+      } catch (e) {
+        if (e && e.name === "AbortError") return;   // 使用者取消
+        console.warn("[開啟專案] showOpenFilePicker 失敗,退回 input:", e);
+      }
+    }
+    // 回退:觸發隱藏的 <input type=file>
+    console.warn("[開啟專案] 走 fallback <input type=file>(無 handle,儲存會跳另存)");
+    if ($("loadProject")) $("loadProject").click();
+  }
+  document.querySelectorAll("#menuBar .menu-entry").forEach(entry => {
+    entry.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeAll();
+      const fn = actions[entry.dataset.action];
+      if (fn) fn();
+    });
+  });
+  const searchBtn = document.getElementById("menuBarSearchBtn");
+  if (searchBtn) {
+    searchBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeAll();
+      openSearchWindow();
+    });
+  }
+  const btn3D = document.getElementById("menuBar3DBtn");
+  if (btn3D) {
+    btn3D.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeAll();
+      open3DPreviewDialog();
+    });
+  }
+})();
+
+// 把 _refreshRecentProjectMenu 暴露到 window,讓 state/recentProjects 的更新流程能 callback
+try { (window as any)._refreshRecentProjectMenu = _refreshRecentProjectMenu; } catch (_) {}
