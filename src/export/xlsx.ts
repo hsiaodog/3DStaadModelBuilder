@@ -425,6 +425,22 @@ export function exportXlsxFile() {
     return _r;
   };
   const _renderMemberFlat = (rows, baseCol) => { _writeMembersPacked(rows, baseCol, 2); };
+  // 在 _writeMembersPacked 外面再套一層「連續 ID 分段」:把 rows 拆成 ID 連號的 run
+  //   (rows[k+1].m.id - rows[k].m.id === 1 算同 run),每 run 從新 row 起 pack。
+  //   結果就算同個 X-axis 下有 ID 跳號(例:140113 → 140121),也會在跳點視覺上換 row。
+  const _writeMembersPackedByRuns = (rows, baseCol, startRow) => {
+    let _r = startRow;
+    let i = 0;
+    while (i < rows.length) {
+      let j = i + 1;
+      while (j < rows.length &&
+             ((rows[j].m?.id ?? rows[j].mr?.m?.id) -
+              (rows[j-1].m?.id ?? rows[j-1].mr?.m?.id) === 1)) j++;
+      _r = _writeMembersPacked(rows.slice(i, j), baseCol, _r);
+      i = j;
+    }
+    return _r;
+  };
   // MEMBER Y-axis(col 20-30):基於柱線 (XX, ZZ) 分小區 — Y 軸桿件兩端共用 X/Z,可用 j1 端 rank 當 key
   //   排序:ZZ 升序(primary)→ XX 升序(secondary)→ ID 升序
   //   每個 (XX, ZZ) 群前插 `* XX nn / * ZZ nn` header,群內走 packed 3-per-row
@@ -483,11 +499,11 @@ export function exportXlsxFile() {
       const zRows = info.items.filter(mr => mr.cat === "Z").sort(_byId);
       if (xRows.length) {
         _pushSubHeader(_r++, 23, `* X-axis`);
-        _r = _writeMembersPacked(xRows, 23, _r);
+        _r = _writeMembersPackedByRuns(xRows, 23, _r);
       }
       if (zRows.length) {
         _pushSubHeader(_r++, 23, `* Z-axis`);
-        _r = _writeMembersPacked(zRows, 23, _r);
+        _r = _writeMembersPackedByRuns(zRows, 23, _r);
       }
     }
   }

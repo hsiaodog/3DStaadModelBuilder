@@ -80,6 +80,19 @@ export function exportStdFile() {
     }
     return out;
   };
+  // 連續 ID 分段:把 items 拆成 ID 連號的 run((next.m.id - cur.m.id === 1)),每 run
+  //   獨立 _packLines。同 X-axis 下若有跳號,跳點處自動換行,視覺上能看出分段。
+  const _packLinesByRuns = (items, fmt) => {
+    const out = [];
+    let i = 0;
+    while (i < items.length) {
+      let j = i + 1;
+      while (j < items.length && (items[j].m.id - items[j-1].m.id) === 1) j++;
+      out.push(..._packLines(items.slice(i, j), fmt));
+      i = j;
+    }
+    return out;
+  };
   // anchor/brace 判定 + 平面投票:_isBraceJoint / _planeForDiagMember / _braceJointPlane / _bySubBlockCoord
   // 全部已從 buildExportContext() 拿出(上面 destructure);這裡只需開始用 ─── (Phase 4 dedup)
   // 依 (XX, ZZ) 柱線分桶,內部 anchor + brace by plane
@@ -191,11 +204,11 @@ export function exportStdFile() {
         const zRows = info.items.filter(mr => mr.cat === "Z").sort(_byId);
         if (xRows.length) {
           lines.push("* X-axis");
-          lines.push(..._packLines(xRows, _fmtM));
+          lines.push(..._packLinesByRuns(xRows, _fmtM));
         }
         if (zRows.length) {
           lines.push("* Z-axis");
-          lines.push(..._packLines(zRows, _fmtM));
+          lines.push(..._packLinesByRuns(zRows, _fmtM));
         }
       }
     }
