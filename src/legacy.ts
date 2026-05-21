@@ -12730,23 +12730,34 @@ function _relayoutPageCore(p, opts) {
     }
     return groups;
   };
-  // 分群策略:
-  //   • Y 軸(verticals,2D 垂直):用拓樸(共享 joint)— 柱常有多段微漂移,topology 才整合
-  //   • X / Z 軸(horizontals,2D 水平):強制用「midY 分群」— 每排樑中點 midY 一致 → 同排 = 同群
-  //     ⚠ 不能用 groupForDir():它依外層 isVertical 切換取軸,預設 isVertical=true 會對
-  //       horizontals 用 midX 分群,結果每根樑都自成一群 → gi 暴增 → 編號跳號(2501 → 5801)
+  // 分群策略(視 plane 不同):
+  //   • horizontals(2D 水平樑):一律按「midY 分群」 — 同排樑 midY 一致 → 同群
+  //     ⚠ 不能用 groupForDir():它依外層 isVertical 反向取軸 → 每根樑自成一群 → gi 暴增、編號跳號
+  //   • verticals(2D 垂直):
+  //       - XY / YZ 頁面 → 真正的 Y 軸柱,用拓樸(共享 joint)整合多段微漂移的柱身
+  //       - XZ 頁面     → 其實是 Z 軸樑(平面圖縱樑),要用「midX 分群」才不會被切碎
   //   • D(斜撐):用「同線(slope + perp)」分群,連續斜撐一條線會合成一群
   const _groupHorizByMidY = (items) => {
     // 同排樑用 midY 分群、群內 midX 升序;群序 midY 升序(預設;有 origin 時依離原點近的優先)
     let groups = groupItems(items, it => it.midY, it => it.midX, tolGroup, false, false);
     if (origin) {
-      // applyOriginOrder 用 origin.y 排外圈、origin.x 排內圈,讓「離原點近的排先 / 排內離原點近的先」
       groups = applyOriginOrder(groups, origin.y, origin.x, it => it.midY, it => it.midX);
     }
     return groups;
   };
-  const hGroups = _groupHorizByMidY(horizontalsM);            // X / Z 軸:midY 分群
-  const vGroups = groupConnectedByJoint(verticalsM, true);    // Y 軸:topology 維持原本柱整合
+  const _groupVertByMidX = (items) => {
+    // 同列樑用 midX 分群、群內 midY 降序(上往下);群序 midX 升序
+    let groups = groupItems(items, it => it.midX, it => it.midY, tolGroup, true, false);
+    if (origin) {
+      groups = applyOriginOrder(groups, origin.x, origin.y, it => it.midX, it => it.midY);
+    }
+    return groups;
+  };
+  const _isXZPage = (p.plane === "XZ");
+  const hGroups = _groupHorizByMidY(horizontalsM);            // X / Z 軸樑:midY 分群
+  const vGroups = _isXZPage
+    ? _groupVertByMidX(verticalsM)                            // XZ 頁的 verticals = Z 軸樑 → midX 分群
+    : groupConnectedByJoint(verticalsM, true);                // XY / YZ 頁的 verticals = Y 軸柱 → topology
   const dGroups = groupForDiag(diagonalsM);
   const memOldToNew = new Map();
   // 桿件編號(全局 cap 版):各方向使用自己的 cap(state.memberCapY/X/Z/Diag,預設 99)
