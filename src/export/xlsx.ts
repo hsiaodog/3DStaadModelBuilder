@@ -678,8 +678,73 @@ export function exportXlsxFile() {
     }
   };
   _writeSubPropForYaxis();
-  _writeSubProp("XZ X-axis", _memXAxis);
-  _writeSubProp("XZ Z-axis", _memZAxis);
+  // MEMBER PROPERTIES 的 XZ 區跟 MEMBER XZ 對齊 — 三層分群:floorType → page → (X-axis / Z-axis)
+  //   讓「X 軸與 Z 軸編排完成才換下一個同類型頁面」的順序在材料區也成立
+  //   結構:* XZ → * TYPE <label> → * <pageName> → * X-axis 群 → * Z-axis 群 → 下一頁 → 下一型
+  const _writeSubPropForXZ = () => {
+    // 把 XZ X / Z 兩桶合併,先 byFt → 再 byPage(只算有材料的桿件)
+    const byFt = new Map();
+    for (const mr of [..._memXAxis, ..._memZAxis]) {
+      if (!mr.mat || !String(mr.mat).trim()) continue;
+      const info = _memberPageById.get(mr.m.id);
+      const pageName = info ? info.pageName : "?";
+      const elev = info ? info.elev : Infinity;
+      const ft = (info && info.floorType) || "default";
+      if (!byFt.has(ft)) byFt.set(ft, new Map());
+      const byPage = byFt.get(ft);
+      if (!byPage.has(pageName)) byPage.set(pageName, { elev, members: [] });
+      byPage.get(pageName).members.push(mr);
+    }
+    if (!byFt.size) return;
+    _pushSubHeader(_rMat++, MAT_BASE_COL, "* XZ");
+    const _writeOneCat = (members, catLabel) => {
+      const grouped = new Map();
+      for (const mr of members) {
+        const name = String(mr.mat).trim();
+        const matObj = _matObjByName.get(name);
+        const tableStr = matObj && matObj.table ? String(matObj.table) : "";
+        const key = `${tableStr}||${name}`;
+        if (!grouped.has(key)) grouped.set(key, { table: tableStr, name, ids: [] });
+        grouped.get(key).ids.push(mr.m.id);
+      }
+      if (!grouped.size) return;
+      _pushSubHeader(_rMat++, MAT_BASE_COL, `* ${catLabel}`);
+      const groupList = [...grouped.values()].sort((a, b) => {
+        if (a.table !== b.table) return a.table.localeCompare(b.table);
+        return a.name.localeCompare(b.name);
+      });
+      for (const g of groupList) {
+        const idRows = _segsToRows(_idsToSegs(g.ids));
+        for (const r of idRows) {
+          for (let i = 0; i < MAT_ID_SLOTS; i++) {
+            const v = r[i];
+            if (v === "" || v === undefined) continue;
+            push(_rMat, MAT_BASE_COL + i, v, typeof v === "number" ? 5 : undefined);
+          }
+          if (g.table) push(_rMat, MAT_TABLE_COL, g.table);
+          if (g.name)  push(_rMat, MAT_NAME_COL,  g.name);
+          _rMat++;
+        }
+      }
+    };
+    const _sortedFt = [...byFt.keys()].sort((a, b) => _ftOrder(a) - _ftOrder(b));
+    for (const ft of _sortedFt) {
+      _pushSubHeader(_rMat++, MAT_BASE_COL, `* TYPE ${_ftLabel(ft)}`);
+      const byPage = byFt.get(ft);
+      const sortedPages = [...byPage.entries()].sort((a, b) => {
+        if (a[1].elev !== b[1].elev) return a[1].elev - b[1].elev;
+        return a[0].localeCompare(b[0]);
+      });
+      for (const [pageName, pgInfo] of sortedPages) {
+        _pushSubHeader(_rMat++, MAT_BASE_COL, `* ${pageName}`);
+        const xList = pgInfo.members.filter(mr => mr.cat === "X");
+        const zList = pgInfo.members.filter(mr => mr.cat === "Z");
+        if (xList.length) _writeOneCat(xList, "X-axis");
+        if (zList.length) _writeOneCat(zList, "Z-axis");
+      }
+    }
+  };
+  _writeSubPropForXZ();
   _writeSubProp("BRACE XZ",  _memBraceXZ);
   _rMat++;   // BRACE XZ 後加一列空白 — 水平群(Y / XZ / BRACE XZ)與垂直 brace 群之間的視覺分隔
   _writeSubProp("BRACE XY",  _memBraceXY);

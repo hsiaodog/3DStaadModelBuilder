@@ -266,7 +266,8 @@ export function exportStdFile() {
         grouped.get(key).ids.push(mr.m.id);
       }
       if (!grouped.size) return;
-      lines.push(`* ${label}`);
+      // label 為空字串 → 不再 push 一行 sub-header(由 caller 自己寫,例如 XZ 三層分群時)
+      if (label) lines.push(`* ${label}`);
       const groupList = [...grouped.values()].sort((a, b) => {
         if (a.table !== b.table) return a.table.localeCompare(b.table);
         return a.name.localeCompare(b.name);
@@ -289,8 +290,41 @@ export function exportStdFile() {
       }
     };
     _writeMatGroup("Y-axis",    _memY);
-    _writeMatGroup("XZ X-axis", _memXAxis);
-    _writeMatGroup("XZ Z-axis", _memZAxis);
+    // XZ 區跟 MEMBER XZ 對齊 — 三層分群:floorType → page → (X-axis / Z-axis)
+    //   讓「X 軸與 Z 軸編排完成才換下一個同類型頁面」的順序在材料區也成立
+    {
+      const byFt = new Map();
+      for (const mr of [..._memXAxis, ..._memZAxis]) {
+        if (!mr.mat || !String(mr.mat).trim()) continue;
+        const info = _memberPageById.get(mr.m.id);
+        const pageName = info ? info.pageName : "?";
+        const elev = info ? info.elev : Infinity;
+        const ft = (info && info.floorType) || "default";
+        if (!byFt.has(ft)) byFt.set(ft, new Map());
+        const byPage = byFt.get(ft);
+        if (!byPage.has(pageName)) byPage.set(pageName, { elev, members: [] });
+        byPage.get(pageName).members.push(mr);
+      }
+      if (byFt.size) {
+        lines.push("* XZ");
+        const _sortedFt = [...byFt.keys()].sort((a, b) => _ftOrder(a) - _ftOrder(b));
+        for (const ft of _sortedFt) {
+          lines.push(`* TYPE ${_ftLabel(ft)}`);
+          const byPage = byFt.get(ft);
+          const sortedPages = [...byPage.entries()].sort((a, b) => {
+            if (a[1].elev !== b[1].elev) return a[1].elev - b[1].elev;
+            return a[0].localeCompare(b[0]);
+          });
+          for (const [pageName, pgInfo] of sortedPages) {
+            lines.push(`* ${pageName}`);
+            const xList = pgInfo.members.filter(mr => mr.cat === "X");
+            const zList = pgInfo.members.filter(mr => mr.cat === "Z");
+            if (xList.length) { lines.push("* X-axis"); _writeMatGroup("", xList); }
+            if (zList.length) { lines.push("* Z-axis"); _writeMatGroup("", zList); }
+          }
+        }
+      }
+    }
     _writeMatGroup("BRACE XZ",  _memBraceXZ);
     _writeMatGroup("BRACE XY",  _memBraceXY);
     _writeMatGroup("BRACE YZ",  _memBraceYZ);
