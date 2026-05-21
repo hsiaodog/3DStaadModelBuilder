@@ -12498,6 +12498,10 @@ function _relayoutPageCore(p, opts) {
   const memberStartBase = (Number.isFinite(opts.memberStartBase) && opts.memberStartBase >= 1)
     ? Math.floor(opts.memberStartBase) : 1;
   const tolGroup = 2;
+  // 樑分群用較寬的容差 — 同一排樑的中點(midY for X 軸 / midX for Z 軸)在 CAD 模型常有
+  //   數十毫米的飄移(連接細件、cap plate、anchor bolt 等位置略偏移),tolGroup=2 太緊會把
+  //   同排切成 N 個小群 → gi 暴增 → 編號 2501 → 5801 跳號。用 500mm 容差合併同排。
+  const tolBeamRow = 500;
   const cap = Math.max(10, state.relayoutCapacity || 100);
   const isVertical = state.relayoutDirection !== "horizontal";
   const nextBaseAfter = (lastId) => (Math.floor(lastId / cap) + 1) * cap + 1;
@@ -12739,15 +12743,16 @@ function _relayoutPageCore(p, opts) {
   //   • D(斜撐):用「同線(slope + perp)」分群,連續斜撐一條線會合成一群
   const _groupHorizByMidY = (items) => {
     // 同排樑用 midY 分群、群內 midX 升序;群序 midY 升序(預設;有 origin 時依離原點近的優先)
-    let groups = groupItems(items, it => it.midY, it => it.midX, tolGroup, false, false);
+    //   tol 用 tolBeamRow(500mm)而不是 tolGroup(2mm),避免同排細件位置略飄移而切碎
+    let groups = groupItems(items, it => it.midY, it => it.midX, tolBeamRow, false, false);
     if (origin) {
       groups = applyOriginOrder(groups, origin.y, origin.x, it => it.midY, it => it.midX);
     }
     return groups;
   };
   const _groupVertByMidX = (items) => {
-    // 同列樑用 midX 分群、群內 midY 降序(上往下);群序 midX 升序
-    let groups = groupItems(items, it => it.midX, it => it.midY, tolGroup, true, false);
+    // 同列樑用 midX 分群、群內 midY 降序(上往下);群序 midX 升序;tol 同上
+    let groups = groupItems(items, it => it.midX, it => it.midY, tolBeamRow, true, false);
     if (origin) {
       groups = applyOriginOrder(groups, origin.x, origin.y, it => it.midX, it => it.midY);
     }
