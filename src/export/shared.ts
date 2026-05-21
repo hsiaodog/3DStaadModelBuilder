@@ -10,7 +10,7 @@ type Joint = { id: number; x: number; y: number; z: number };
 type Member = { id: number; j1: number; j2: number };
 type MemRow = { m: Member; cat: MemberCat; mat: string | null };
 type MemberCat = "Y" | "X" | "Z" | "DXY" | "DYZ" | "DXZ";
-type MemberPage = { pageName: string; elev: number };
+type MemberPage = { pageName: string; elev: number; floorType: string | null };
 type JointRank = { xr: number | null; zr: number | null; yr?: number | null };
 
 export interface ExportContext {
@@ -114,6 +114,7 @@ export function buildExportContext(model: { joints: Joint[]; members: Member[] }
             memberPageById.set(dispId, {
               pageName: `${f.name}#${(+k) + 1}`,
               elev: Number.isFinite(pg.z) ? pg.z : Infinity,
+              floorType: pgPlane === "XZ" ? (pg.floorType || "default") : null,
             });
           }
         }

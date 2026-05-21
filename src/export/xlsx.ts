@@ -476,34 +476,44 @@ export function exportXlsxFile() {
     }
     _flushBucket();
   }
-  // MEMBER XZ(col 23-33):兩層分群 — 外層『頁面』→ 內層『X-axis / Z-axis』,各自走 packed 3-per-row
-  //   排序:頁面 elev (pg.z) 升序 → 頁面名稱 → 方向(X 在前 Z 在後) → ID 升序
+  // MEMBER XZ(col 23-33):三層分群 — 外層『樓層類型』→ 中層『頁面』→ 內層『X-axis / Z-axis』
+  //   排序:floorType yyStart 升序 → 頁面 elev (pg.z) 升序 → 頁面名稱 → 方向(X 在前 Z 在後) → ID 升序
+  //   X-axis / Z-axis 各自走 packed 3-per-row + 連續 ID 分段
   {
     const _xzCombined = [..._memXAxis, ..._memZAxis];
-    const byPage = new Map();
+    // 先按 floorType 分桶 → 每桶內再按 page 分桶
+    const byFt = new Map();
     for (const mr of _xzCombined) {
       const info = _memberPageById.get(mr.m.id);
       const pageName = info ? info.pageName : "?";
       const elev = info ? info.elev : Infinity;
+      const ft = (info && info.floorType) || "default";
+      if (!byFt.has(ft)) byFt.set(ft, new Map());
+      const byPage = byFt.get(ft);
       if (!byPage.has(pageName)) byPage.set(pageName, { elev, items: [] });
       byPage.get(pageName).items.push(mr);
     }
-    const sortedPages = [...byPage.entries()].sort((a, b) => {
-      if (a[1].elev !== b[1].elev) return a[1].elev - b[1].elev;
-      return a[0].localeCompare(b[0]);
-    });
+    const _sortedFt = [...byFt.keys()].sort((a, b) => _ftOrder(a) - _ftOrder(b));
     let _r = 2;
-    for (const [pageName, info] of sortedPages) {
-      _pushSubHeader(_r++, 23, `* ${pageName}`);
-      const xRows = info.items.filter(mr => mr.cat === "X").sort(_byId);
-      const zRows = info.items.filter(mr => mr.cat === "Z").sort(_byId);
-      if (xRows.length) {
-        _pushSubHeader(_r++, 23, `* X-axis`);
-        _r = _writeMembersPackedByRuns(xRows, 23, _r);
-      }
-      if (zRows.length) {
-        _pushSubHeader(_r++, 23, `* Z-axis`);
-        _r = _writeMembersPackedByRuns(zRows, 23, _r);
+    for (const ft of _sortedFt) {
+      _pushSubHeader(_r++, 23, `* TYPE ${_ftLabel(ft)}`, 7);
+      const byPage = byFt.get(ft);
+      const sortedPages = [...byPage.entries()].sort((a, b) => {
+        if (a[1].elev !== b[1].elev) return a[1].elev - b[1].elev;
+        return a[0].localeCompare(b[0]);
+      });
+      for (const [pageName, info] of sortedPages) {
+        _pushSubHeader(_r++, 23, `* ${pageName}`);
+        const xRows = info.items.filter(mr => mr.cat === "X").sort(_byId);
+        const zRows = info.items.filter(mr => mr.cat === "Z").sort(_byId);
+        if (xRows.length) {
+          _pushSubHeader(_r++, 23, `* X-axis`);
+          _r = _writeMembersPackedByRuns(xRows, 23, _r);
+        }
+        if (zRows.length) {
+          _pushSubHeader(_r++, 23, `* Z-axis`);
+          _r = _writeMembersPackedByRuns(zRows, 23, _r);
+        }
       }
     }
   }

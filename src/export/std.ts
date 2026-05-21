@@ -182,33 +182,41 @@ export function exportStdFile() {
       }
       _flush();
     }
-    // XZ:外層頁面 → 內層 X-axis / Z-axis
+    // XZ:三層分群 — 外層樓層類型 → 中層頁面 → 內層 X-axis / Z-axis
     if (_memXAxis.length || _memZAxis.length) {
       lines.push("* MEMBER XZ");
       const xz = [..._memXAxis, ..._memZAxis];
-      const byPage = new Map();
+      const byFt = new Map();
       for (const mr of xz) {
         const info = _memberPageById.get(mr.m.id);
         const pageName = info ? info.pageName : "?";
         const elev = info ? info.elev : Infinity;
+        const ft = (info && info.floorType) || "default";
+        if (!byFt.has(ft)) byFt.set(ft, new Map());
+        const byPage = byFt.get(ft);
         if (!byPage.has(pageName)) byPage.set(pageName, { elev, items: [] });
         byPage.get(pageName).items.push(mr);
       }
-      const sortedPages = [...byPage.entries()].sort((a, b) => {
-        if (a[1].elev !== b[1].elev) return a[1].elev - b[1].elev;
-        return a[0].localeCompare(b[0]);
-      });
-      for (const [pageName, info] of sortedPages) {
-        lines.push(`* ${pageName}`);
-        const xRows = info.items.filter(mr => mr.cat === "X").sort(_byId);
-        const zRows = info.items.filter(mr => mr.cat === "Z").sort(_byId);
-        if (xRows.length) {
-          lines.push("* X-axis");
-          lines.push(..._packLinesByRuns(xRows, _fmtM));
-        }
-        if (zRows.length) {
-          lines.push("* Z-axis");
-          lines.push(..._packLinesByRuns(zRows, _fmtM));
+      const _sortedFt = [...byFt.keys()].sort((a, b) => _ftOrder(a) - _ftOrder(b));
+      for (const ft of _sortedFt) {
+        lines.push(`* TYPE ${_ftLabel(ft)}`);
+        const byPage = byFt.get(ft);
+        const sortedPages = [...byPage.entries()].sort((a, b) => {
+          if (a[1].elev !== b[1].elev) return a[1].elev - b[1].elev;
+          return a[0].localeCompare(b[0]);
+        });
+        for (const [pageName, info] of sortedPages) {
+          lines.push(`* ${pageName}`);
+          const xRows = info.items.filter(mr => mr.cat === "X").sort(_byId);
+          const zRows = info.items.filter(mr => mr.cat === "Z").sort(_byId);
+          if (xRows.length) {
+            lines.push("* X-axis");
+            lines.push(..._packLinesByRuns(xRows, _fmtM));
+          }
+          if (zRows.length) {
+            lines.push("* Z-axis");
+            lines.push(..._packLinesByRuns(zRows, _fmtM));
+          }
         }
       }
     }
