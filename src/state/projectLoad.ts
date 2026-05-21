@@ -22,7 +22,7 @@ import {
   refreshProjectTabs, refreshProjectMenu, updateScaleRulerButton,
   snapAllGlobalJointsToPrecision,
   nextGlobalJointId, nextGlobalMemberId,
-  setNextJointId, setNextMemberId, setNextGlobalJointId, setNextGlobalMemberId,
+  setNextJointId, setNextMemberId, setNextFileId, setNextGlobalJointId, setNextGlobalMemberId,
   setProjectDirty,
 } from "../legacy";
 import { showBusy, setBusyMessage, busyTick } from "../ui/busy";
@@ -129,7 +129,7 @@ export async function loadProjectFull(file, handle) {
   if (data.counters) {
     setNextJointId(data.counters.nextJointId  || 1);
     setNextMemberId(data.counters.nextMemberId || 1);
-    nextFileId   = data.counters.nextFileId   || 1;
+    setNextFileId(data.counters.nextFileId   || 1);
     setNextGlobalJointId(data.counters.nextGlobalJointId || 1);
     setNextGlobalMemberId(data.counters.nextGlobalMemberId || 1);
   }

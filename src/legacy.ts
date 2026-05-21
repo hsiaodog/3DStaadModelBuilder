@@ -143,6 +143,8 @@ export function allocMemberId() { return nextMemberId++; }
 // Phase 7a:snapshot/applySnap 移到 src/state/snapshot.ts 後,跨模組重設計數器需要 setter
 export function setNextJointId(v: number) { nextJointId = v; }
 export function setNextMemberId(v: number) { nextMemberId = v; }
+// Phase 8j follow-up:loadProjectFull 在 projectLoad.ts 還會寫 nextFileId
+export function setNextFileId(v: number) { nextFileId = v; }
 export function setNextGlobalJointId(v: number) { nextGlobalJointId = v; }
 export function setNextGlobalMemberId(v: number) { nextGlobalMemberId = v; }
 
