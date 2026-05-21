@@ -17,6 +17,7 @@ import {
   $, state, _searchWin, setSearchWin, setSearchWinAutofill,
   getActiveFile, displayMemberId, pushUndo, refreshLists, render,
   activatePageWithBusy, _zoomMainCanvasToRect,
+  _3dPreviewWindow,
 } from "../legacy";
 import { _displayIdForJointWith } from "../core/displayId";
 import { joint2DToWorld3D } from "../core/projection";
