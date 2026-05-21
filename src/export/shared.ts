@@ -32,6 +32,8 @@ export interface ExportContext {
   memberPageById: Map<number, MemberPage>;
   /** joint.id → 來源 XZ page 的 floorType key(無對應頁 → null)。anchor 節點才填,brace 不填。 */
   floorTypeByJointId: Map<number, string | null>;
+  /** 全部 member rows(含 cat / mat),未分桶版;xlsx / std 統計材料筆數用 */
+  memRows: MemRow[];
   /** 6 個分類 bucket(已依 ID 升序排好)*/
   memY: MemRow[];
   memXAxis: MemRow[];
@@ -294,6 +296,7 @@ export function buildExportContext(model: { joints: Joint[]; members: Member[] }
     jWorldById, rankByJointId,
     classifyMember3D, planeForDiagMember,
     memberMat, matObjByName, memberPageById, floorTypeByJointId,
+    memRows,
     memY, memXAxis, memZAxis, memBraceXZ, memBraceXY, memBraceYZ,
     yAnchorMax, braceRanks, isBraceJoint, braceJointPlane,
     bySubBlockCoord, idsToSegs,

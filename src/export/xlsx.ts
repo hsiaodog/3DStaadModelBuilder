@@ -204,6 +204,7 @@ export function exportXlsxFile() {
     classifyMember3D: _classifyMember3D, planeForDiagMember: _planeForDiagMember,
     memberMat: _memberMat, matObjByName: _matObjByName, memberPageById: _memberPageById,
     floorTypeByJointId: _floorTypeByJointId,
+    memRows: _memRows,
     memY: _memY, memXAxis: _memXAxis, memZAxis: _memZAxis,
     memBraceXZ: _memBraceXZ, memBraceXY: _memBraceXY, memBraceYZ: _memBraceYZ,
     yAnchorMax: _yAnchorMax, braceRanks: _braceRanks,
