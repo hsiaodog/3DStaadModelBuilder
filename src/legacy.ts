@@ -13306,32 +13306,39 @@ export async function relayoutMembersNumberingAll(opts) {
     let mainCurStart = Math.max(2501,
       phaseMax.Y > 0 ? _nextMemberZeroBoundary(phaseMax.Y) : 1);
     let diagCurStart = 100001;
+    console.log(`[Stage 2 XZ] 起始 mainCurStart=${mainCurStart} (phaseMax.Y=${phaseMax.Y}) / diagCurStart=${diagCurStart}`);
     for (const t of tasks) {
       if (t.pg.plane !== "XZ") continue;
       processed++;
+      const pageTag = `${t.f.name}#${t.k}(z=${t.pg.z})`;
       if (typeof setBusyMessage === "function") {
-        setBusyMessage(`[2/4] XZ 平面・${t.f.name}#${t.k}・main 起始 ${mainCurStart} / D 起始 ${diagCurStart}`);
+        setBusyMessage(`[2/4] XZ 平面・${pageTag}・main 起始 ${mainCurStart} / D 起始 ${diagCurStart}`);
       }
       await busyTick();
+      const beforeMain = mainCurStart, beforeDiag = diagCurStart;
       // 同一頁依序 X → Z → D
       // X
       let r = _renumOnePage(t.pg, t.f.planeOrigin, "X", mainCurStart);
-      if (r && r.catMax && Number.isFinite(r.catMax.X) && r.catMax.X > 0) {
-        if (r.catMax.X > phaseMax.X) phaseMax.X = r.catMax.X;
-        mainCurStart = _nextMemberZeroBoundary(r.catMax.X);
+      const xMax = (r && r.catMax) ? r.catMax.X : 0;
+      if (Number.isFinite(xMax) && xMax > 0) {
+        if (xMax > phaseMax.X) phaseMax.X = xMax;
+        mainCurStart = _nextMemberZeroBoundary(xMax);
       }
       // Z
       r = _renumOnePage(t.pg, t.f.planeOrigin, "Z", mainCurStart);
-      if (r && r.catMax && Number.isFinite(r.catMax.Z) && r.catMax.Z > 0) {
-        if (r.catMax.Z > phaseMax.Z) phaseMax.Z = r.catMax.Z;
-        mainCurStart = _nextMemberZeroBoundary(r.catMax.Z);
+      const zMax = (r && r.catMax) ? r.catMax.Z : 0;
+      if (Number.isFinite(zMax) && zMax > 0) {
+        if (zMax > phaseMax.Z) phaseMax.Z = zMax;
+        mainCurStart = _nextMemberZeroBoundary(zMax);
       }
       // D
       r = _renumOnePage(t.pg, t.f.planeOrigin, "D", diagCurStart);
-      if (r && r.catMax && Number.isFinite(r.catMax.D) && r.catMax.D > 0) {
-        if (r.catMax.D > phaseMax.D) phaseMax.D = r.catMax.D;
-        diagCurStart = _nextMemberZeroBoundary(r.catMax.D);
+      const dMax = (r && r.catMax) ? r.catMax.D : 0;
+      if (Number.isFinite(dMax) && dMax > 0) {
+        if (dMax > phaseMax.D) phaseMax.D = dMax;
+        diagCurStart = _nextMemberZeroBoundary(dMax);
       }
+      console.log(`[Stage 2 XZ] ${pageTag} X[${beforeMain}→max=${xMax}] Z[?→max=${zMax}] D[${beforeDiag}→max=${dMax}] → next main=${mainCurStart} diag=${diagCurStart}`);
     }
   }
 
