@@ -12998,14 +12998,34 @@ export async function relayoutMembersNumberingAll(opts) {
   showBusyWithCancel && showBusyWithCancel(`編排桿件編號(全部頁面) 準備中…(共 ${totalPages} 頁)`, () => {});
   await busyTick();
   const planeOrder = { "XY": 0, "YZ": 1, "XZ": 2 };
+  // 樓層類型優先序:用 yyStart 升序排;XZ 頁才看 pg.floorType,其他平面不分樓層型
+  const ftOrderOf = (pg) => {
+    if (!pg || pg.plane !== "XZ") return 0;
+    const key = pg.floorType || "default";
+    const t = (state.floorTypes || []).find(x => x.key === key);
+    return (t && Number.isFinite(t.yyStart)) ? t.yyStart : 9999;
+  };
   const tasks = [];
   for (const f of state.files) {
     for (const k in (f.pages || {})) {
       const pg = f.pages[k];
-      tasks.push({ f, pg, k, order: planeOrder[pg && pg.plane] ?? 99 });
+      tasks.push({
+        f, pg, k,
+        order: planeOrder[pg && pg.plane] ?? 99,
+        ftOrder: ftOrderOf(pg),
+        elev: (pg && Number.isFinite(pg.z)) ? pg.z : Infinity,
+      });
     }
   }
-  tasks.sort((a, b) => a.order - b.order);
+  // XZ 頁排序:plane 先(XY → YZ → XZ),XZ 內部再按 floorType yyStart → elev → 檔名 → 頁索引;
+  //   讓「同一樓層類型的所有 XZ 頁先處理完,再換下一個 type」這個順序成立。
+  tasks.sort((a, b) => {
+    if (a.order !== b.order) return a.order - b.order;
+    if (a.ftOrder !== b.ftOrder) return a.ftOrder - b.ftOrder;
+    if (a.elev !== b.elev) return a.elev - b.elev;
+    if (a.f.name !== b.f.name) return a.f.name.localeCompare(b.f.name);
+    return (+a.k) - (+b.k);
+  });
   // 跨頁累加桿件 startBase
   let memberStartBase = 1;
   let lastMemberMax = 0;
