@@ -12773,14 +12773,25 @@ function _relayoutPageCore(p, opts) {
     const step = m && m >= 2 ? m : 100;
     return (Math.floor(n / step) + 1) * step + 1;
   };
+  // 跨頁累加用:diagStartBase 獨立。讓「X+Z 各頁連續編號」、「D 各頁也連續編號」
+  //   但兩條序列彼此獨立 → diagonals 的高 ID 不會把下一頁 X-axis 的 startBase 推高。
+  //   diagStartBase 若沒給,fallback 用 startBase 接續(維持單一序列舊行為)。
+  const diagStartBase = (Number.isFinite(opts.diagStartBase) && opts.diagStartBase >= 1)
+    ? Math.floor(opts.diagStartBase) : null;
   let startBase = memberStartBase;
-  let lastMaxId = 0;
+  let lastMaxId = 0;       // X + Z 累加用(不含 D)
+  let lastDiagMaxId = 0;   // D 累加用
   for (const cat of phaseOrder) {
     const groups = catGroups[cat] || [];
     if (!groups.length) continue;
     const cap = catCap[cat];
     const mult = cap + 1;
-    let phaseMax = lastMaxId;
+    // D 階段若有獨立 diagStartBase → 從那邊跑,不吃 X+Z 進位結果
+    const isDiag = (cat === "D");
+    if (isDiag && diagStartBase != null) {
+      startBase = diagStartBase;
+    }
+    let phaseMax = isDiag ? lastDiagMaxId : lastMaxId;
     for (let gi = 0; gi < groups.length; gi++) {
       const g = groups[gi];
       for (let pi = 0; pi < g.length; pi++) {
@@ -12789,12 +12800,21 @@ function _relayoutPageCore(p, opts) {
         if (id > phaseMax) phaseMax = id;
       }
     }
-    if (phaseMax > lastMaxId) lastMaxId = phaseMax;
+    if (isDiag) {
+      if (phaseMax > lastDiagMaxId) lastDiagMaxId = phaseMax;
+    } else {
+      if (phaseMax > lastMaxId) lastMaxId = phaseMax;
+    }
     // 換到下一個 phase:用「下一階段的 mult」進位(若沒有下一階段,任意 mult 都行)
-    if (lastMaxId > 0) startBase = nextZeroBoundary(lastMaxId, mult);
+    //   D 之後不會再有非 D phase,所以 D 進位後也不會被用到
+    if (!isDiag && lastMaxId > 0) startBase = nextZeroBoundary(lastMaxId, mult);
   }
   // 回傳 maxMemberId 給 relayoutAll 跨頁累加
-  const _pageMaxMemberId = lastMaxId;
+  //   maxMainMemberId = X+Z 最大值(讓下一頁的 X-axis startBase 不被 D 推高)
+  //   maxDiagMemberId = D 最大值(讓下一頁的 D startBase 接續往下)
+  const _pageMaxMainMemberId = lastMaxId;
+  const _pageMaxDiagMemberId = lastDiagMaxId;
+  const _pageMaxMemberId = Math.max(lastMaxId, lastDiagMaxId);
   for (const m of p.members) {
     const nid = memOldToNew.get(m.id);
     if (nid != null) m.id = nid;
@@ -12807,7 +12827,10 @@ function _relayoutPageCore(p, opts) {
   if (maxM + 1 > nextMemberId) nextMemberId = maxM + 1;
   return { jointGroups: jointGroups.length, finalMax, joints: p.joints.length, members: p.members.length,
            hGroups: hGroups.length, vGroups: vGroups.length, dGroups: dGroups.length,
-           oldToNew, memOldToNew, maxMemberId: _pageMaxMemberId };
+           oldToNew, memOldToNew,
+           maxMemberId: _pageMaxMemberId,
+           maxMainMemberId: _pageMaxMainMemberId,
+           maxDiagMemberId: _pageMaxDiagMemberId };
 }
 // 進位到下一個 mult 邊界 + 1 — 跨頁累加 startBase 用
 //   舊版用「位數最高位 +1」(digit-based)會造成指數成長:99→101→201→...→1001→2001→...→10001→...
@@ -13026,8 +13049,13 @@ export async function relayoutMembersNumberingAll(opts) {
     if (a.f.name !== b.f.name) return a.f.name.localeCompare(b.f.name);
     return (+a.k) - (+b.k);
   });
-  // 跨頁累加桿件 startBase
+  // 跨頁累加桿件 startBase — 拆成兩條獨立序列:
+  //   memberStartBase  = X+Z 序列(各頁 X/Z 桿件接續編,連續 100-block 步進)
+  //   memberDiagStartBase = D 序列(跨頁 D 桿件接續編);初始放高位避免跟 X+Z 撞號
+  //   讓單頁裡 D 群組數很多(每根斜撐自成一群)時,下一頁 X-axis 的 startBase 不會被 D 推到 38xxx
+  //   舊行為 fallback:若 _relayoutPageCore 沒回傳 maxMain/maxDiag(舊版),仍用 maxMemberId 推一次
   let memberStartBase = 1;
+  let memberDiagStartBase = 100001;   // D 序列從 100001 起,跟 X+Z 視覺上分開
   let lastMemberMax = 0;
   for (const t of tasks) {
     processed++;
@@ -13038,12 +13066,18 @@ export async function relayoutMembersNumberingAll(opts) {
       origin: t.f.planeOrigin || null,
       membersOnly: true,
       memberStartBase,
+      diagStartBase: memberDiagStartBase,
     });
     if (r) {
       ok++;
+      if (Number.isFinite(r.maxMainMemberId) && r.maxMainMemberId > 0) {
+        memberStartBase = _nextMemberZeroBoundary(r.maxMainMemberId);
+      }
+      if (Number.isFinite(r.maxDiagMemberId) && r.maxDiagMemberId > 0) {
+        memberDiagStartBase = _nextMemberZeroBoundary(r.maxDiagMemberId);
+      }
       if (Number.isFinite(r.maxMemberId) && r.maxMemberId > 0) {
         lastMemberMax = r.maxMemberId;
-        memberStartBase = _nextMemberZeroBoundary(r.maxMemberId);
       }
     } else skipped++;
   }
