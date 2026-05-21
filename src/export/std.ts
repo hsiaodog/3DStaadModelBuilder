@@ -38,6 +38,7 @@ export function exportStdFile() {
     jWorldById: _jWorldById, rankByJointId: _rankByJointId,
     classifyMember3D: _classifyMember3D, planeForDiagMember: _planeForDiagMember,
     memberMat: _memberMat, matObjByName: _matObjByName, memberPageById: _memberPageById,
+    floorTypeByJointId: _floorTypeByJointId,
     memY: _memY, memXAxis: _memXAxis, memZAxis: _memZAxis,
     memBraceXZ: _memBraceXZ, memBraceXY: _memBraceXY, memBraceYZ: _memBraceYZ,
     yAnchorMax: _yAnchorMax, braceRanks: _braceRanks,
@@ -45,6 +46,16 @@ export function exportStdFile() {
     bySubBlockCoord: _bySubBlockCoord, idsToSegs: _idsToSegs,
     md: _md, rndForRank: _rndForRank,
   } = _ctx;
+  // 樓層類型 label / 排序(跟 xlsx 一致):
+  const _ftLabel = (k) => {
+    if (!k || k === "default") return "預設";
+    const t = (state.floorTypes || []).find(x => x.key === k);
+    return t ? (t.label || t.key) : k;
+  };
+  const _ftOrder = (k) => {
+    const t = (state.floorTypes || []).find(x => x.key === k);
+    return t && Number.isFinite(t.yyStart) ? t.yyStart : 9999;
+  };
   // === 輸出 STAAD .std ===
   //   規範:INPUT WIDTH 79(STAAD 規定 50–79 之間;原本誤寫 200 會被 STAAD 整行 IGNORE 後續解析錯);* 起頭 = comment;`;` 分隔同列多 statement;`-` 行尾 = 行接續
   const lines = [];
@@ -102,8 +113,20 @@ export function exportStdFile() {
       lines.push(`* ZZ ${line.zr != null ? String(line.zr).padStart(2, "0") : "?"}`);
       if (line.anchors.length) {
         lines.push("* Y-axis");
-        const sorted = line.anchors.slice().sort(_bySubBlockCoord);
-        for (const j of sorted) lines.push(_fmtJ(j));
+        // 依「樓層類型」分子區:`* TYPE <label>` → 該樓層類型的節點 → 下一個樓層類型 …
+        //   排序依 yyStart 升序(跟 xlsx 同邏輯)
+        const _byFt = new Map();
+        for (const j of line.anchors) {
+          const ft = _floorTypeByJointId.get(j.id) || "default";
+          if (!_byFt.has(ft)) _byFt.set(ft, []);
+          _byFt.get(ft).push(j);
+        }
+        const _sortedFt = [..._byFt.keys()].sort((a, b) => _ftOrder(a) - _ftOrder(b));
+        for (const ft of _sortedFt) {
+          lines.push(`* TYPE ${_ftLabel(ft)}`);
+          const sorted = _byFt.get(ft).slice().sort(_bySubBlockCoord);
+          for (const j of sorted) lines.push(_fmtJ(j));
+        }
       }
       for (const pl of ["YZ", "XY", "XZ"]) {
         const items = line.bracesByPlane.get(pl);

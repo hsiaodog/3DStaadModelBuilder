@@ -203,6 +203,7 @@ export function exportXlsxFile() {
     jWorldById: _jWorldById, rankByJointId: _rankByJointId,
     classifyMember3D: _classifyMember3D, planeForDiagMember: _planeForDiagMember,
     memberMat: _memberMat, matObjByName: _matObjByName, memberPageById: _memberPageById,
+    floorTypeByJointId: _floorTypeByJointId,
     memY: _memY, memXAxis: _memXAxis, memZAxis: _memZAxis,
     memBraceXZ: _memBraceXZ, memBraceXY: _memBraceXY, memBraceYZ: _memBraceYZ,
     yAnchorMax: _yAnchorMax, braceRanks: _braceRanks,
@@ -210,6 +211,18 @@ export function exportXlsxFile() {
     bySubBlockCoord: _bySubBlockCoord,
     md: _md, rndForRank: _rndForRank,
   } = _ctx;
+  // 樓層類型 helper:給 joint 找該節點源 XZ 頁的 floorType key,並把 key 轉成顯示用 label / 排序順序
+  //   _ftLabel:預設 key="default" 時直接顯示 "預設",其他 key 看 state.floorTypes label
+  //   _ftOrder:用 floorType 的 yyStart 當排序 key(跟樓層 numbering 一致);找不到的塞最後
+  const _ftLabel = (k) => {
+    if (!k || k === "default") return "預設";
+    const t = (state.floorTypes || []).find(x => x.key === k);
+    return t ? (t.label || t.key) : k;
+  };
+  const _ftOrder = (k) => {
+    const t = (state.floorTypes || []).find(x => x.key === k);
+    return t && Number.isFinite(t.yyStart) ? t.yyStart : 9999;
+  };
   // 註:_idsToSegs 不從 ctx 拿(xlsx 用 token-array 格式 [["123"],["123","TO","456"]],
   //   shared.ts 是 string 格式 ["123","123 TO 456"];兩者 API 不同,xlsx 保留自己 local 版本)
   // 排序:XX 升序 → ZZ 升序 → 小區內 ID 升序(後備 fallback 座標)
@@ -338,10 +351,23 @@ export function exportXlsxFile() {
         _pushSubHeader(_r++, baseCol, `* XX ${line.xr != null ? String(line.xr).padStart(2, "0") : "?"}`, 7);
         _pushSubHeader(_r++, baseCol, `* ZZ ${line.zr != null ? String(line.zr).padStart(2, "0") : "?"}`, 7);
         // anchor 節點前插一層 `* Y-axis`(跟 BRACE 平面 sub-header 同層級、同色 styleId 3)
+        //   再依「樓層類型」分子區:`* TYPE <label>` → 該樓層類型的節點 → 下一個樓層類型 …
+        //   樓層類型依 yyStart 升序(跟 .xlsx 頁面分群、.std 樓層編號一致)
         if (line.anchors.length) {
           _pushSubHeader(_r++, baseCol, "* Y-axis");
-          const anchors = line.anchors.slice().sort(_bySubBlockCoord);
-          for (const j of anchors) { _writeJointRow(_r, j, baseCol); _r++; }
+          // 把 anchors 按 floorType key 分桶
+          const _byFt = new Map();
+          for (const j of line.anchors) {
+            const ft = _floorTypeByJointId.get(j.id) || "default";
+            if (!_byFt.has(ft)) _byFt.set(ft, []);
+            _byFt.get(ft).push(j);
+          }
+          const _sortedFt = [..._byFt.keys()].sort((a, b) => _ftOrder(a) - _ftOrder(b));
+          for (const ft of _sortedFt) {
+            _pushSubHeader(_r++, baseCol, `* TYPE ${_ftLabel(ft)}`);
+            const items = _byFt.get(ft).slice().sort(_bySubBlockCoord);
+            for (const j of items) { _writeJointRow(_r, j, baseCol); _r++; }
+          }
         }
         for (const pl of ["YZ", "XY", "XZ"]) {
           const items = line.bracesByPlane.get(pl);

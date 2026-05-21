@@ -4,6 +4,7 @@
 
 import { state, displayMemberId } from "../legacy";
 import { _rankCache, _ensureRankCache } from "../core/rankCache";
+import { joint2DToWorld3D } from "../core/projection";
 
 type Joint = { id: number; x: number; y: number; z: number };
 type Member = { id: number; j1: number; j2: number };
@@ -29,6 +30,8 @@ export interface ExportContext {
   matObjByName: Map<string, any>;
   /** member.id → 來源 page 名(掃序 XZ → XY → YZ → 其他) */
   memberPageById: Map<number, MemberPage>;
+  /** joint.id → 來源 XZ page 的 floorType key(無對應頁 → null)。anchor 節點才填,brace 不填。 */
+  floorTypeByJointId: Map<number, string | null>;
   /** 6 個分類 bucket(已依 ID 升序排好)*/
   memY: MemRow[];
   memXAxis: MemRow[];
@@ -110,6 +113,45 @@ export function buildExportContext(model: { joints: Joint[]; members: Member[] }
               pageName: `${f.name}#${(+k) + 1}`,
               elev: Number.isFinite(pg.z) ? pg.z : Infinity,
             });
+          }
+        }
+      }
+    }
+  }
+
+  // 樓層類型 lookup:對每個 anchor 節點,找它源自的 XZ 頁面,記下該頁面的 floorType key。
+  //   作法:掃所有 XZ 頁面(那才有 floorType),把頁面內每個 2D joint 投影到 3D,
+  //   然後用 (rounded x, y, z) 為 key 比對 model.joints 找出對應的 STAAD id。
+  //   若同一個 STAAD joint 在多個 XZ 頁出現,以第一個 hit 為準(掃描順序 = state.files 自然順序)。
+  const floorTypeByJointId = new Map<number, string | null>();
+  {
+    const eps = 1e-4;
+    const _coordKey = (x: number, y: number, z: number) =>
+      `${Math.round(x / eps)}|${Math.round(y / eps)}|${Math.round(z / eps)}`;
+    const idByCoord = new Map<string, number>();
+    for (const j of joints) idByCoord.set(_coordKey(j.x, j.y, j.z), j.id);
+    for (const f of s.files) {
+      for (const k of Object.keys(f.pages || {})) {
+        const pg = (f.pages as any)[k];
+        if (!pg || pg._orphan) continue;
+        if (pg.plane !== "XZ") continue;   // 只有 XZ 頁有 floorType
+        const ftKey = pg.floorType || "default";
+        for (const j2d of pg.joints || []) {
+          let w: { x: number; y: number; z: number } | null = null;
+          if (j2d.globalId != null) {
+            const gj = (s.globalJoints || []).find((g: any) => g.id === j2d.globalId);
+            if (gj && Number.isFinite(gj.x) && Number.isFinite(gj.y) && Number.isFinite(gj.z)) {
+              w = { x: gj.x, y: gj.y, z: gj.z };
+            }
+          }
+          if (!w) {
+            const w2 = joint2DToWorld3D(f, pg, j2d);
+            if (w2) w = { x: w2.x, y: w2.y, z: w2.z };
+          }
+          if (!w) continue;
+          const sid = idByCoord.get(_coordKey(w.x, w.y, w.z));
+          if (sid != null && !floorTypeByJointId.has(sid)) {
+            floorTypeByJointId.set(sid, ftKey);
           }
         }
       }
@@ -251,7 +293,7 @@ export function buildExportContext(model: { joints: Joint[]; members: Member[] }
     joints, members,
     jWorldById, rankByJointId,
     classifyMember3D, planeForDiagMember,
-    memberMat, matObjByName, memberPageById,
+    memberMat, matObjByName, memberPageById, floorTypeByJointId,
     memY, memXAxis, memZAxis, memBraceXZ, memBraceXY, memBraceYZ,
     yAnchorMax, braceRanks, isBraceJoint, braceJointPlane,
     bySubBlockCoord, idsToSegs,
