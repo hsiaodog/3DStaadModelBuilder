@@ -13181,11 +13181,13 @@ export async function relayoutMembersNumberingAll(opts) {
       if (!columnGroups.has(key)) columnGroups.set(key, []);
       columnGroups.get(key)!.push(cm);
     }
-    // 步驟 4:外圈群序按 worldX 升序 → worldZ 升序;內圈按 worldY 升序(由下而上)
+    // 步驟 4:外圈群序按 worldZ 升序 → worldX 升序(同一 Z-rank 切片上的柱子先全部編完;
+    //   讓畫面上「同一橫排 axis line」的柱子連續編號:第 1 根 = 1xx、第 2 根 = 2xx …)
+    //   內圈按 worldY 升序(由下而上)排
     const sortedCols = [...columnGroups.values()].sort((g1, g2) => {
-      const x1 = g1[0].world.x, x2 = g2[0].world.x;
-      if (Math.abs(x1 - x2) > 1) return x1 - x2;
-      return g1[0].world.z - g2[0].world.z;
+      const z1 = g1[0].world.z, z2 = g2[0].world.z;
+      if (Math.abs(z1 - z2) > 1) return z1 - z2;
+      return g1[0].world.x - g2[0].world.x;
     });
     for (const g of sortedCols) g.sort((a, b) => a.world.midY - b.world.midY);
     // 步驟 5+6:序貫編號,寫回 page-local m.id
