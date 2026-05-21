@@ -12804,41 +12804,99 @@ function _relayoutPageCore(p, opts) {
     return (Math.floor(n / step) + 1) * step + 1;
   };
   // 跨頁累加用:diagStartBase 獨立。讓 D(斜撐)各頁也連續編號,但 D 的高 ID 不會把下一頁
-  //   Y/X/Z 的 startBase 推高。Y/X/Z 仍共用 memberStartBase(跟原本 working 版本一致),保留
-  //   舊的「Y 軸從某頁起始 → X 接續 → Z 接續」的單序列行為。
-  //
-  //   opts.diagStartBase 若沒給,fallback 用 startBase 接續(維持單一序列舊行為)。
+  //   Y/X/Z 的 startBase 推高。Y/X/Z 仍共用 memberStartBase(跟原本 working 版本一致)。
+  //   opts.diagStartBase 若沒給,fallback 用 startBase 接續。
   const diagStartBase = (Number.isFinite(opts.diagStartBase) && opts.diagStartBase >= 1)
     ? Math.floor(opts.diagStartBase) : null;
   let startBase = memberStartBase;
   let lastMaxId = 0;       // Y + X + Z 累加用(不含 D)
   let lastDiagMaxId = 0;   // D 累加用
-  for (const cat of phaseOrder) {
-    const groups = catGroups[cat] || [];
-    if (!groups.length) continue;
-    const cap = catCap[cat];
-    const mult = cap + 1;
-    const isDiag = (cat === "D");
-    // D 階段若有獨立 diagStartBase → 從那邊跑,不吃 main 進位結果
-    if (isDiag && diagStartBase != null) {
-      startBase = diagStartBase;
+
+  if (plane === "XZ") {
+    // ★ XZ 頁面用 per-midY-band 處理:
+    //   先依 midY 把所有桿件(X / Z / D)分成「樓層水平帶」,每帶內處理順序為:
+    //     row(X 軸)→ column(Z 軸)→ brace(D)→ 下一個 midY 帶
+    //   讓編號跟著「樓層由低到高」走,row1 = 2501-25xx、brace1(若有)= 2601-26xx、row2 = 2701-...
+    //   每個 (band, cat) 內部所有桿件壓在 1 個 100-block(同 mult=catCap[cat]+1)
+    const allMis = [
+      ...horizontalsM.map(mi => ({ ...mi, _cat: "X" })),
+      ...verticalsM.map(mi => ({ ...mi, _cat: "Z" })),
+      ...diagonalsM.map(mi => ({ ...mi, _cat: "D" })),
+    ];
+    allMis.sort((a, b) => a.midY - b.midY);
+    // 按 midY 分帶(tolBeamRow 為帶寬;同帶內 midY 差距 ≤ tolBeamRow)
+    const bands = [];
+    let lastY = null;
+    for (const mi of allMis) {
+      if (lastY === null || mi.midY - lastY > tolBeamRow) {
+        bands.push({ midY: mi.midY, X: [], Z: [], D: [] });
+      }
+      bands[bands.length - 1][mi._cat].push(mi);
+      lastY = mi.midY;
     }
-    let phaseMax = isDiag ? lastDiagMaxId : lastMaxId;
-    for (let gi = 0; gi < groups.length; gi++) {
-      const g = groups[gi];
-      for (let pi = 0; pi < g.length; pi++) {
-        const id = startBase + gi * mult + pi;
-        memOldToNew.set(g[pi].m.id, id);
-        if (id > phaseMax) phaseMax = id;
+    // origin 排序:離原點(以 origin.y 比)近的帶先
+    if (origin && bands.length > 1) {
+      bands.sort((a, b) => Math.abs(a.midY - origin.y) - Math.abs(b.midY - origin.y));
+    }
+    // 帶內 cat 順序:row(X)→ column(Z)→ brace(D)
+    const bandCatOrder = ["X", "Z", "D"];
+    for (const band of bands) {
+      for (const cat of bandCatOrder) {
+        const items = band[cat];
+        if (!items.length) continue;
+        const cap = catCap[cat];
+        const mult = cap + 1;
+        const isDiag = (cat === "D");
+        // 帶內 cat 群:依 midX 升序 編號
+        items.sort((a, b) => a.midX - b.midX);
+        // D 用 diagStartBase(若有),不吃 main 進位結果
+        const useStartBase = (isDiag && diagStartBase != null)
+          ? (diagStartBase + (lastDiagMaxId > 0 ? (nextZeroBoundary(lastDiagMaxId, mult) - diagStartBase) : 0))
+          : startBase;
+        let phaseMax = 0;
+        for (let pi = 0; pi < items.length; pi++) {
+          // 帶內單一 cat 視為 1 group;若超出 cap,自動進位到下個 mult-block
+          const giOffset = Math.floor(pi / cap);
+          const piIn = pi % cap;
+          const id = useStartBase + giOffset * mult + piIn;
+          memOldToNew.set(items[pi].m.id, id);
+          if (id > phaseMax) phaseMax = id;
+        }
+        if (isDiag) {
+          if (phaseMax > lastDiagMaxId) lastDiagMaxId = phaseMax;
+        } else {
+          if (phaseMax > lastMaxId) lastMaxId = phaseMax;
+          startBase = nextZeroBoundary(lastMaxId, mult);
+        }
       }
     }
-    if (isDiag) {
-      if (phaseMax > lastDiagMaxId) lastDiagMaxId = phaseMax;
-    } else {
-      if (phaseMax > lastMaxId) lastMaxId = phaseMax;
+  } else {
+    // 非 XZ 頁(XY / YZ 立面):維持原本 cat-by-cat 處理
+    for (const cat of phaseOrder) {
+      const groups = catGroups[cat] || [];
+      if (!groups.length) continue;
+      const cap = catCap[cat];
+      const mult = cap + 1;
+      const isDiag = (cat === "D");
+      if (isDiag && diagStartBase != null) {
+        startBase = diagStartBase;
+      }
+      let phaseMax = isDiag ? lastDiagMaxId : lastMaxId;
+      for (let gi = 0; gi < groups.length; gi++) {
+        const g = groups[gi];
+        for (let pi = 0; pi < g.length; pi++) {
+          const id = startBase + gi * mult + pi;
+          memOldToNew.set(g[pi].m.id, id);
+          if (id > phaseMax) phaseMax = id;
+        }
+      }
+      if (isDiag) {
+        if (phaseMax > lastDiagMaxId) lastDiagMaxId = phaseMax;
+      } else {
+        if (phaseMax > lastMaxId) lastMaxId = phaseMax;
+      }
+      if (!isDiag && lastMaxId > 0) startBase = nextZeroBoundary(lastMaxId, mult);
     }
-    // 換到下一個非 D phase:用「下一階段的 mult」進位
-    if (!isDiag && lastMaxId > 0) startBase = nextZeroBoundary(lastMaxId, mult);
   }
   const _pageMaxMainMemberId = lastMaxId;
   const _pageMaxDiagMemberId = lastDiagMaxId;
