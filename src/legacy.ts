@@ -1212,34 +1212,38 @@ function _maybeShowCollisionPopup(file, pageIdx) {
   popup.style.display = "block";
   // 確定 → 關 popup
   okBtn.onclick = () => { popup.style.display = "none"; };
-  // 搜尋 → 開搜尋 popup,並自動填入撞號 m.id
+  // 搜尋 → 開搜尋 popup,並自動填入撞號 m.id 到「桿件編號」textarea
   searchBtn.onclick = () => {
     popup.style.display = "none";
     try {
       if (typeof openSearchWindow === "function") openSearchWindow();
-      // openSearchWindow 是 async-ish(寫 popup HTML 後等 DOM ready)。延遲填入 id 給時間 popup 就緒。
+      // openSearchWindow 走 win.document.write + DOMContentLoaded 後 body.innerHTML;
+      //   需要等 #memberIdInput textarea 真的就緒,輪詢最多 30 次 / 每次 100ms
       const idsStr = sortedIds.join(",");
       const _tryFill = (attempt) => {
         const w = _searchWin;
-        if (!w || w.closed) {
-          if (attempt < 20) setTimeout(() => _tryFill(attempt + 1), 100);
+        const ready = w && !w.closed && w.document && w.document.getElementById("memberIdInput");
+        if (!ready) {
+          if (attempt < 30) setTimeout(() => _tryFill(attempt + 1), 100);
+          else console.warn("[collision search prefill] 搜尋視窗未就緒,放棄填入");
           return;
         }
         try {
-          // 切到「桿件」模式
+          // 確認搜尋模式 = 桿件(預設就是,但保險起見再勾一次並觸發 change)
           const typeMember = w.document.querySelector('input[name="searchType"][value="member"]');
-          if (typeMember) { typeMember.checked = true; typeMember.dispatchEvent(new w.Event("change", { bubbles: true })); }
-          // 填編號輸入框
-          const idInput = w.document.getElementById("searchIdInput");
-          if (idInput) {
-            idInput.value = idsStr;
-            idInput.dispatchEvent(new w.Event("input", { bubbles: true }));
-            // 按 Enter 觸發搜尋
-            try {
-              idInput.dispatchEvent(new w.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-            } catch (_) {}
+          if (typeMember && !typeMember.checked) {
+            typeMember.checked = true;
+            typeMember.dispatchEvent(new w.Event("change", { bubbles: true }));
           }
-        } catch (e) { console.warn("[collision search prefill] 失敗:", e); }
+          // 填編號 textarea + 觸發 input event
+          const idInput = w.document.getElementById("memberIdInput");
+          idInput.value = idsStr;
+          idInput.dispatchEvent(new w.Event("input", { bubbles: true }));
+          idInput.focus();
+          // 直接按搜尋按鈕(textarea 內 Enter 是換行,搜尋鈕點下才會跑)
+          const btn = w.document.getElementById("btnSearch");
+          if (btn) btn.click();
+        } catch (e) { console.warn("[collision search prefill] 填入失敗:", e); }
       };
       setTimeout(() => _tryFill(0), 100);
     } catch (e) { console.warn("[collision search] 失敗:", e); }
@@ -13383,10 +13387,10 @@ export async function relayoutMembersNumberingAll(opts) {
   const unifyStats = unifyCrossPageMemberIds();
 
   // ============================================================
-  // 偵測撞號 — 不同 globalMemberId 但同 m.id 的桿件
+  // 偵測撞號 — 不同 globalMemberId 但同 m.id 的桿件(只標記,不改 ID,讓使用者比對)
   //   原因常見:有些 plane(例如 X 軸在 XY 頁面)沒被 4 個 stage 處理到,留下舊 m.id 跟新 ID 撞號。
-  //   策略:把撞號桿件(除了第一個保留)重編號到 lastMemberMax+1 起的高位區,
-  //         並把所有涉及撞號的桿件 m.id 加進 state.memberCollisions(亮綠色高亮 + popup 警示用)
+  //   策略:不重編號,維持原本 m.id;只把撞號 m.id 加進 state.memberCollisions
+  //   (亮綠色高亮 + popup 警示;使用者可在搜尋視窗看到所有共用同 m.id 的桿件)
   // ============================================================
   state.memberCollisions = new Set();
   {
@@ -13401,9 +13405,7 @@ export async function relayoutMembersNumberingAll(opts) {
         }
       }
     }
-    let nextFreeId = (lastMemberMax > 0 ? lastMemberMax : 1) + 1;
-    if (nextFreeId < 1000001) nextFreeId = 1000001;   // 撞號重編號區從 1000001 起(極高位避免再撞)
-    let collisionCount = 0, reassignCount = 0;
+    let collisionCount = 0, memberCount = 0;
     for (const [id, list] of byId) {
       if (list.length <= 1) continue;
       // 用 globalMemberId 分組(同 gm = 同物理桿件副本,不算撞號)
@@ -13415,20 +13417,13 @@ export async function relayoutMembersNumberingAll(opts) {
         gmGroups.get(gm).push(entry);
       }
       if (gmGroups.size <= 1) continue;   // 全部是同一根物理桿件的跨頁副本 → 沒撞號
-      // 真撞號:保留第一個 group,其餘重編號
+      // 真撞號:標記 id,不改編號(讓使用者用搜尋對比哪些桿件共用同 m.id)
       collisionCount++;
       state.memberCollisions.add(id);
-      let isFirst = true;
-      for (const entries of gmGroups.values()) {
-        if (isFirst) { isFirst = false; continue; }
-        const newId = nextFreeId++;
-        state.memberCollisions.add(newId);
-        for (const e of entries) e.m.id = newId;
-        reassignCount += entries.length;
-      }
+      memberCount += list.length;
     }
     if (collisionCount) {
-      console.warn(`[桿件編號重排] 偵測到 ${collisionCount} 組撞號(${reassignCount} 條桿件已重編號到 1000001+ 區),涉及 ${state.memberCollisions.size} 個 m.id;在畫面上以亮綠色高亮`);
+      console.warn(`[桿件編號重排] 偵測到 ${collisionCount} 組撞號 m.id,涉及 ${memberCount} 條桿件;在畫面上以亮綠色高亮,切到該頁時跳出 popup 提示`);
     } else {
       console.log(`[桿件編號重排] 無撞號`);
     }
