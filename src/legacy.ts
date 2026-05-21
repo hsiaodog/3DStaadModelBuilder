@@ -12832,83 +12832,31 @@ function _relayoutPageCore(p, opts) {
   const phaseOnly = opts.phaseOnly || null;
   const _shouldProcess = (cat) => !phaseOnly || phaseOnly === cat;
 
-  if (plane === "XZ") {
-    // ★ XZ 頁面用 per-midY-band 處理:
-    //   先依 midY 把所有桿件(X / Z / D)分成「樓層水平帶」,每帶內處理順序為:
-    //     row(X 軸)→ column(Z 軸)→ brace(D)→ 下一個 midY 帶
-    //   讓編號跟著「樓層由低到高」走,row1 = 2501-25xx、brace1(若有)= 2601-26xx、row2 = 2701-...
-    //   每個 (band, cat) 內部所有桿件壓在 1 個 100-block(同 mult=catCap[cat]+1)
-    const allMis = [
-      ...horizontalsM.map(mi => ({ ...mi, _cat: "X" })),
-      ...verticalsM.map(mi => ({ ...mi, _cat: "Z" })),
-      ...diagonalsM.map(mi => ({ ...mi, _cat: "D" })),
-    ];
-    allMis.sort((a, b) => a.midY - b.midY);
-    // 按 midY 分帶(tolBeamRow 為帶寬;同帶內 midY 差距 ≤ tolBeamRow)
-    const bands = [];
-    let lastY = null;
-    for (const mi of allMis) {
-      if (lastY === null || mi.midY - lastY > tolBeamRow) {
-        bands.push({ midY: mi.midY, X: [], Z: [], D: [] });
-      }
-      bands[bands.length - 1][mi._cat].push(mi);
-      lastY = mi.midY;
-    }
-    // origin 排序:離原點(以 origin.y 比)近的帶先
-    if (origin && bands.length > 1) {
-      bands.sort((a, b) => Math.abs(a.midY - origin.y) - Math.abs(b.midY - origin.y));
-    }
-    // 帶內 cat 順序:row(X)→ column(Z)→ brace(D)
-    const bandCatOrder = ["X", "Z", "D"];
-    for (const band of bands) {
-      for (const cat of bandCatOrder) {
-        if (!_shouldProcess(cat)) continue;
-        const items = band[cat];
-        if (!items.length) continue;
-        const cap = catCap[cat];
-        const mult = cap + 1;
-        items.sort((a, b) => a.midX - b.midX);
-        // 用該 cat 自己的 runStart(初始為 catStartBase[cat],處理完後推進)
-        const useStartBase = _catRunStart[cat];
-        let phaseMax = 0;
-        for (let pi = 0; pi < items.length; pi++) {
-          const giOffset = Math.floor(pi / cap);
-          const piIn = pi % cap;
-          const id = useStartBase + giOffset * mult + piIn;
-          memOldToNew.set(items[pi].m.id, id);
-          if (id > phaseMax) phaseMax = id;
-        }
-        if (phaseMax > catMax[cat]) catMax[cat] = phaseMax;
-        // 推進 cat 自己的 runStart 到下一個 100-block(不影響其他 cat)
-        _catRunStart[cat] = nextZeroBoundary(phaseMax, mult);
+  // 統一的 cat-by-cat 處理(所有 plane 都走這條;沒有特殊的 XZ band 邏輯)
+  //   每個 cat 用自己的 runStart(catStartBase[cat]),處理完後在此頁內推進。
+  //   phaseOnly 設定時只跑該 cat,其他全部跳過 → memOldToNew 只裝該 cat 的 mapping,
+  //   不影響其他 cat 在這頁已有的 m.id。
+  for (const cat of phaseOrder) {
+    if (!_shouldProcess(cat)) continue;
+    const groups = catGroups[cat] || [];
+    if (!groups.length) continue;
+    const cap = catCap[cat];
+    const mult = cap + 1;
+    const useStartBase = _catRunStart[cat];
+    let phaseMax = 0;
+    for (let gi = 0; gi < groups.length; gi++) {
+      const g = groups[gi];
+      for (let pi = 0; pi < g.length; pi++) {
+        const id = useStartBase + gi * mult + pi;
+        memOldToNew.set(g[pi].m.id, id);
+        if (id > phaseMax) phaseMax = id;
       }
     }
-    lastMaxId = Math.max(catMax.Y, catMax.X, catMax.Z);
-    lastDiagMaxId = catMax.D;
-  } else {
-    // 非 XZ 頁(XY / YZ 立面):cat-by-cat 處理,每個 cat 用自己的 runStart
-    for (const cat of phaseOrder) {
-      if (!_shouldProcess(cat)) continue;
-      const groups = catGroups[cat] || [];
-      if (!groups.length) continue;
-      const cap = catCap[cat];
-      const mult = cap + 1;
-      const useStartBase = _catRunStart[cat];
-      let phaseMax = 0;
-      for (let gi = 0; gi < groups.length; gi++) {
-        const g = groups[gi];
-        for (let pi = 0; pi < g.length; pi++) {
-          const id = useStartBase + gi * mult + pi;
-          memOldToNew.set(g[pi].m.id, id);
-          if (id > phaseMax) phaseMax = id;
-        }
-      }
-      if (phaseMax > catMax[cat]) catMax[cat] = phaseMax;
-      _catRunStart[cat] = nextZeroBoundary(phaseMax, mult);
-    }
-    lastMaxId = Math.max(catMax.Y, catMax.X, catMax.Z);
-    lastDiagMaxId = catMax.D;
+    if (phaseMax > catMax[cat]) catMax[cat] = phaseMax;
+    _catRunStart[cat] = nextZeroBoundary(phaseMax, mult);
   }
+  lastMaxId = Math.max(catMax.Y, catMax.X, catMax.Z);
+  lastDiagMaxId = catMax.D;
   const _pageMaxMainMemberId = lastMaxId;
   const _pageMaxDiagMemberId = lastDiagMaxId;
   const _pageMaxMemberId = Math.max(lastMaxId, lastDiagMaxId);
@@ -13148,62 +13096,125 @@ export async function relayoutMembersNumberingAll(opts) {
     if (a.f.name !== b.f.name) return a.f.name.localeCompare(b.f.name);
     return (+a.k) - (+b.k);
   });
-  // ★ 4 階段獨立處理 — 每個 cat 是獨立的 code block,跨頁累加器各自獨立:
-  //   Pass 1: Y 軸(柱)         across all 有 Y phase 的頁面(XY / YZ)
-  //   Pass 2: X 軸(平面圖橫樑) across all 有 X phase 的頁面(XY / XZ)
-  //   Pass 3: Z 軸(平面圖縱樑) across all 有 Z phase 的頁面(YZ / XZ)
-  //   Pass 4: D(斜撐)         across all 頁面
-  //   每個 pass 結束時取 max,下一個 pass 從 nextZeroBoundary(prev_max) 起跑(或固定 base)。
-  //   各階段邏輯完全分離 — 改 X 邏輯不影響 Y 已產出的結果。
+  // ★ 4 個獨立的 code block,順序依照 user 規定:
+  //   Stage 1: Y 軸柱 (XY / YZ 頁面) — 用原始未修改的 Y 軸邏輯,從 1 起跑跨頁累加
+  //   Stage 2: XZ 平面 page-by-page,每頁順序為 row(X)→ column(Z)→ brace(D);
+  //            頁面排序:floorType yyStart 升序(default 最後)→ 同型內 elev 升序;
+  //            X/Z 共用單一累加器(從 max(2501, Pass1_max+1) 起);D 用獨立累加器(100001+)
+  //   Stage 3: YZ 平面 brace(D 桿件)— 跨頁 D 累加器接續 Stage 2 的 D
+  //   Stage 4: XY 平面 brace(D 桿件)— 同上
+  //   各階段完全獨立 — 改某階段邏輯不會影響其他階段。
   let lastMemberMax = 0;
   const phaseMax = { Y: 0, X: 0, Z: 0, D: 0 };
 
-  // 跑單一 phase 的 helper:對 tasks 中符合 plane 條件的頁面依序處理,回傳該 phase 的 max
-  const _runPhase = async (phaseLabel, phaseKey, includesPlane, startBase, prefix) => {
-    let curStart = startBase;
-    let maxOut = 0;
-    let i = 0;
-    for (const t of tasks) {
-      if (!includesPlane(t.pg.plane)) continue;
-      i++; processed++;
-      if (typeof setBusyMessage === "function") {
-        setBusyMessage(`${prefix} ${phaseLabel}・${t.f.name}#${t.k}(${t.pg.plane})・起始 ${curStart}`);
-      }
-      await busyTick();
-      const r = _relayoutPageCore(t.pg, {
-        interactive: false,
-        origin: t.f.planeOrigin || null,
-        membersOnly: true,
-        phaseOnly: phaseKey,
-        catStartBase: { Y: curStart, X: curStart, Z: curStart, D: curStart },   // 該 phase 的所有 cat key 都填同一 base(只有 phaseKey 那條會用)
-      });
-      if (r && r.catMax) {
-        const m = r.catMax[phaseKey];
-        if (Number.isFinite(m) && m > 0) {
-          if (m > maxOut) maxOut = m;
-          curStart = _nextMemberZeroBoundary(m);
-        }
-      }
-    }
-    return maxOut;
+  // 單頁單 phase 的呼叫 helper
+  const _renumOnePage = (pg, fileOrigin, phaseKey, startBase) => {
+    return _relayoutPageCore(pg, {
+      interactive: false,
+      origin: fileOrigin || null,
+      membersOnly: true,
+      phaseOnly: phaseKey,
+      catStartBase: { Y: startBase, X: startBase, Z: startBase, D: startBase },
+    });
   };
 
-  // === Pass 1: Y 軸(柱) — 從 1 起,跨 XY / YZ 頁累加 ===
-  phaseMax.Y = await _runPhase("Y 軸(柱)", "Y", pl => pl === "XY" || pl === "YZ", 1, "編排桿件編號 [1/4]");
+  // ============================================================
+  // Stage 1: Y 軸(柱)— XY / YZ 頁面,原始邏輯,從 1 起跑
+  // ============================================================
+  {
+    let curStart = 1;
+    for (const t of tasks) {
+      if (t.pg.plane !== "XY" && t.pg.plane !== "YZ") continue;
+      processed++;
+      if (typeof setBusyMessage === "function") {
+        setBusyMessage(`[1/4] Y 軸(柱)・${t.f.name}#${t.k}(${t.pg.plane})・起始 ${curStart}`);
+      }
+      await busyTick();
+      const r = _renumOnePage(t.pg, t.f.planeOrigin, "Y", curStart);
+      if (r && r.catMax && Number.isFinite(r.catMax.Y) && r.catMax.Y > 0) {
+        if (r.catMax.Y > phaseMax.Y) phaseMax.Y = r.catMax.Y;
+        curStart = _nextMemberZeroBoundary(r.catMax.Y);
+      }
+    }
+  }
 
-  // === Pass 2: X 軸(平面圖橫樑) — 從 max(2501, nextBoundary(Y_max)) 起,跨 XY / XZ 頁累加 ===
-  //   保底 2501 讓 user 偏好的「X 軸從 25xx 起跑」在 Y 軸夠小時成立;Y 軸大就接續
-  const xStartFromY = phaseMax.Y > 0 ? _nextMemberZeroBoundary(phaseMax.Y) : 1;
-  phaseMax.X = await _runPhase("X 軸(橫樑)", "X", pl => pl === "XY" || pl === "XZ",
-    Math.max(2501, xStartFromY), "編排桿件編號 [2/4]");
+  // ============================================================
+  // Stage 2: XZ 平面 page-by-page — 每頁順序 row(X) → column(Z) → brace(D)
+  //   X/Z 共用「主累加器」(從 max(2501, Stage1+1) 起)
+  //   D 用獨立「斜撐累加器」(從 100001 起)
+  // ============================================================
+  {
+    let mainCurStart = Math.max(2501,
+      phaseMax.Y > 0 ? _nextMemberZeroBoundary(phaseMax.Y) : 1);
+    let diagCurStart = 100001;
+    for (const t of tasks) {
+      if (t.pg.plane !== "XZ") continue;
+      processed++;
+      if (typeof setBusyMessage === "function") {
+        setBusyMessage(`[2/4] XZ 平面・${t.f.name}#${t.k}・main 起始 ${mainCurStart} / D 起始 ${diagCurStart}`);
+      }
+      await busyTick();
+      // 同一頁依序 X → Z → D
+      // X
+      let r = _renumOnePage(t.pg, t.f.planeOrigin, "X", mainCurStart);
+      if (r && r.catMax && Number.isFinite(r.catMax.X) && r.catMax.X > 0) {
+        if (r.catMax.X > phaseMax.X) phaseMax.X = r.catMax.X;
+        mainCurStart = _nextMemberZeroBoundary(r.catMax.X);
+      }
+      // Z
+      r = _renumOnePage(t.pg, t.f.planeOrigin, "Z", mainCurStart);
+      if (r && r.catMax && Number.isFinite(r.catMax.Z) && r.catMax.Z > 0) {
+        if (r.catMax.Z > phaseMax.Z) phaseMax.Z = r.catMax.Z;
+        mainCurStart = _nextMemberZeroBoundary(r.catMax.Z);
+      }
+      // D
+      r = _renumOnePage(t.pg, t.f.planeOrigin, "D", diagCurStart);
+      if (r && r.catMax && Number.isFinite(r.catMax.D) && r.catMax.D > 0) {
+        if (r.catMax.D > phaseMax.D) phaseMax.D = r.catMax.D;
+        diagCurStart = _nextMemberZeroBoundary(r.catMax.D);
+      }
+    }
+  }
 
-  // === Pass 3: Z 軸(平面圖縱樑) — 從 nextBoundary(X_max) 起,跨 YZ / XZ 頁累加 ===
-  const zStartFromX = phaseMax.X > 0 ? _nextMemberZeroBoundary(phaseMax.X) : 1;
-  phaseMax.Z = await _runPhase("Z 軸(縱樑)", "Z", pl => pl === "YZ" || pl === "XZ",
-    zStartFromX, "編排桿件編號 [3/4]");
+  // ============================================================
+  // Stage 3: YZ 平面 brace(D)— 跨頁 D 累加器接續 Stage 2 的 D
+  // ============================================================
+  {
+    let curStart = phaseMax.D > 0 ? _nextMemberZeroBoundary(phaseMax.D) : 100001;
+    for (const t of tasks) {
+      if (t.pg.plane !== "YZ") continue;
+      processed++;
+      if (typeof setBusyMessage === "function") {
+        setBusyMessage(`[3/4] YZ 平面 brace・${t.f.name}#${t.k}・起始 ${curStart}`);
+      }
+      await busyTick();
+      const r = _renumOnePage(t.pg, t.f.planeOrigin, "D", curStart);
+      if (r && r.catMax && Number.isFinite(r.catMax.D) && r.catMax.D > 0) {
+        if (r.catMax.D > phaseMax.D) phaseMax.D = r.catMax.D;
+        curStart = _nextMemberZeroBoundary(r.catMax.D);
+      }
+    }
+  }
 
-  // === Pass 4: D(斜撐) — 固定從 100001 起(獨立高位範圍,跟主軸視覺分開) ===
-  phaseMax.D = await _runPhase("D(斜撐)", "D", _ => true, 100001, "編排桿件編號 [4/4]");
+  // ============================================================
+  // Stage 4: XY 平面 brace(D)— 同上
+  // ============================================================
+  {
+    let curStart = phaseMax.D > 0 ? _nextMemberZeroBoundary(phaseMax.D) : 100001;
+    for (const t of tasks) {
+      if (t.pg.plane !== "XY") continue;
+      processed++;
+      if (typeof setBusyMessage === "function") {
+        setBusyMessage(`[4/4] XY 平面 brace・${t.f.name}#${t.k}・起始 ${curStart}`);
+      }
+      await busyTick();
+      const r = _renumOnePage(t.pg, t.f.planeOrigin, "D", curStart);
+      if (r && r.catMax && Number.isFinite(r.catMax.D) && r.catMax.D > 0) {
+        if (r.catMax.D > phaseMax.D) phaseMax.D = r.catMax.D;
+        curStart = _nextMemberZeroBoundary(r.catMax.D);
+      }
+    }
+  }
 
   ok = state.files.reduce((s, f) => s + Object.keys(f.pages || {}).length, 0);
   skipped = 0;
