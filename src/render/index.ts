@@ -72,7 +72,8 @@ function _renderImpl() {
     if (!a || !b) continue;
     const text = String(displayMemberId(m));
     const isSel = state.selection.members.has(m.id);
-    const fill = isSel ? "#ffe066" : "#1976ff";
+    const isCollide = state.memberCollisions && state.memberCollisions.has(m.id);
+    const fill = isSel ? "#ffe066" : (isCollide ? "#39ff14" : "#1976ff");   // 撞號 → 亮綠 (neon green)
     const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
     const ux = (b.x - a.x) / len, uy = (b.y - a.y) / len;
     const off = fs * 0.8;
@@ -130,6 +131,10 @@ function _renderImpl() {
       "stroke-width": sw,
     });
     if (state.selection.members.has(m.id)) ln.classList.add("selected");
+    // 撞號桿件 → 加 .collision class(CSS 亮綠色 stroke + dasharray 提示)
+    if (state.memberCollisions && state.memberCollisions.has(m.id)) {
+      ln.classList.add("collision");
+    }
     ln.style.pointerEvents = "stroke";
     ln.addEventListener("click", (e) => {
       e.stopPropagation();

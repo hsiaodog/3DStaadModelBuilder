@@ -523,6 +523,8 @@
   .member:hover { stroke: #ffe066; }
   .member.selected { stroke: #ffe066; }
   .member.preview { stroke: #ffd23f; stroke-dasharray: 4 3; opacity: 0.85; }
+  /* 撞號桿件:用亮綠色(neon green)stroke + 較粗線寬提示 */
+  .member.collision { stroke: #39ff14 !important; stroke-width: 2 !important; }
   .calib { stroke: var(--warn); stroke-dasharray: 5 3; }
   .label { fill: #fff; font: 10px sans-serif; pointer-events: none; paint-order: stroke; stroke: #000; stroke-width: 2.5; stroke-linejoin: round; }
   .label-joint  { font-family: Arial, Helvetica, sans-serif; font-weight: 700;
