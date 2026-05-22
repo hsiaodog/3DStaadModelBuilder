@@ -12584,10 +12584,11 @@ function _relayoutPageCore(p, opts) {
   const memberStartBase = (Number.isFinite(opts.memberStartBase) && opts.memberStartBase >= 1)
     ? Math.floor(opts.memberStartBase) : 1;
   const tolGroup = 2;
-  // 樑分群用較寬的容差 — 同一排樑的中點(midY for X 軸 / midX for Z 軸)在 CAD 模型常有
-  //   數十毫米的飄移(連接細件、cap plate、anchor bolt 等位置略偏移),tolGroup=2 太緊會把
-  //   同排切成 N 個小群 → gi 暴增 → 編號 2501 → 5801 跳號。用 500mm 容差合併同排。
-  const tolBeamRow = 500;
+  // 樑分群容差 — 用 50mm:
+  //   • 大於 tolGroup=2mm(避免 CAD 細件 cap plate / anchor bolt 微小漂移把同排切碎)
+  //   • 小於 100mm(避免把實際距離 100-500mm 的兩排不同樑誤合成一個 group → 編號互相穿插
+  //     如 20301、20302、20303、20304 變成 (X1,上排), (X1,下排), (X2,上排), (X2,下排) 交錯)
+  const tolBeamRow = 50;
   const cap = Math.max(10, state.relayoutCapacity || 100);
   const isVertical = state.relayoutDirection !== "horizontal";
   const nextBaseAfter = (lastId) => (Math.floor(lastId / cap) + 1) * cap + 1;
