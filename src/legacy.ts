@@ -12838,8 +12838,9 @@ function _relayoutPageCore(p, opts) {
     return groups;
   };
   const _groupVertByMidX = (items) => {
-    // 同列樑用 midX 分群、群內 midY 降序(上往下);群序 midX 升序;tol 同上
-    let groups = groupItems(items, it => it.midX, it => it.midY, tolBeamRow, true, false);
+    // 同列樑用 midX 分群、群序 midX 升序(離原點近的 X 先;對 XZ 頁來說就是 x=0 那欄先處理)
+    //   群內按 midY 升序(由上往下;對 XZ 頁來說就是 Z 從小往大,符合 user 期望 30601、30602、30603 …)
+    let groups = groupItems(items, it => it.midX, it => it.midY, tolBeamRow, false, false);
     if (origin) {
       groups = applyOriginOrder(groups, origin.x, origin.y, it => it.midX, it => it.midY);
     }
