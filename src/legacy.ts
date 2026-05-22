@@ -12680,11 +12680,18 @@ function _relayoutPageCore(p, opts) {
     return { m, midX: (a.x + b.x) / 2, midY: (a.y + b.y) / 2,
              dx: Math.abs(a.x - b.x), dy: Math.abs(a.y - b.y) };
   };
+  // 短桿件絕對門檻 — 短的 B4 / brace strut 用 ratio (dxRatio < 0.05) 可能因為長度短而被誤判:
+  //   B4 長度 100mm + 5mm 水平偏移 → dxRatio = 0.05 剛好踩到門檻變斜撐 → 拿到 D 範圍 ID
+  //   絕對門檻 < 10mm 的 dx 就一定當垂直、< 10mm 的 dy 就一定當水平,不論長度
+  const absAxisTol = 10;
   const horizontalsM = [], verticalsM = [], diagonalsM = [];
   for (const m of p.members) {
     const w = memMid(m); if (!w) continue;
     const len = Math.hypot(w.dx, w.dy);
     if (len < eps) continue;   // 同位節點 / 太短
+    // 絕對門檻優先(避免短桿件被 ratio 誤判)
+    if (w.dx < absAxisTol && w.dy >= absAxisTol) { verticalsM.push(w); continue; }
+    if (w.dy < absAxisTol && w.dx >= absAxisTol) { horizontalsM.push(w); continue; }
     const dxRatio = w.dx / len;
     const dyRatio = w.dy / len;
     if (dyRatio < angleTol) horizontalsM.push(w);     // 幾乎平行 2D X 軸(水平)
