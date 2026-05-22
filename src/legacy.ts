@@ -12829,22 +12829,15 @@ function _relayoutPageCore(p, opts) {
   //       - XZ 頁面     → 其實是 Z 軸樑(平面圖縱樑),要用「midX 分群」才不會被切碎
   //   • D(斜撐):用「同線(slope + perp)」分群,連續斜撐一條線會合成一群
   const _groupHorizByMidY = (items) => {
-    // 同排樑用 midY 分群、群內 midX 升序;群序 midY 升序(預設;有 origin 時依離原點近的優先)
-    //   tol 用 tolBeamRow(500mm)而不是 tolGroup(2mm),避免同排細件位置略飄移而切碎
-    let groups = groupItems(items, it => it.midY, it => it.midX, tolBeamRow, false, false);
-    if (origin) {
-      groups = applyOriginOrder(groups, origin.y, origin.x, it => it.midY, it => it.midX);
-    }
-    return groups;
+    // 同排樑用 midY 分群、群內 midX 升序;群序 midY 升序(由上往下,= XZ 頁 Z 從小到大)
+    //   ★ 不用 applyOriginOrder(那會「rotate」群序到最接近 origin 的當第一個,
+    //     破壞「上方 row → 第 1 個 100-block」的單調順序)
+    return groupItems(items, it => it.midY, it => it.midX, tolBeamRow, false, false);
   };
   const _groupVertByMidX = (items) => {
-    // 同列樑用 midX 分群、群序 midX 升序(離原點近的 X 先;對 XZ 頁來說就是 x=0 那欄先處理)
-    //   群內按 midY 升序(由上往下;對 XZ 頁來說就是 Z 從小往大,符合 user 期望 30601、30602、30603 …)
-    let groups = groupItems(items, it => it.midX, it => it.midY, tolBeamRow, false, false);
-    if (origin) {
-      groups = applyOriginOrder(groups, origin.x, origin.y, it => it.midX, it => it.midY);
-    }
-    return groups;
+    // 同列樑用 midX 分群、群序 midX 升序(x=0 那欄先)、群內 midY 升序(上往下)
+    //   ★ 同樣不用 applyOriginOrder,確保 (上方 B4) → pi=0 → 33101,(下方 B4) → pi=1 → 33102
+    return groupItems(items, it => it.midX, it => it.midY, tolBeamRow, false, false);
   };
   const _isXZPage = (p.plane === "XZ");
   const hGroups = _groupHorizByMidY(horizontalsM);            // X / Z 軸樑:midY 分群
