@@ -5,7 +5,6 @@
 //     • setProjectDirty / setMaterialMgrWin — 跨模組寫 let 用的 setter(ESM 限制)
 //     • _t / _applyI18nOnDoc       — i18n
 //     • window._searchMaterialDropdownRefresh — search popup 開啟時的下拉同步(optional)
-// @ts-nocheck
 
 import {
   state,
@@ -101,15 +100,15 @@ export function openMaterialMgrWindow() {
       <span class="info" data-i18n="mm.footerHint">關閉視窗 / Esc 即儲存到專案</span>
     </div>
   `;
-  const inpTable = body.querySelector("#newMatTable");
-  const inpName  = body.querySelector("#newMatName");
-  const inpNote  = body.querySelector("#newMatNote");
-  const btnAdd   = body.querySelector("#btnAdd");
-  const filterIn = body.querySelector("#filterInput");
-  const matBody  = body.querySelector("#matBody");
-  const matStats = body.querySelector("#matStats");
-  const emptyHint = body.querySelector("#emptyHint");
-  const btnClearAll = body.querySelector("#btnClearAll");
+  const inpTable = body.querySelector("#newMatTable") as HTMLInputElement;
+  const inpName  = body.querySelector("#newMatName")  as HTMLInputElement;
+  const inpNote     = body.querySelector("#newMatNote") as HTMLInputElement;
+  const btnAdd      = body.querySelector("#btnAdd")     as HTMLButtonElement;
+  const filterIn    = body.querySelector("#filterInput")as HTMLInputElement;
+  const matBody     = body.querySelector("#matBody")    as HTMLElement;
+  const matStats    = body.querySelector("#matStats")   as HTMLElement;
+  const emptyHint   = body.querySelector("#emptyHint")  as HTMLElement;
+  const btnClearAll = body.querySelector("#btnClearAll")as HTMLButtonElement;
   let _filterText = "";
   const _refresh = () => {
     const list = Array.isArray(state.materials) ? state.materials : [];
@@ -252,9 +251,9 @@ export function openMaterialMgrWindow() {
     _refresh();
   };
   btnAdd.addEventListener("click", _addCurrent);
-  inpTable.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); _addCurrent(); } });
-  inpName.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); _addCurrent(); } });
-  inpNote.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); _addCurrent(); } });
+  inpTable.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); _addCurrent(); } });
+  inpName.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); _addCurrent(); } });
+  inpNote.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); _addCurrent(); } });
   filterIn.addEventListener("input", () => { _filterText = filterIn.value; _refresh(); });
   btnClearAll.addEventListener("click", () => {
     if (!Array.isArray(state.materials) || !state.materials.length) return;
@@ -276,7 +275,7 @@ export function openMaterialMgrWindow() {
     setMaterialMgrWin(null);
   });
   _refresh();
-  win._refresh = _refresh;   // 供下次 focus 時刷新(以防外部修改了材料)
+  (win as any)._refresh = _refresh;   // 供下次 focus 時刷新(以防外部修改了材料)
   try { _applyI18nOnDoc(doc); } catch (_) {}
   try { inpName.focus(); } catch (_) {}
 }

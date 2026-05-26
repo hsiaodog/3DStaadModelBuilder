@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Phase 8f — .xlsx 匯出(無外部 lib;簡易 OOXML + STORE-method ZIP)
 //   三個大區塊參考 model_NEW.xlsx:
 //     區塊 1 (col A-D): JOINT COORDINATES  — 全部節點(id, X, Y, Z)
@@ -10,7 +11,6 @@
 //     • buildExportContext — export/shared(rank / brace / matObj 等共用脈絡)
 //     • unitToMeter / meterToTarget — utils/units
 //     • _xlsxCell          — utils/ooxml(OOXML cell helper)
-// @ts-nocheck
 
 import { state, $ } from "../legacy";
 import { buildModel, showBuildModelCollisionsIfAny } from "../core/buildModel";
@@ -199,6 +199,8 @@ export function exportXlsxFile() {
   push(1, 48, "*", 2);   push(1, 49, "J1", 2); push(1, 50, "J2", 2);
   push(1, 61, "*", 2);   push(1, 62, "J1", 2); push(1, 63, "J2", 2);
   push(1, 74, "*", 2);   push(1, 80, "Table", 2);  push(1, 81, "Material", 2);
+  // SUPPORTS 區塊 header(col 92 起,跟 Material 同樣 6 個 ID slot + Type 欄)
+  push(1, 92, "*", 2);   push(1, 99, "Type", 2);
   // ── Joint 區塊:按 (XX, ZZ) rank 分區。共用 helper 改由 buildExportContext() 一次建好(Phase 4 dedup)
   const _ctx = buildExportContext({ joints, members });
   const {
@@ -750,8 +752,44 @@ export function exportXlsxFile() {
   _writeSubProp("BRACE XY",  _memBraceXY);
   _writeSubProp("BRACE YZ",  _memBraceYZ);
   _rMat++;   // BRACE YZ 後也加一列空白 — PROPERTIES 區結尾收齊,跟 BRACE XZ 後對稱
+  // === SUPPORTS 區塊(col 92 起,接在 Material 右邊)===
+  //   layout 跟 Material 一致:6 個 ID slot + Type(col 99)
+  //   anchor joint 按 supportType 分組(預設 FIXED)
+  const SUP_BASE_COL = 92;
+  const SUP_ID_SLOTS = 6;
+  const SUP_TYPE_COL = SUP_BASE_COL + SUP_ID_SLOTS + 1;     // 99
+  let _rSup = 2;
+  const _writeSupBlock = (label: string, anchorIds: number[]) => {
+    if (!anchorIds.length) return;
+    _pushSubHeader(_rSup++, SUP_BASE_COL, `* ${label}`);
+    const idRows = _segsToRows(_idsToSegs(anchorIds));
+    for (const r of idRows) {
+      for (let i = 0; i < SUP_ID_SLOTS; i++) {
+        const v = r[i];
+        if (v === "" || v === undefined) continue;
+        push(_rSup, SUP_BASE_COL + i, v, typeof v === "number" ? 5 : undefined);
+      }
+      push(_rSup, SUP_TYPE_COL, label);
+      _rSup++;
+    }
+  };
+  {
+    const fixedIds: number[] = [];
+    const pinnedIds: number[] = [];
+    for (const j of joints as any[]) {
+      if (!j.isAnchor) continue;
+      if (j.supportType === "PINNED") pinnedIds.push(j.id);
+      else fixedIds.push(j.id);
+    }
+    fixedIds.sort((a, b) => a - b);
+    pinnedIds.sort((a, b) => a - b);
+    _writeSupBlock("FIXED",  fixedIds);
+    if (fixedIds.length && pinnedIds.length) _rSup++;   // 兩組之間空一行
+    _writeSupBlock("PINNED", pinnedIds);
+  }
   // 大區分隔欄(黃色)改用 OOXML <cols> 元素整欄套色,不再 push per-row 空格(避免大量空格 cell 造成 Excel 開檔抱怨)
   //   col 19(T)= JOINT 類 vs MEMBER 類;col 39(AN)= MEMBER 類 vs MATERIAL 類
+  //   col 91(CM)= MATERIAL 類 vs SUPPORTS 類
   //   實際的 <cols> 寫在 sheetXml 組裝那段
   const _matRowCount = _memRows.filter(mr => mr.mat && String(mr.mat).trim()).length;
   // 按 row 分組 → 組 sheet 的 <row> 標記;row 內 cells 必須依 column 升序(OOXML 規範)
@@ -773,6 +811,7 @@ export function exportXlsxFile() {
   const colsXml = `<cols>` +
     `<col min="11" max="11" width="2" customWidth="1" style="6"/>` +
     `<col min="74" max="74" width="2" customWidth="1" style="6"/>` +
+    `<col min="92" max="92" width="2" customWidth="1" style="6"/>` +
     `</cols>`;
   const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${colsXml}<sheetData>${rowsXml}</sheetData></worksheet>`;

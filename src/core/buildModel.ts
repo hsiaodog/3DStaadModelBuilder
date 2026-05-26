@@ -25,7 +25,7 @@ interface MemberCollision {
   memberId: number;
 }
 interface BuildModelResult {
-  joints: Array<{ id: number; x: number; y: number; z: number }>;
+  joints: Array<{ id: number; x: number; y: number; z: number; isAnchor?: boolean; supportType?: "FIXED" | "PINNED" }>;
   members: Array<{ id: number; j1: number; j2: number }>;
 }
 
@@ -87,6 +87,16 @@ export function buildModel(): BuildModelResult {
           seenJointIds.add(nid as number);
           dup = { id: nid as number, x: X, y: Y, z: Z };
           allJoints.push(dup);
+        }
+        // 累積錨點 / 支座類型:任一頁面的此 joint 標 isAnchor → 該物理點視為錨點
+        //   supportType 取「最後一次設值」(實務上多頁應同步;若不同步,以最後讀到為準)
+        if (j.isAnchor) {
+          (dup as any).isAnchor = true;
+          if (j.supportType === "PINNED" || j.supportType === "FIXED") {
+            (dup as any).supportType = j.supportType;
+          } else if (!(dup as any).supportType) {
+            (dup as any).supportType = "FIXED";   // 未指定 → FIXED 預設
+          }
         }
         idMap.set(j.id, dup.id);
       }

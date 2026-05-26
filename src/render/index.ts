@@ -1,6 +1,5 @@
 // Phase 6 — Render 看門狗 + _renderImpl 主控(從 legacy.ts 整段搬過來,@ts-nocheck 過渡)
 //   _renderImpl 維持 1180 行單一函式;進一步拆 joint/member/label/snap 子模組屬於 phase 6 後續
-// @ts-nocheck
 
 import {
   state, svg, getPage, getActiveFile, $,
@@ -16,7 +15,8 @@ import {
   showCtxMenu, _setSplitContext, showSplitDim,
   tryConsumePendingGlobalPair,
   showHoverTip, moveHoverTip, hideHoverTip, fmtJointInfo, fmtMemberInfo,
-  clearSelection, pushUndo, _markSelectionSourceIfEmpty,
+  showJointInfoPopup,
+  clearSelection, pushUndo, _markSelectionSourceIfEmpty, _memberPassesDirFilter,
   // Phase 6 fix 2:_renderImpl 內仍會呼叫的 helper(snap、merged section links、投影 …)
   activatePageWithBusy, refreshLists,
   snap, snapToBgVertex, snapToBgPaths, moveModeTarget,
@@ -182,7 +182,7 @@ function _renderImpl() {
         }
         _setSplitContext({ movedJ, movedM, rect });
         showSplitDim(rect);
-        $("splitName").value = "拆分_" + (state.files.length + 1);
+        ($("splitName") as HTMLInputElement).value = "拆分_" + (state.files.length + 1);
         $("splitDialog").style.display = "flex";
         setTimeout(() => $("splitName").focus(), 30);
         render();
@@ -231,6 +231,10 @@ function _renderImpl() {
       if (subtractiveSelect(e)) {
         state.selection.members.delete(m.id);
       } else {
+        // selectFilter=joints → 「點」filter 啟用中,線不能點選
+        if (state.selectFilter === "joints") return;
+        // 方向 filter:擋掉不符方向的桿件(避免使用者沒注意 filter 是哪種就點到)
+        if (!_memberPassesDirFilter(m)) return;
         if (!additiveSelect(e)) clearSelection();
         state.selection.members.add(m.id);
       }
@@ -331,20 +335,24 @@ function _renderImpl() {
 
     // 主圓:始終空心;選取時只把顏色從紅變黃,X 仍可見
     // 錨點(isAnchor):用倒三角形取代圓圈(類似 STAAD 的 support symbol)
-    //   未選取 + 是 anchor → 三角形 polygon
-    //   其他情況 → 一般空心圓
-    const isAnchorMark = !!j.isAnchor && !isSel;
+    //   ★ 選取/linked 時也維持三角形,只換顏色;不改回圓圈
+    //   stroke=color(選取時走紫色 #a855f7、未選走橘色 #ff8c00);fill 跟 stroke 同調但帶透明度
+    const isAnchorMark = !!j.isAnchor;
     const c = isAnchorMark ? (() => {
       const r = jointR * 2.6;            // 加大 1.6 → 2.6
       const x = j.x, y = j.y;
       const p1x = x, p1y = y - r;            // 頂點朝上
       const p2x = x - r * 0.866, p2y = y + r * 0.5;   // 左下
       const p3x = x + r * 0.866, p3y = y + r * 0.5;   // 右下
+      // fill:選取時用紫色半透明、未選時用橘色半透明
+      const _anchorFill = (isSel || isLinked)
+        ? "rgba(168, 85, 247, 0.35)"   // 選取/linked → 紫色 #a855f7 + 35% alpha
+        : "rgba(255, 140, 0, 0.4)";    // 未選 → 橘色
       return el("polygon", {
         points: `${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y}`,
-        class: "joint anchor-marker",
+        class: "joint anchor-marker" + (isSel ? " selected" : "") + (isLinked ? " linked" : ""),
         "data-jid": j.id,
-        fill: "rgba(255, 140, 0, 0.4)",
+        fill: _anchorFill,
         stroke: color, "stroke-width": swJoint * 2.0,    // 線寬也加粗
         "stroke-linejoin": "round",
       });
@@ -387,7 +395,7 @@ function _renderImpl() {
         }
         _setSplitContext({ movedJ, movedM, rect });
         showSplitDim(rect);
-        $("splitName").value = "拆分_" + (state.files.length + 1);
+        ($("splitName") as HTMLInputElement).value = "拆分_" + (state.files.length + 1);
         $("splitDialog").style.display = "flex";
         setTimeout(() => $("splitName").focus(), 30);
         render();
@@ -413,11 +421,18 @@ function _renderImpl() {
             state.selection.sourcePageIdx = null;
           }
         } else {
+          // selectFilter=members → 「線」filter 啟用中,點不能被選
+          if (state.selectFilter === "members") return;
           if (!additiveSelect(e)) clearSelection();
           state.selection.joints.add(j.id);
           _markSelectionSourceIfEmpty();
         }
         render(); refreshLists();
+        // 點擊節點 → 開出可拖移、可關閉的資訊小視窗
+        //   subtractive(Ctrl 反選)時不開 — 反選通常表示「我要拿掉這個」,不需資訊
+        if (!subtractiveSelect(e)) {
+          try { showJointInfoPopup(j, e); } catch (err) { console.warn("[joint popup] 失敗:", err); }
+        }
       }
     });
     c.addEventListener("contextmenu", (e) => {
@@ -905,8 +920,8 @@ function _renderImpl() {
     const merged = _getMergedSectionLinks(af);
     if (af && merged.length) {
       // 只在 merged group 數變化時印一次 log,協助排查(衍生模型不再有 raw entries 概念)
-      if (window._lastSLCount !== merged.length) {
-        window._lastSLCount = merged.length;
+      if ((window as any)._lastSLCount !== merged.length) {
+        (window as any)._lastSLCount = merged.length;
         const sl0 = merged[0] && merged[0].rep;
         if (sl0 && sl0.p1 && sl0.p2) {
           const sx1 = state.panX + sl0.p1.x * state.zoom;
@@ -1083,8 +1098,11 @@ function _renderImpl() {
       }
     }
   }
-  // 標示隱藏時不繪製節點/桿件標號(切面標籤已在上方獨立繪製過)
-  if (state.labelsVisible === false) {
+  // 節點 / 桿件標號各自獨立 toggle(切面標籤已在上方獨立繪製過,不受影響)
+  //   兩個都隱藏才完全跳過剩餘繪製;其中一個還開著就繼續走下面的 loop,個別 if 篩
+  const _showJointLbl  = state.jointLabelsVisible  !== false;
+  const _showMemberLbl = state.memberLabelsVisible !== false;
+  if (!_showJointLbl && !_showMemberLbl) {
     $("stats").textContent = (typeof _t === "function" && _t("dyn.joints"))
       ? `${p.joints.length} ${_t("dyn.joints")} · ${p.members.length} ${_t("dyn.members")} · ${_t("dyn.pageOrdinalPrefix")||""} ${state.pageIdx+1} ${_t("dyn.pageOrdinalSuffix")||""}`.replace(/\s+/g," ").trim()
       : `${p.joints.length} 節點 · ${p.members.length} 桿件 · 第 ${state.pageIdx+1} 頁`;
@@ -1092,7 +1110,7 @@ function _renderImpl() {
   }
   // 字級:基準 15(zoom=1),隨縮放 sqrt 變化,上限 20、下限 6;再乘上使用者倍率
   const lblFontPx = Math.max(6, Math.min(20, 15 * Math.sqrt(state.zoom || 1))) * (state.labelFontScale || 1);
-  for (const m of p.members) {
+  if (_showMemberLbl) for (const m of p.members) {
     const lab = memberLabel[m.id];
     if (!lab) continue;
     const isSelLab = state.selection.members.has(m.id);
@@ -1140,6 +1158,8 @@ function _renderImpl() {
       if (subtractiveSelect(ev)) {
         state.selection.members.delete(m.id);
       } else {
+        if (state.selectFilter === "joints") return;
+        if (!_memberPassesDirFilter(m)) return;
         if (!additiveSelect(ev)) clearSelection();
         state.selection.members.add(m.id);
       }
@@ -1161,7 +1181,7 @@ function _renderImpl() {
     div.addEventListener("mouseleave", () => hideHoverTip());
     labelsLayer.appendChild(div);
   }
-  for (const j of p.joints) {
+  if (_showJointLbl) for (const j of p.joints) {
     const lab = jointLabel[j.id];
     if (!lab) continue;
     // 跨頁同步:跟 joint 繪製用同一份 _selOnSrc / _linkedJointIds 判定,避免 label 用舊的 j.id 比對而標錯點
@@ -1202,6 +1222,7 @@ function _renderImpl() {
           state.selection.sourcePageIdx = null;
         }
       } else {
+        if (state.selectFilter === "members") return;
         if (!additiveSelect(ev)) clearSelection();
         state.selection.joints.add(j.id);
         _markSelectionSourceIfEmpty();

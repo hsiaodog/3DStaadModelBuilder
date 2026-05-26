@@ -1,7 +1,7 @@
+// @ts-nocheck
 // Phase 1 — legacy code 整段搬進 Vite,還沒拆模組
 // pdf.js setup 已搬到 src/main.ts;這檔只保留主 app code
 // 後續 phase 會把這檔的內容逐步移到 src/core/, src/render/, src/dialogs/ 等
-// @ts-nocheck
 
 // ============================================================================
 // Phase 2 — 已拆出去的 pure utils / constants(從這檔的 inline 定義移到 src/utils/、
@@ -48,6 +48,8 @@ export const state = {
   memberCollisions: new Set(),
   memberCollisionsLastShownPage: null,
   selectFilter: "all",                       // "all"|"joints"|"members" — 框選時的篩選
+  memberDirFilter: "all" as "all" | "vertical" | "horizontal" | "orthogonal" | "diagonal",
+  // ↑ 桿件方向篩選:在 selectFilter 之上再細分;「垂直/水平/正交/斜」按鈕切換時使用
   scale: null,               // pixels per (unit) where unit is `unitName`
   unitName: "mm",
   snapPx: 12,
@@ -89,7 +91,9 @@ export const state = {
   cursor: { x: 0, y: 0, sx: 0, sy: 0 },   // sx,sy = world coords
   marquee: null,            // { x1,y1,x2,y2, additive }
   labelFontScale: 1,        // 使用者控制的標示字體整體倍率(+/- 按鈕)
-  labelsVisible: true,      // 標示顯示 / 隱藏切換
+  labelsVisible: true,      // 標示顯示 / 隱藏切換(legacy 合併旗標,read-only;新程式請用下面兩個)
+  jointLabelsVisible: true, // 節點標號顯示 / 隱藏(獨立於桿件)
+  memberLabelsVisible: true,// 桿件標號顯示 / 隱藏(獨立於節點)
   bgVisible: true,          // 底圖顯示 / 隱藏切換(影響 bg-canvas + bgSvg 的可見性)
   jointsVisible: true,      // 節點圓圈 + 錨點 + 節點編號 顯示 / 隱藏(body.joints-hidden CSS)
   membersVisible: true,     // 桿件線 + 桿件編號 顯示 / 隱藏(body.members-hidden CSS)
@@ -267,7 +271,7 @@ export function getPage() {
 }
 // 拆分頁面的可繪製範圍:有 clipRect 時只能在矩形內建立 / 編輯
 //   tol 給少量浮點容差(預設 0.5 世界單位 = 0.5px)
-export function isInsideClip(file, x, y, tol) {
+export function isInsideClip(file, x, y, tol?: number) {
   if (!file || !file.clipRect) return true;
   const t = tol == null ? 0.5 : tol;
   const r = file.clipRect;
@@ -1180,8 +1184,8 @@ export async function activatePage(fileId, pageIdx) {
   // P2:當前頁的 bg 線段快取(供跨頁同步建點時吸到底圖實際交點)
   //   每次 activatePage 重建,DOM 此時應該已就緒
   try { cacheActivePageBgSegs && cacheActivePageBgSegs(); } catch (e) { console.warn("[P2 cache] 失敗:", e); }
-  // 撞號桿件 popup:若當前頁有撞號 m.id → 跳警示 popup;同一頁切回不會重覆跳
-  try { _maybeShowCollisionPopup(file, state.pageIdx); } catch (e) { console.warn("[collision popup] 失敗:", e); }
+  // 撞號桿件 popup 已移到 activatePageWithBusy(使用者主動切頁時才跳),避免儲存/讀取
+  // 內部預渲染呼叫 activatePage 時也跳 popup 中斷流程。
 }
 
 // 偵測當前頁有沒有撞號桿件 → 顯示 popup
@@ -1276,6 +1280,16 @@ export async function activatePageWithBusy(fileId, pageIdx) {
   await busyTick();
   try { await activatePage(fileId, targetPidx); }
   finally { hideBusy(); }
+  // 撞號桿件 popup:只在使用者主動切頁時跳,避免儲存/讀取期間的內部 activatePage 中斷流程。
+  //   同一頁切回不會重覆跳 — 用 memberCollisionsLastShownPage 記錄上次顯示的 file.id#pageIdx。
+  try {
+    const pgKey = `${fileId}#${targetPidx}`;
+    if (state.memberCollisionsLastShownPage !== pgKey) {
+      const fileForPopup = state.files.find(ff => ff.id === fileId);
+      _maybeShowCollisionPopup(fileForPopup, targetPidx);
+      state.memberCollisionsLastShownPage = pgKey;
+    }
+  } catch (e) { console.warn("[collision popup] 失敗:", e); }
   // 抵達後記入導航歷史(若是 navBack/navForward 觸發的就跳過,避免迴圈)
   _navRecordIfNotInProgress();
 }
@@ -2248,7 +2262,7 @@ function fmtCoord(v) {
 //   「座標小數位數」(state.coordDecimals)。這樣 rank bucket / xlsx / 側欄 / popup
 //   都用同一個精準度,顯示值與 bucket key 永遠對齊(不會出現側欄顯示 4005、bucket
 //   是 4005、xlsx 寫 4005.23 的錯位)。length / delta / px 維度仍走 fmtCoord。
-function fmtWorld3D(v) {
+export function fmtWorld3D(v: number): string {
   if (v == null || !isFinite(v)) return "?";
   let n = state.measureDecimals;
   if (n == null || !isFinite(n) || n < 0) n = 0;
@@ -2791,6 +2805,8 @@ window.addEventListener("mouseup", (e) => {
           if (crossing) hit = inA || inB || segIntersectsRect(a, b, x1, y1, x2, y2);
           else          hit = inA && inB;
           if (!hit) continue;
+          // 方向 filter:add 時擋住不符方向的(subtract 不擋,允許清除)
+          if (!m.subtract && !_memberPassesDirFilter(mem)) continue;
           if (m.subtract) state.selection.members.delete(mem.id);
           else            state.selection.members.add(mem.id);
         }
@@ -6448,21 +6464,86 @@ export function updateSelectToolsVisibility() {
 function selToolsSelectAll() {
   const p = getPage(); if (!p) return;
   clearSelection();
-  for (const j of p.joints) state.selection.joints.add(j.id);
-  for (const m of p.members) state.selection.members.add(m.id);
+  // 全選會跟隨 selectFilter:filter=joints 只選點、filter=members 只選線、filter=all 兩個都選
+  // 額外:member 還會套 memberDirFilter(只選方向符合的)
+  const f = state.selectFilter || "all";
+  if (f === "all" || f === "joints") {
+    for (const j of p.joints) state.selection.joints.add(j.id);
+  }
+  if (f === "all" || f === "members") {
+    for (const m of p.members) {
+      if (!_memberPassesDirFilter(m)) continue;
+      state.selection.members.add(m.id);
+    }
+  }
+  _markSelectionSourceIfEmpty();   // 標記 source = 當前頁,讓 render 的 _selOnSrc 判斷成立 → 變色
   render(); refreshLists();
 }
+// 「點」按鈕:切換 selectFilter — joints (only) ↔ all。不是「全選頁面所有點」
+//   作用範圍涵蓋點擊選取跟框選(state.selectFilter 兩邊共用)
 function selToolsSelectJoints() {
-  const p = getPage(); if (!p) return;
-  clearSelection();
-  for (const j of p.joints) state.selection.joints.add(j.id);
-  render(); refreshLists();
+  state.selectFilter = state.selectFilter === "joints" ? "all" : "joints";
+  _updateSelToolsFilterBtns();
+  render();
 }
+// 「線」按鈕:切換 selectFilter — members (only) ↔ all
 function selToolsSelectMembers() {
-  const p = getPage(); if (!p) return;
-  clearSelection();
-  for (const m of p.members) state.selection.members.add(m.id);
-  render(); refreshLists();
+  state.selectFilter = state.selectFilter === "members" ? "all" : "members";
+  _updateSelToolsFilterBtns();
+  render();
+}
+// 點 / 線 按鈕 active 狀態同步:filter 是 joints → 點按鈕亮、filter 是 members → 線按鈕亮、all → 都暗
+function _updateSelToolsFilterBtns() {
+  const bJ = $("selToolsJoints");
+  const bM = $("selToolsMembers");
+  if (bJ) bJ.classList.toggle("active", state.selectFilter === "joints");
+  if (bM) bM.classList.toggle("active", state.selectFilter === "members");
+  // 方向 filter 按鈕(只有當 memberDirFilter 啟用時才亮;all 全暗)
+  const bV = $("selToolsDirV"), bH = $("selToolsDirH"), bO = $("selToolsDirO"), bD = $("selToolsDirD");
+  if (bV) bV.classList.toggle("active", state.memberDirFilter === "vertical");
+  if (bH) bH.classList.toggle("active", state.memberDirFilter === "horizontal");
+  if (bO) bO.classList.toggle("active", state.memberDirFilter === "orthogonal");
+  if (bD) bD.classList.toggle("active", state.memberDirFilter === "diagonal");
+}
+// 桿件方向分類(page-local pixel 判定;跟 _relayoutPageCore 的 angleTol/absAxisTol 規則同步)
+//   回傳 "horizontal" | "vertical" | "diagonal" | null(degenerate)
+export function _classifyMemberDir(m: any): "horizontal" | "vertical" | "diagonal" | null {
+  const p = getPage();
+  if (!p) return null;
+  const a = p.joints.find((x: any) => x.id === m.j1);
+  const b = p.joints.find((x: any) => x.id === m.j2);
+  if (!a || !b) return null;
+  const dx = Math.abs(a.x - b.x), dy = Math.abs(a.y - b.y);
+  if (dx < 1 && dy < 1) return null;
+  const absAxisTol = 5;     // page-local pixel:低於此視為 0
+  if (dx < absAxisTol && dy >= absAxisTol) return "vertical";
+  if (dy < absAxisTol && dx >= absAxisTol) return "horizontal";
+  const len = Math.hypot(dx, dy);
+  const angleTol = 0.05;    // ratio 容忍 — 約 3°
+  if (dy / len < angleTol) return "horizontal";
+  if (dx / len < angleTol) return "vertical";
+  return "diagonal";
+}
+// 檢查 member 是否符合目前的 memberDirFilter(true = 通過,可被選取)
+export function _memberPassesDirFilter(m: any): boolean {
+  const f = state.memberDirFilter || "all";
+  if (f === "all") return true;
+  const d = _classifyMemberDir(m);
+  if (!d) return false;
+  if (f === "orthogonal") return d === "horizontal" || d === "vertical";
+  return d === f;
+}
+// 通用 toggle:點該方向按鈕 → 切到該方向 / 取消;並把 selectFilter 自動拉到 "members"(避免衝突)
+function _toggleDirFilter(target: "vertical" | "horizontal" | "orthogonal" | "diagonal") {
+  if (state.memberDirFilter === target) {
+    state.memberDirFilter = "all";
+  } else {
+    state.memberDirFilter = target;
+    // 方向 filter 只對 member 有意義 → 自動把 selectFilter 拉到 members(若還是 joints 會衝突)
+    if (state.selectFilter === "joints") state.selectFilter = "all";
+  }
+  _updateSelToolsFilterBtns();
+  render();
 }
 // axis: "horizontal" = 同 y(水平對齊);"vertical" = 同 x(垂直對齊)
 // kind:  "all"     = 從節點+桿件取參考座標,並同時擴展節點+桿件
@@ -6533,6 +6614,11 @@ function selToolsExtendAlong(axis, kind, orientation) {
 }
 $("selToolsAll")      && ($("selToolsAll").onclick      = selToolsSelectAll);
 $("selToolsJoints")   && ($("selToolsJoints").onclick   = selToolsSelectJoints);
+$("selToolsDirV")     && ($("selToolsDirV").onclick     = () => _toggleDirFilter("vertical"));
+$("selToolsDirH")     && ($("selToolsDirH").onclick     = () => _toggleDirFilter("horizontal"));
+$("selToolsDirO")     && ($("selToolsDirO").onclick     = () => _toggleDirFilter("orthogonal"));
+$("selToolsDirD")     && ($("selToolsDirD").onclick     = () => _toggleDirFilter("diagonal"));
+_updateSelToolsFilterBtns();   // 初始化 active 狀態
 $("selToolsMembers")  && ($("selToolsMembers").onclick  = selToolsSelectMembers);
 $("selToolsRepeatHJ") && ($("selToolsRepeatHJ").onclick = () => selToolsExtendAlong("horizontal", "joints"));
 $("selToolsRepeatVJ") && ($("selToolsRepeatVJ").onclick = () => selToolsExtendAlong("vertical",   "joints"));
@@ -6943,13 +7029,28 @@ function finalizeRangeZoomRect(x1, y1, x2, y2) {
   render();
 }
 // ---------- 標示字體整體放大 / 縮小 / 顯示切換 ----------
+//   舊版 btnLblToggle 已拆成兩顆獨立按鈕(節點 / 桿件)。
+//   updateLblToggleBtn 保留 thin wrapper 給可能的舊呼叫端,實際是同步兩顆新按鈕
 export function updateLblToggleBtn() {
-  const btn = $("btnLblToggle");
+  updateJointLblToggleBtn();
+  updateMemberLblToggleBtn();
+}
+export function updateJointLblToggleBtn() {
+  const btn = $("btnJointLblToggle");
   if (btn) {
-    const key = state.labelsVisible ? "tb.lblShown" : "tb.lblHidden";
-    const fb  = state.labelsVisible ? "標示 顯示"  : "標示 隱藏";
+    const key = state.jointLabelsVisible ? "tb.jointLblShown" : "tb.jointLblHidden";
+    const fb  = state.jointLabelsVisible ? "節點標號 顯示"  : "節點標號 隱藏";
     _setBtnLabel(btn, key, fb);
-    btn.classList.toggle("active", !!state.labelsVisible);
+    btn.classList.toggle("active", !!state.jointLabelsVisible);
+  }
+}
+export function updateMemberLblToggleBtn() {
+  const btn = $("btnMemberLblToggle");
+  if (btn) {
+    const key = state.memberLabelsVisible ? "tb.memberLblShown" : "tb.memberLblHidden";
+    const fb  = state.memberLabelsVisible ? "桿件標號 顯示"  : "桿件標號 隱藏";
+    _setBtnLabel(btn, key, fb);
+    btn.classList.toggle("active", !!state.memberLabelsVisible);
   }
 }
 export function updateJointVisBtn() {
@@ -6983,8 +7084,24 @@ $("btnLblBigger")  && ($("btnLblBigger").onclick  = () => bumpLabelFontScale(1.1
 $("btnLblSmaller") && ($("btnLblSmaller").onclick = () => bumpLabelFontScale(1/1.15));
 $("btnLblReset")   && ($("btnLblReset").onclick   = () => { state.labelFontScale = 1; render(); });
 function _toggleLabelsVisible() {
-  state.labelsVisible = !state.labelsVisible;
+  // 同時 toggle 兩個(舊行為:合併鈕)— 保留給快捷鍵 / 舊呼叫端
+  const nextVal = !(state.jointLabelsVisible && state.memberLabelsVisible);
+  state.jointLabelsVisible = nextVal;
+  state.memberLabelsVisible = nextVal;
+  state.labelsVisible = nextVal;
   updateLblToggleBtn();
+  render();
+}
+function _toggleJointLabelsVisible() {
+  state.jointLabelsVisible = !state.jointLabelsVisible;
+  state.labelsVisible = state.jointLabelsVisible || state.memberLabelsVisible;
+  updateJointLblToggleBtn();
+  render();
+}
+function _toggleMemberLabelsVisible() {
+  state.memberLabelsVisible = !state.memberLabelsVisible;
+  state.labelsVisible = state.jointLabelsVisible || state.memberLabelsVisible;
+  updateMemberLblToggleBtn();
   render();
 }
 function _toggleJointsVisible() {
@@ -6997,6 +7114,9 @@ function _toggleMembersVisible() {
   applyGeomVisibility();
   updateMemberVisBtn();
 }
+$("btnJointLblToggle")  && ($("btnJointLblToggle").onclick  = _toggleJointLabelsVisible);
+$("btnMemberLblToggle") && ($("btnMemberLblToggle").onclick = _toggleMemberLabelsVisible);
+// 舊 id 若還掛著(向下相容,不會 noop)
 $("btnLblToggle")  && ($("btnLblToggle").onclick  = _toggleLabelsVisible);
 $("btnJointVis")   && ($("btnJointVis").onclick   = _toggleJointsVisible);
 $("btnMemberVis")  && ($("btnMemberVis").onclick  = _toggleMembersVisible);
@@ -7077,63 +7197,80 @@ export async function _run3DOneClickPipeline() {
   )) return;
   // 直接管 spinner — withBusy 不回傳 Promise,連串 await withBusy 不能保證序列化,
   //   也會在每步之間 sp.classList.remove("active") 造成閃爍 + 中間空窗。
-  // 改法:spinner 從頭開到尾,每步只更新訊息;每步前後 double-rAF,確保新訊息先 paint
-  //   再跑重 CPU 的同步工作(否則 JS 阻塞畫面,使用者看不到字)。
+  // 改法:用 showBusyWithCancel 開到尾,每步只更新訊息 + 檢查 cancel flag。
+  //   Esc / 取消鈕設 cancelled=true → 下一步開始前 throw CANCELLED → catch 後跳到 finally
+  //   注意:當前步驟內部(例如 relayoutNumberingAll)不會立即停 — 等它跑完才檢查 → 「step-level 取消」
+  let cancelled = false;
+  const onEsc = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && !cancelled) {
+      cancelled = true;
+      setBusyMessage("取消中…等當前步驟完畢");
+    }
+  };
+  document.addEventListener("keydown", onEsc, true);
+  showBusyWithCancel("3D 一鍵處理 — 開始…(Esc / 取消鈕可中斷)", () => {
+    if (cancelled) return;
+    cancelled = true;
+    setBusyMessage("取消中…等當前步驟完畢");
+  });
   const sp = document.getElementById("busySpinner");
   const msgEl = sp ? sp.querySelector(".msg") : null;
   const setMsg = (m) => { if (msgEl) msgEl.textContent = m; };
   const yieldFrame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-  if (sp) sp.classList.add("active");
+  // 每步開頭呼叫:讓 paint 一次,然後檢查 cancel
+  const _step = async (msg: string) => {
+    setMsg(msg);
+    await yieldFrame();
+    if (cancelled) throw new Error("__CANCELLED__");
+  };
   let ok = true;
   try {
-    setMsg("3D 一鍵處理 1/9:整理所有頁面…");
-    await yieldFrame();
+    await _step("3D 一鍵處理 1/9:整理所有頁面…");
     if (typeof consolidateAllPagesWithConfirm === "function") {
       await consolidateAllPagesWithConfirm({ skipConfirm: true });
     }
-    setMsg("3D 一鍵處理 2/9:清除所有 globalJoint 綁定…");
-    await yieldFrame();
+    await _step("3D 一鍵處理 2/9:清除所有 globalJoint 綁定…");
     if (typeof cleanupBadGlobalJoints === "function") {
       cleanupBadGlobalJoints({ clearAll: true, skipConfirm: true });
     }
-    setMsg(`3D 一鍵處理 3/9:適配關聯(精準度 ${md})— 重建綁定…`);
-    await yieldFrame();
+    await _step(`3D 一鍵處理 3/9:適配關聯(精準度 ${md})— 重建綁定…`);
     if (typeof _runFitMergeByPrecision === "function") {
       await _runFitMergeByPrecision({ skipConfirm: true });
     }
-    setMsg("3D 一鍵處理 4/9:編排節點編號…");
-    await yieldFrame();
+    await _step("3D 一鍵處理 4/9:編排節點編號…");
     if (typeof relayoutNumberingAll === "function") {
       await relayoutNumberingAll({ skipConfirm: true });
     }
-    setMsg("3D 一鍵處理 5/9:編排桿件編號…");
-    await yieldFrame();
+    await _step("3D 一鍵處理 5/9:編排桿件編號…");
     if (typeof relayoutMembersNumberingAll === "function") {
       await relayoutMembersNumberingAll({ skipConfirm: true });
     }
-    setMsg("3D 一鍵處理 6/9:失效 rank cache + 重 infer globalJoint…");
-    await yieldFrame();
+    await _step("3D 一鍵處理 6/9:失效 rank cache + 重 infer globalJoint…");
     pushUndo();
     if (typeof invalidateRankCache === "function") invalidateRankCache();
     if (typeof inferAllGlobalJoints === "function") inferAllGlobalJoints();
-    setMsg("3D 一鍵處理 7/9:重整切面 / page 座標區…");
-    await yieldFrame();
+    await _step("3D 一鍵處理 7/9:重整切面 / page 座標區…");
     if (typeof refreshPageCoordSection === "function") refreshPageCoordSection();
     if (typeof refreshSectionLinkList === "function") refreshSectionLinkList();
-    setMsg("3D 一鍵處理 8/9:重整側欄列表…");
-    await yieldFrame();
+    await _step("3D 一鍵處理 8/9:重整側欄列表…");
     try { refreshLists(); } catch (_) {}
-    setMsg("3D 一鍵處理 9/9:重畫畫面…");
-    await yieldFrame();
+    await _step("3D 一鍵處理 9/9:重畫畫面…");
     try { render(); } catch (_) {}
     // 等最後一次 render 結束 + 一個 paint frame,再關 spinner — 避免畫面才剛要重排就先沒了訊息
     await yieldFrame();
   } catch (e) {
-    ok = false;
-    console.warn("[3D 一鍵處理] 失敗", e);
-    alert("3D 一鍵處理途中發生錯誤:" + (e && e.message ? e.message : e) + "\n\n已完成的步驟保留;可用 Ctrl+Z 逐步還原。");
+    if (e && (e as any).message === "__CANCELLED__") {
+      console.log("[3D 一鍵處理] 使用者取消(已完成的步驟保留,可用 Ctrl+Z 還原)");
+      setTimeout(() => alert("3D 一鍵處理已取消。已完成的步驟保留;可用 Ctrl+Z 逐步還原。"), 30);
+      ok = false;
+    } else {
+      ok = false;
+      console.warn("[3D 一鍵處理] 失敗", e);
+      alert("3D 一鍵處理途中發生錯誤:" + (e && (e as any).message ? (e as any).message : e) + "\n\n已完成的步驟保留;可用 Ctrl+Z 逐步還原。");
+    }
   } finally {
-    if (sp) sp.classList.remove("active");
+    document.removeEventListener("keydown", onEsc, true);
+    hideBusy();   // 取代舊的 sp.classList.remove,順便也把取消鈕一起藏掉
   }
   if (ok) {
     let pages = 0, joints = 0;
@@ -7192,6 +7329,23 @@ $("selToolsJConnectD") && ($("selToolsJConnectD").onclick = () => connectSelecte
 $("selToolsJMerge")    && ($("selToolsJMerge").onclick    = () => mergeTwoSelectedJoints());
 $("selToolsMeasure")   && ($("selToolsMeasure").onclick   = () => startMeasureFromCurrentSelection());
 $("selToolsAnchorToggle") && ($("selToolsAnchorToggle").onclick = () => toggleAnchorOnSelectedJoints());
+// 「設為錨點 / 取消錨點」按鈕 label 同步:選取中的 joint 多數已是錨點 → 顯示「取消錨點」
+//   refreshLists 每次選取變更會呼叫 → 自動更新
+function _updateAnchorToggleBtn() {
+  const btn = $("selToolsAnchorToggle");
+  if (!btn) return;
+  const p = getPage();
+  if (!p) { btn.textContent = "設為錨點"; return; }
+  const ids = [...state.selection.joints];
+  if (!ids.length) { btn.textContent = "設為錨點"; return; }
+  let anchored = 0;
+  for (const id of ids) {
+    const j = p.joints.find(x => x.id === id);
+    if (j && j.isAnchor) anchored++;
+  }
+  // 跟 toggleAnchorOnSelectedJoints 內的 setTo 判定一致:多數已是錨點 → 改顯示取消
+  btn.textContent = (anchored >= ids.length / 2) ? "取消錨點" : "設為錨點";
+}
 
 // 切換選取節點的 isAnchor 標記。
 //   若多數選取節點目前是 anchor → 全部取消;否則 → 全部標為 anchor
@@ -7212,6 +7366,16 @@ async function toggleAnchorOnSelectedJoints() {
   }
   const setTo = anchoredCount < ids.length / 2;
   const verb = setTo ? "標為錨點" : "取消錨點";
+  // 若是「標為錨點」→ 跳自訂 modal 選擇支座類型(FIXED / PINNED / 取消)
+  //   取消 / Esc / 點 backdrop → null → 整個操作 abort,不動 isAnchor
+  let chosenSupportType: "FIXED" | "PINNED" | null = null;
+  if (setTo) {
+    chosenSupportType = await pickSupportTypeModal(ids.length);
+    if (chosenSupportType == null) {
+      console.log("[錨點切換] 使用者取消支座類型選擇 → 不動");
+      return;
+    }
+  }
   // 收集要變動的 joint:選取節點 + 所有共享 globalJoint 的跨頁對應 joint(siblings)
   //   用 Map(key=joint object)去重,避免同一物件被加兩次
   const targets = new Map();   // jointObj → jointObj
@@ -7244,6 +7408,14 @@ async function toggleAnchorOnSelectedJoints() {
       const cur = !!j.isAnchor;
       if (cur !== setTo) {
         j.isAnchor = setTo || undefined;   // 不需要時直接 unset(讓 JSON 輸出乾淨)
+        // 同時套支座類型:FIXED 是預設不存欄位(JSON 乾淨);PINNED 才寫進去
+        //   取消錨點時連 supportType 一起清掉
+        if (setTo) {
+          if (chosenSupportType === "PINNED") j.supportType = "PINNED";
+          else delete j.supportType;   // FIXED 預設
+        } else {
+          delete j.supportType;
+        }
         changed++;
       } else {
         alreadyState++;
@@ -7265,6 +7437,87 @@ async function toggleAnchorOnSelectedJoints() {
       setTimeout(() => alert(`沒有變動 — 選取的 ${selectedCount} 顆節點${siblingCount ? `(及對應 ${siblingCount} 顆跨頁 siblings)` : ""}目前都已是「${setTo ? "錨點" : "非錨點"}」狀態。`), 30);
     }
   });
+}
+
+// 切換選取錨點的支座類型(FIXED ↔ PINNED)
+//   STAAD 匯出時:FIXED = 6 自由度全鎖、PINNED = 鎖位移不鎖旋轉
+//   只對 isAnchor=true 的 joint 生效;切換時跨頁同步(同 globalJoint 的所有副本)
+//   未設過 supportType 的錨點預設視為 FIXED(向下相容,舊存檔可直接讀)
+async function toggleSupportTypeOnSelectedAnchors() {
+  const p = getPage();
+  if (!p) return;
+  const ids = [...state.selection.joints];
+  if (!ids.length) { alert("請先選取節點"); return; }
+  // 過濾出已是錨點的選取 joint
+  const anchorSelected = ids
+    .map(id => p.joints.find(x => x.id === id))
+    .filter(j => j && j.isAnchor);
+  if (!anchorSelected.length) {
+    alert("選取的節點都不是錨點 — 請先按「設為錨點」把它們標為錨點,再切換支座類型。");
+    return;
+  }
+  // 看選取錨點目前的 supportType 投票,決定 setTo
+  //   未設 → 視為 FIXED(預設)
+  let pinnedCount = 0;
+  for (const j of anchorSelected) {
+    if (j.supportType === "PINNED") pinnedCount++;
+  }
+  const setTo = pinnedCount < anchorSelected.length / 2 ? "PINNED" : "FIXED";
+  // 收集要變動的目標(選取 + 跨頁 siblings)
+  const targets = new Map();
+  for (const j of anchorSelected) {
+    targets.set(j, j);
+    if (j.globalId == null) continue;
+    for (const f of state.files) {
+      for (const pg of Object.values(f.pages || {})) {
+        if (!pg || pg._orphan) continue;
+        for (const other of (pg.joints || [])) {
+          if (other === j) continue;
+          if (other.globalId === j.globalId) targets.set(other, other);
+        }
+      }
+    }
+  }
+  const selectedCount = anchorSelected.length;
+  const siblingCount = targets.size - selectedCount;
+  await withBusy(`切換支座為 ${setTo}…(${selectedCount} 選取${siblingCount ? ` + ${siblingCount} 跨頁` : ""})`, async () => {
+    pushUndo();
+    let changed = 0;
+    for (const j of targets.values()) {
+      if (!j.isAnchor) continue;   // 只動已是錨點的 sibling,non-anchor 不誤動
+      const cur = j.supportType || "FIXED";
+      if (cur !== setTo) {
+        if (setTo === "FIXED") delete j.supportType;   // FIXED = 預設,清掉欄位讓 JSON 乾淨
+        else j.supportType = setTo;
+        changed++;
+      }
+    }
+    console.log(`[支座類型切換] → ${setTo}・變動 ${changed} / ${targets.size}`);
+    // 更新按鈕標籤
+    updateSupportTypeBtn();
+    render && render();
+    refreshLists && refreshLists();
+  });
+}
+// 依目前選取狀態更新「支座 FIXED / PINNED」按鈕的 label
+function updateSupportTypeBtn() {
+  const btn = $("selToolsSupportType");
+  if (!btn) return;
+  const p = getPage();
+  if (!p) return;
+  const ids = [...state.selection.joints];
+  // 預設標 FIXED;若選取錨點多數是 PINNED 才改顯示 PINNED
+  let label = "支座 FIXED";
+  if (ids.length) {
+    const anchorSelected = ids
+      .map(id => p.joints.find(x => x.id === id))
+      .filter(j => j && j.isAnchor);
+    if (anchorSelected.length) {
+      const pinned = anchorSelected.filter(j => j.supportType === "PINNED").length;
+      label = pinned >= anchorSelected.length / 2 ? "支座 PINNED" : "支座 FIXED";
+    }
+  }
+  btn.textContent = label;
 }
 
 // 兩點合一:把選取的 2 個節點合併
@@ -11274,7 +11527,7 @@ wrap.addEventListener("contextmenu", (e) => {
 //   優先級:bg-vertex(端點)> bg-cross(交點)。
 //   找不到回 null,呼叫端通常會 fallback 到 snap()(吸節點 / 桿件投影)。
 //   用 page._bgSegsCache(activatePage 後填入,世界座標),不需要重新解析 SVG → 比 snapToBgPaths 快。
-export function snapToBgVertex(world, opts) {
+export function snapToBgVertex(world, opts?: any) {
   const page = (typeof getPage === "function") ? getPage() : null;
   const segs = page && page._bgSegsCache;
   if (!Array.isArray(segs) || !segs.length) return null;
@@ -12592,6 +12845,16 @@ function _relayoutPageCore(p, opts) {
   const cap = Math.max(10, state.relayoutCapacity || 100);
   const isVertical = state.relayoutDirection !== "horizontal";
   const nextBaseAfter = (lastId) => (Math.floor(lastId / cap) + 1) * cap + 1;
+  // ★ 全程用 mm + 精準度 round 後的座標做分類與分群
+  //   page-local 是 PIXELS(CAD 單位),要先 ×ratio 換成 mm,再套精準度 round
+  //   thresholds(eps / absAxisTol / tolGroup / tolBeamRow)都是 mm,所以分母分子單位要一致
+  const _pgFile = (state.files || []).find((f: any) => f && f.pages && Object.values(f.pages).includes(p));
+  const _ratio = (_pgFile && (_pgFile as any).scaleRuler && (_pgFile as any).scaleRuler.ratio > 0)
+    ? (_pgFile as any).scaleRuler.ratio
+    : ((state as any).scale ? 1 / (state as any).scale : 1);
+  const _classifyMd = Math.max(0, Math.min(6, Number.isFinite(state.measureDecimals) ? state.measureDecimals : 0));
+  const _rndMm = (v) => { const r = parseFloat(v.toFixed(_classifyMd)); return r === 0 ? 0 : r; };
+  const _pxToMm = (v) => _rndMm(v * _ratio);
   const groupItems = (items, getMain, getSub, tol, subDesc, mainDesc) => {
     const sorted = [...items].sort((a, b) => getMain(a) - getMain(b));
     const groups = [];
@@ -12638,13 +12901,16 @@ function _relayoutPageCore(p, opts) {
   let finalMax = 0;
   const oldToNew = new Map();
   if (!membersOnly) {
-    if (isVertical) jointGroups = groupItems(p.joints, j => j.x, j => j.y, tolGroup, true, false);
-    else            jointGroups = groupItems(p.joints, j => j.y, j => j.x, tolGroup, false, true);
+    // joint 分群 — 用 mm + 精準度 round 後的座標(tolGroup 也是 mm)
+    if (isVertical) jointGroups = groupItems(p.joints, j => _pxToMm(j.x), j => _pxToMm(j.y), tolGroup, true, false);
+    else            jointGroups = groupItems(p.joints, j => _pxToMm(j.y), j => _pxToMm(j.x), tolGroup, false, true);
     if (origin) {
-      const mainCoord = isVertical ? origin.x : origin.y;
-      const subCoord  = isVertical ? origin.y : origin.x;
-      const getMain   = isVertical ? (j => j.x) : (j => j.y);
-      const getSub    = isVertical ? (j => j.y) : (j => j.x);
+      // origin 是 pixel,要換算成 mm 跟 _pxToMm 的回傳值同單位才能比對
+      const _oxMm = _pxToMm(origin.x), _oyMm = _pxToMm(origin.y);
+      const mainCoord = isVertical ? _oxMm : _oyMm;
+      const subCoord  = isVertical ? _oyMm : _oxMm;
+      const getMain   = isVertical ? (j => _pxToMm(j.x)) : (j => _pxToMm(j.y));
+      const getSub    = isVertical ? (j => _pxToMm(j.y)) : (j => _pxToMm(j.x));
       jointGroups = applyOriginOrder(jointGroups, mainCoord, subCoord, getMain, getSub);
     }
     const groupBases = [];
@@ -12668,23 +12934,52 @@ function _relayoutPageCore(p, opts) {
       m.j2 = oldToNew.get(m.j2) ?? m.j2;
     }
   }
-  // 桿件三相位 + 進位 — 用 page-local joint lookup,不依賴 active page
-  //   分類門檻改為「比例容忍」(角度容忍):dx / len < 0.05 ≈ 與軸夾角 < 3° → 視為平行軸
-  //   舊版用絕對 mm(eps=0.5):柱身節點若有 ≥ 0.5mm 漂移就被誤判成斜撐,造成同一柱段 ID 跳號
+  // 桿件三相位 + 進位 — 用「世界座標」分類(避開 page-local pixel 受 flipX/flipY / 微旋轉影響)
+  //   priority:joint.globalId → state.globalJoints(precision-snapped)
+  //   fallback:joint2DToWorld3D(file, page, joint)
+  //   依 page.plane 挑平面內兩條世界軸:
+  //     XZ → main=X、sub=Z;XY → main=X、sub=Y;YZ → main=Z、sub=Y
+  //   分類後 dx/dy 都是世界 mm + 精準度 round,thresholds 也是 mm → 單位一致
   const angleTol = 0.05;   // ≈ 3° 容忍
-  const eps = 0.5;          // 同位節點(dx≈dy≈0)排除用
+  const eps = 0.5;          // 同位節點(dx≈dy≈0)排除用 — mm
   const jointMap = new Map(p.joints.map(j => [j.id, j]));
+  const _plane = p.plane || "XY";
+  const _worldFor = (j: any) => {
+    if (j && j.globalId != null && Array.isArray((state as any).globalJoints)) {
+      const gj = (state as any).globalJoints.find((g: any) => g && g.id === j.globalId);
+      if (gj && Number.isFinite(gj.x) && Number.isFinite(gj.y) && Number.isFinite(gj.z)) {
+        return { x: gj.x, y: gj.y, z: gj.z };
+      }
+    }
+    return (typeof joint2DToWorld3D === "function") ? joint2DToWorld3D(_pgFile as any, p, j) : null;
+  };
+  const _pickAxes = (w: any) => {
+    if (!w) return null;
+    switch (_plane) {
+      case "XZ": return { main: w.x, sub: w.z };   // page-x=世界X、page-y=世界Z
+      case "YZ": return { main: w.z, sub: w.y };   // page-x=世界Z、page-y=世界Y
+      default:   return { main: w.x, sub: w.y };   // XY:page-x=X、page-y=Y
+    }
+  };
   const memMid = (m) => {
     const a = jointMap.get(m.j1), b = jointMap.get(m.j2);
     if (!a || !b) return null;
-    return { m, midX: (a.x + b.x) / 2, midY: (a.y + b.y) / 2,
-             dx: Math.abs(a.x - b.x), dy: Math.abs(a.y - b.y) };
+    const wa = _worldFor(a), wb = _worldFor(b);
+    if (!wa || !wb) return null;
+    const pa = _pickAxes(wa)!, pb = _pickAxes(wb)!;
+    const ma = _rndMm(pa.main), mb = _rndMm(pb.main);
+    const sa = _rndMm(pa.sub),  sb = _rndMm(pb.sub);
+    return { m, midX: (ma + mb) / 2, midY: (sa + sb) / 2,
+             dx: Math.abs(ma - mb), dy: Math.abs(sa - sb) };
   };
   // 短桿件絕對門檻 — 短的 B4 / brace strut 用 ratio (dxRatio < 0.05) 可能因為長度短而被誤判:
   //   B4 長度 100mm + 5mm 水平偏移 → dxRatio = 0.05 剛好踩到門檻變斜撐 → 拿到 D 範圍 ID
   //   絕對門檻 < 10mm 的 dx 就一定當垂直、< 10mm 的 dy 就一定當水平,不論長度
   const absAxisTol = 10;
   const horizontalsM = [], verticalsM = [], diagonalsM = [];
+  // ★ 診斷:收集 D 分類的桿件 dx/dy/len,讓使用者用 console 找出為何特定桿件被歸到 D
+  //   (window._lastDiagDClassify[pageTag] = [{ memberId, j1, j2, dx, dy, len, dxRatio }, ...])
+  const _diagDLog: any[] = [];
   for (const m of p.members) {
     const w = memMid(m); if (!w) continue;
     const len = Math.hypot(w.dx, w.dy);
@@ -12696,7 +12991,23 @@ function _relayoutPageCore(p, opts) {
     const dyRatio = w.dy / len;
     if (dyRatio < angleTol) horizontalsM.push(w);     // 幾乎平行 2D X 軸(水平)
     else if (dxRatio < angleTol) verticalsM.push(w);  // 幾乎平行 2D Y 軸(垂直 — 柱)
-    else diagonalsM.push(w);                          // 斜撐
+    else {
+      diagonalsM.push(w);                          // 斜撐
+      _diagDLog.push({
+        memberId: m.id, j1: m.j1, j2: m.j2,
+        dx_mm: +w.dx.toFixed(2), dy_mm: +w.dy.toFixed(2), len_mm: +len.toFixed(2),
+        dxRatio: +dxRatio.toFixed(4), dyRatio: +dyRatio.toFixed(4),
+        absAxisTol, angleTol,
+      });
+    }
+  }
+  // 寫入 window._lastDiagDClassify[pageTag] 供 console 查
+  if (_diagDLog.length) {
+    const _w: any = (typeof window !== "undefined" ? window : globalThis);
+    if (!_w._lastDiagDClassify) _w._lastDiagDClassify = {};
+    const _pageTag = `${_pgFile ? (_pgFile as any).name : "?"}#${p.plane || "?"}@z=${p.z != null ? p.z : "?"}`;
+    _w._lastDiagDClassify[_pageTag] = _diagDLog;
+    console.log(`[diag D] ${_pageTag} ratio=${_ratio} md=${_classifyMd} → ${_diagDLog.length} 個桿件被歸成 D`, _diagDLog.slice(0, 10));
   }
   const groupForDir = (items) => {
     const groups = isVertical
@@ -12745,88 +13056,84 @@ function _relayoutPageCore(p, opts) {
       if (!groupMap.has(r)) groupMap.set(r, []);
       groupMap.get(r).push(it);
     }
-    // 每群內依「沿軸方向」排序(垂直 → 由下而上;水平 → 由左到右)
-    //   SVG y 向下,DESC = 高 y = 下方 → 由下而上 = midY DESC
+    // 每群內依「沿軸方向」排序,用 wrap-from-world-origin
+    //   垂直柱:沿 midY wrap(0 → +Y → -Y)
+    //   水平樑:沿 midX wrap
     for (const g of groupMap.values()) {
-      if (isVerticalDir) g.sort((a, b) => b.midY - a.midY);
-      else g.sort((a, b) => a.midX - b.midX);
+      if (isVerticalDir) g.sort((a, b) => _wrapPosSort(a.midY, b.midY));
+      else g.sort((a, b) => _wrapPosSort(a.midX, b.midX));
     }
     const groups = [...groupMap.values()];
-    // 群之間排序(離原點近的先)
-    if (origin) {
-      const ox = origin.x, oy = origin.y;
-      groups.sort((g1, g2) => {
-        const c1 = isVerticalDir ? g1[0].midX : g1[0].midY;
-        const c2 = isVerticalDir ? g2[0].midX : g2[0].midY;
-        const ref = isVerticalDir ? ox : oy;
-        return Math.abs(c1 - ref) - Math.abs(c2 - ref);
-      });
-    } else {
-      groups.sort((g1, g2) => {
-        const c1 = isVerticalDir ? g1[0].midX : g1[0].midY;
-        const c2 = isVerticalDir ? g2[0].midX : g2[0].midY;
-        return c1 - c2;
-      });
-    }
+    // 群之間排序:wrap-from-world-origin
+    //   垂直柱:外圈用 midX wrap;水平樑:外圈用 midY wrap
+    groups.sort((g1, g2) => {
+      const c1 = isVerticalDir ? g1[0].midX : g1[0].midY;
+      const c2 = isVerticalDir ? g2[0].midX : g2[0].midY;
+      return _wrapPosSort(c1, c2);
+    });
     return groups;
   };
   // 斜撐分群:依「桿件所在 2D 線」(slope + perpendicular offset)
   //   同一條連續斜撐的多個 segment 會共享同一條線 → 編號連續(整條完整 → 下一條)
+  // ★ 斜撐分群:依「起點 Z」(sub)分群 — 每個 Z-band 一群,跨 Z-band 跳到下一個 100-block
+  //   起點定義:平面內 (sub, main) lex 較小者 — sub 較小優先(Z 較小);sub 相等則 main 較小
+  //   群序:起點 sub asc(Z 由近到遠)
+  //   同群內排序:起點 main asc → 終點 main asc → 終點 sub asc
+  //   例:Z=z1 band 連號 20801, 20802, ... → 換 Z=z2 band 從 20901 開始
   const groupForDiag = (items) => {
-    const eps = 2;   // perp offset bucket 寬度
-    // 對每條 member 算 line key
-    const keyed = items.map(mi => {
+    if (!items.length) return [];
+    type Keyed = { mi: any; sMain: number; sSub: number; eMain: number; eSub: number };
+    const keyed: Keyed[] = [];
+    for (const mi of items) {
       const a = jointMap.get(mi.m.j1), b = jointMap.get(mi.m.j2);
-      if (!a || !b) return null;
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const len = Math.hypot(dx, dy);
-      if (len < 1e-3) return null;
-      // 方向單位向量(canonicalize:ux > 0 或 ux=0, uy > 0)
-      let ux = dx / len, uy = dy / len;
-      if (ux < -1e-6 || (Math.abs(ux) < 1e-6 && uy < 0)) { ux = -ux; uy = -uy; }
-      // 從 a 點往垂直方向投影:perp = -a.x * uy + a.y * ux (signed)
-      const perp = -a.x * uy + a.y * ux;
-      const perpKey = Math.round(perp / eps) * eps;
-      // slope key:單位方向 round 到 3 decimal,避免浮點抖動
-      const slopeKey = `${ux.toFixed(3)},${uy.toFixed(3)}`;
-      // 沿線方向位置:t = a.x*ux + a.y*uy(用 midpoint 計算更穩定)
-      const tParam = mi.midX * ux + mi.midY * uy;
-      return { mi, lineKey: `${slopeKey}|${perpKey}`, perpKey, tParam, ux, uy };
-    }).filter(Boolean);
-    // 依 lineKey 分群
-    const lineGroups = new Map();
+      if (!a || !b) continue;
+      const wa = _worldFor(a), wb = _worldFor(b);
+      if (!wa || !wb) continue;
+      const pa = _pickAxes(wa)!, pb = _pickAxes(wb)!;
+      const ma = _rndMm(pa.main), sa = _rndMm(pa.sub);
+      const mb = _rndMm(pb.main), sb = _rndMm(pb.sub);
+      const aIsStart = (sa < sb) || (sa === sb && ma < mb);
+      const s = aIsStart ? { main: ma, sub: sa } : { main: mb, sub: sb };
+      const e = aIsStart ? { main: mb, sub: sb } : { main: ma, sub: sa };
+      keyed.push({ mi, sMain: s.main, sSub: s.sub, eMain: e.main, eSub: e.sub });
+    }
+    // 分群 + 內排序:依 plane 不同
+    //   XZ:外層用 sSub(世界 Z)— 同 Z band 一群;內層用 sMain(世界 X)asc
+    //     X-brace 兩條 D 的 sSub 都 = min(z_a, z_b),已落在同 bay。
+    //   YZ:外層用「bay Z」= min(main_a, main_b);內層用 sSub(世界 Y)asc(Y=0 往上)
+    //     ★ 不能直接用 sMain 當外層 — X-brace / 起點 main=z1、\ 起點 main=z2,兩條 D 會被切到不同 bay。
+    //       改用 min(sMain, eMain) → 兩條都歸到 bay min Z。
+    //     內層 sSub 相同(同 Y level)時用 sMain asc 當 tiebreaker(z1 那條先,z2 那條後)
+    //   XY(預設):同 XZ 風格,外層 sSub,內層 sMain
+    const _isYZ = _plane === "YZ";
+    const _outerKey = (k: Keyed) => _isYZ ? Math.min(k.sMain, k.eMain) : k.sSub;
+    const groupMap = new Map<number, Keyed[]>();
     for (const k of keyed) {
-      if (!lineGroups.has(k.lineKey)) lineGroups.set(k.lineKey, []);
-      lineGroups.get(k.lineKey).push(k);
+      const key = _outerKey(k);
+      if (!groupMap.has(key)) groupMap.set(key, []);
+      groupMap.get(key)!.push(k);
     }
-    // 同線內依 tParam 排序(沿線從一端走到另一端,連續編號)
-    const groups = [];
-    for (const arr of lineGroups.values()) {
-      arr.sort((a, b) => a.tParam - b.tParam);
-      groups.push(arr.map(k => k.mi));
-    }
-    // 群之間依「離原點最近的 perp 距離」排序 — 靠近原點的線先編
-    if (origin) {
-      const ox = origin.x, oy = origin.y;
-      groups.sort((g1, g2) => {
-        const k1 = keyed.find(k => k.mi === g1[0]);
-        const k2 = keyed.find(k => k.mi === g2[0]);
-        if (!k1 || !k2) return 0;
-        // 線到原點的 perp 距離:|perp - (-ox*uy + oy*ux)| 但 perp 是從世界 (0,0) 算的
-        // 直接用 perp 排:距離 (0,0) 較近的先
-        const d1 = Math.abs(k1.perpKey - (-ox * k1.uy + oy * k1.ux));
-        const d2 = Math.abs(k2.perpKey - (-ox * k2.uy + oy * k2.ux));
-        return d1 - d2;
+    // 群序用 wrap-from-world-origin(0 → 正向 → 負向)
+    const sortedKeys = [...groupMap.keys()].sort(_wrapPosSort);
+    return sortedKeys.map(key => {
+      const arr = groupMap.get(key)!;
+      // 群內排序也用 wrap-from-world-origin,複合排序逐層 fallback
+      arr.sort((a, b) => {
+        if (_isYZ) {
+          // YZ:sSub(Y level)wrap → sMain wrap → eMain wrap → eSub wrap
+          let c = _wrapPosSort(a.sSub, b.sSub); if (c !== 0) return c;
+          c = _wrapPosSort(a.sMain, b.sMain); if (c !== 0) return c;
+          c = _wrapPosSort(a.eMain, b.eMain); if (c !== 0) return c;
+          return _wrapPosSort(a.eSub, b.eSub);
+        } else {
+          // XZ / XY:sMain wrap → eMain wrap → eSub wrap
+          let c = _wrapPosSort(a.sMain, b.sMain); if (c !== 0) return c;
+          c = _wrapPosSort(a.eMain, b.eMain); if (c !== 0) return c;
+          return _wrapPosSort(a.eSub, b.eSub);
+        }
       });
-    } else {
-      // 沒原點 → 依 perpKey 升序
-      groups.sort((g1, g2) => {
-        const k1 = keyed.find(k => k.mi === g1[0]);
-        const k2 = keyed.find(k => k.mi === g2[0]);
-        return (k1 ? k1.perpKey : 0) - (k2 ? k2.perpKey : 0);
-      });
-    }
-    return groups;
+      return arr.map(k => k.mi);
+    });
   };
   // 分群策略(視 plane 不同):
   //   • horizontals(2D 水平樑):一律按「midY 分群」 — 同排樑 midY 一致 → 同群
@@ -12836,15 +13143,20 @@ function _relayoutPageCore(p, opts) {
   //       - XZ 頁面     → 其實是 Z 軸樑(平面圖縱樑),要用「midX 分群」才不會被切碎
   //   • D(斜撐):用「同線(slope + perp)」分群,連續斜撐一條線會合成一群
   const _groupHorizByMidY = (items) => {
-    // 同排樑用 midY 分群、群內 midX 升序;群序 midY 升序(由上往下,= XZ 頁 Z 從小到大)
-    //   ★ 不用 applyOriginOrder(那會「rotate」群序到最接近 origin 的當第一個,
-    //     破壞「上方 row → 第 1 個 100-block」的單調順序)
-    return groupItems(items, it => it.midY, it => it.midX, tolBeamRow, false, false);
+    // 同排樑用 midY 分群(tolerance),群序與群內均用 wrap-from-world-origin
+    //   群序:midY 0 → 正向 ascending → 負向 ascending
+    //   群內:midX 0 → 正向 ascending → 負向 ascending
+    const gs = groupItems(items, it => it.midY, it => it.midX, tolBeamRow, false, false);
+    gs.sort((g1, g2) => _wrapPosSort(g1[0].midY, g2[0].midY));
+    for (const g of gs) g.sort((a, b) => _wrapPosSort(a.midX, b.midX));
+    return gs;
   };
   const _groupVertByMidX = (items) => {
-    // 同列樑用 midX 分群、群序 midX 升序(x=0 那欄先)、群內 midY 升序(上往下)
-    //   ★ 同樣不用 applyOriginOrder,確保 (上方 B4) → pi=0 → 33101,(下方 B4) → pi=1 → 33102
-    return groupItems(items, it => it.midX, it => it.midY, tolBeamRow, false, false);
+    // 同列樑用 midX 分群、群序與群內均用 wrap-from-world-origin
+    const gs = groupItems(items, it => it.midX, it => it.midY, tolBeamRow, false, false);
+    gs.sort((g1, g2) => _wrapPosSort(g1[0].midX, g2[0].midX));
+    for (const g of gs) g.sort((a, b) => _wrapPosSort(a.midY, b.midY));
+    return gs;
   };
   const _isXZPage = (p.plane === "XZ");
   const hGroups = _groupHorizByMidY(horizontalsM);            // X / Z 軸樑:midY 分群
@@ -12966,6 +13278,17 @@ function _relayoutPageCore(p, opts) {
            maxDiagMemberId: _pageMaxDiagMemberId,
            catMax };
 }
+// wrap-from-origin 排序:0 first → 正向 ascending → 負向 ascending(從最遠回到 0)
+//   例:[-1000, -15, 0, 100, 200, 1000] → [0, 100, 200, 1000, -1000, -200, -15]
+//   用於 relayout 桿件/節點排序 — 從世界原點 (0,0,0) 出發、由近往遠編號
+//   跟 rankCache.ts 的 _wrapPosSort 同語意,獨立一份避免跨模組 import
+function _wrapPosSort(a: number, b: number): number {
+  if (a === 0) return b === 0 ? 0 : -1;
+  if (b === 0) return 1;
+  if (a > 0 && b < 0) return -1;
+  if (a < 0 && b > 0) return 1;
+  return a - b;
+}
 // 進位到下一個 mult 邊界 + 1 — 跨頁累加 startBase 用
 //   舊版用「位數最高位 +1」(digit-based)會造成指數成長:99→101→201→...→1001→2001→...→10001→...
 //     每次跨位數 ×10,55 頁 × 4 次呼叫就會炸到 10^17。
@@ -13060,7 +13383,17 @@ export async function relayoutNumberingAll(opts) {
     console.log(`[全局重排編號] 前置清理 ・ globalMember 新建 ${preBind ? preBind.created : 0} / 綁定 ${preBind ? preBind.bound : 0} ・ 同頁去重 ${preDedup.dupRemoved}(零長 ${preDedup.zeroLen}, 影響 ${preDedup.pagesTouched} 頁)`);
   }
   let ok = 0, skipped = 0, processed = 0;
-  showBusyWithCancel && showBusyWithCancel(`編排節點編號(全部頁面) 準備中…(共 ${totalPages} 頁)`, () => {});
+  // 取消旗標:Esc / 取消鈕 → 設 true → 下一個 task 迭代開頭檢查 → 跳出迴圈,已處理頁面保留
+  let cancelled = false;
+  const onEsc = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && !cancelled) { cancelled = true; setBusyMessage("取消中…等當前頁完畢"); }
+  };
+  document.addEventListener("keydown", onEsc, true);
+  showBusyWithCancel && showBusyWithCancel(`編排節點編號(全部頁面) 準備中…(共 ${totalPages} 頁・Esc / 取消可中斷)`, () => {
+    if (cancelled) return;
+    cancelled = true;
+    setBusyMessage("取消中…等當前頁完畢");
+  });
   await (typeof busyTick === "function" ? busyTick() : Promise.resolve());
   // 平面處理順序:XY > YZ > XZ(每個 plane 集合內維持檔案 / 頁面原順序)
   const planeOrder = { "XY": 0, "YZ": 1, "XZ": 2 };
@@ -13078,9 +13411,11 @@ export async function relayoutNumberingAll(opts) {
   let memberStartBase = 1;
   let lastMemberMax = 0;
   for (const t of tasks) {
+    if (cancelled) break;
     processed++;
     if (typeof setBusyMessage === "function") setBusyMessage(`編排節點編號 ${processed}/${totalPages}・${t.f.name}・頁 ${t.k}・${t.pg.plane || "?"}・桿件起始 ${memberStartBase}`);
     await (typeof busyTick === "function" ? busyTick() : Promise.resolve());
+    if (cancelled) break;
     const r = _relayoutPageCore(t.pg, {
       interactive: false,
       origin: t.f.planeOrigin || null,
@@ -13093,6 +13428,13 @@ export async function relayoutNumberingAll(opts) {
         memberStartBase = _nextMemberZeroBoundary(r.maxMemberId);
       }
     } else skipped++;
+  }
+  document.removeEventListener("keydown", onEsc, true);
+  if (cancelled) {
+    if (typeof hideBusy === "function") hideBusy();
+    console.log(`[全局重排編號] 已取消・已處理 ${processed}/${totalPages} 頁(已完成的保留,可用 Ctrl+Z 還原)`);
+    if (!skipConfirm) setTimeout(() => alert(`重排節點編號已取消・已處理 ${processed}/${totalPages} 頁(已完成的保留,可用 Ctrl+Z 還原)`), 30);
+    return;
   }
   if (typeof hideBusy === "function") hideBusy();
   state.selection.joints.clear();
@@ -13151,8 +13493,37 @@ export async function relayoutMembersNumberingAll(opts) {
   if (preBind || preDedup.dupRemoved || preDedup.zeroLen) {
     console.log(`[全局重排桿件編號] 前置清理 ・ globalMember 新建 ${preBind ? preBind.created : 0} / 綁定 ${preBind ? preBind.bound : 0} ・ 同頁去重 ${preDedup.dupRemoved}(零長 ${preDedup.zeroLen}, 影響 ${preDedup.pagesTouched} 頁)`);
   }
+  // ★ 清空所有 m.id 為唯一負數 sentinel(-1, -2, -3, ...)
+  //   讓「沒被任何 stage 分類處理到的桿件」最後 m.id 還留著負號 → 可掃出來補 fallback
+  //   負數 unique → 不會跟 stage 寫進來的正號 id 撞;每根有獨立 key,_relayoutPageCore 的
+  //   memOldToNew indirection 仍正常運作
+  {
+    let _sentinel = -1;
+    let _cleared = 0;
+    for (const f of state.files) {
+      for (const pg of Object.values(f.pages || {})) {
+        if (!pg || (pg as any)._orphan) continue;
+        for (const m of ((pg as any).members || [])) {
+          (m as any).id = _sentinel--;
+          _cleared++;
+        }
+      }
+    }
+    console.log(`[全局重排桿件編號] 清空 m.id 為 sentinel ${_cleared} 條(stage 跑完後沒被覆寫的會留負號 → 視為 leftover)`);
+  }
   let ok = 0, skipped = 0, processed = 0;
-  showBusyWithCancel && showBusyWithCancel(`編排桿件編號(全部頁面) 準備中…(共 ${totalPages} 頁)`, () => {});
+  // 取消旗標:Esc / 取消鈕 → 設 true → Stage 1/2/2b/2c/3/4 各 loop 開頭檢查 → 中斷
+  //   step-level 取消:當前頁跑完才會 break,不會中斷一頁進行中的編號(避免 m.id 半成品狀態)
+  let cancelled = false;
+  const onEsc = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && !cancelled) { cancelled = true; setBusyMessage("取消中…等當前頁完畢"); }
+  };
+  document.addEventListener("keydown", onEsc, true);
+  showBusyWithCancel && showBusyWithCancel(`編排桿件編號(全部頁面) 準備中…(共 ${totalPages} 頁・Esc / 取消可中斷)`, () => {
+    if (cancelled) return;
+    cancelled = true;
+    setBusyMessage("取消中…等當前頁完畢");
+  });
   await busyTick();
   // Y 軸(柱)優先 — XY / YZ 立面頁有 Y phase,先讓那些頁面跑完 → Y-axis 拿低位 ID;之後才 XZ
   const planeOrder = { "XY": 0, "YZ": 1, "XZ": 2 };
@@ -13223,10 +13594,15 @@ export async function relayoutMembersNumberingAll(opts) {
     if (typeof setBusyMessage === "function") setBusyMessage(`[1/4] Y 軸(柱)— 全域收集 …`);
     await busyTick();
     // 步驟 1+2:掃 XY/YZ 頁的 Y 軸 member,投影 → 3D。用 globalMemberId 去重。
+    // ★ 全程用「精準度(state.measureDecimals)」round 後的 mm 座標做分類與群組
+    //   避免 CAD 匯入的 sub-precision 漂移(< 顯示精準度的值)造成短桿件分類錯誤
     type ColMember = { pageMembers: any[]; world: { x: number; y1: number; y2: number; z: number; midY: number } };
     const colMemberByGm = new Map<number, ColMember>();   // globalMemberId → 物理 member
     const colMemberAnon: ColMember[] = [];                 // 沒 globalMemberId 的 member(以座標 fallback)
-    const angleTol = 0.05, eps = 0.5;
+    const angleTol = 0.05;
+    const epsMm = 0.5;   // mm
+    const _stage1Md = Math.max(0, Math.min(6, Number.isFinite(state.measureDecimals) ? state.measureDecimals : 0));
+    const _stage1Rnd = (v: number) => { const r = parseFloat(v.toFixed(_stage1Md)); return r === 0 ? 0 : r; };
     for (const f of state.files) {
       const ratio = (f.scaleRuler && f.scaleRuler.ratio > 0) ? f.scaleRuler.ratio : (state.scale ? 1 / state.scale : 1);
       for (const k of Object.keys(f.pages || {})) {
@@ -13236,16 +13612,21 @@ export async function relayoutMembersNumberingAll(opts) {
         for (const m of pg.members) {
           const a = jById.get(m.j1), b = jById.get(m.j2);
           if (!a || !b) continue;
-          const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y);
+          // page-local pixel → mm,再套精準度 round → 才算 dx / dy(分類)
+          const axMm = _stage1Rnd(a.x * ratio), bxMm = _stage1Rnd(b.x * ratio);
+          const ayMm = _stage1Rnd(a.y * ratio), byMm = _stage1Rnd(b.y * ratio);
+          const dx = Math.abs(bxMm - axMm), dy = Math.abs(byMm - ayMm);
           const len = Math.hypot(dx, dy);
-          if (len < eps) continue;
+          if (len < epsMm) continue;
           if (dx / len >= angleTol) continue;   // 不是 2D vertical → 不是 Y 軸
-          // 投影:joint2DToWorld3D 用該 page 的 plane/origin/ratio
+          // 投影:joint2DToWorld3D 用該 page 的 plane/origin/ratio,然後套精準度
           const wa = (typeof joint2DToWorld3D === "function") ? joint2DToWorld3D(f, pg, a) : null;
           const wb = (typeof joint2DToWorld3D === "function") ? joint2DToWorld3D(f, pg, b) : null;
           if (!wa || !wb) continue;
-          const wX = (wa.x + wb.x) / 2, wZ = (wa.z + wb.z) / 2;
-          const y1 = Math.min(wa.y, wb.y), y2 = Math.max(wa.y, wb.y);
+          const wax = _stage1Rnd(wa.x), way = _stage1Rnd(wa.y), waz = _stage1Rnd(wa.z);
+          const wbx = _stage1Rnd(wb.x), wby = _stage1Rnd(wb.y), wbz = _stage1Rnd(wb.z);
+          const wX = (wax + wbx) / 2, wZ = (waz + wbz) / 2;
+          const y1 = Math.min(way, wby), y2 = Math.max(way, wby);
           const entry: ColMember = {
             pageMembers: [{ pg, m, file: f }],
             world: { x: wX, y1, y2, z: wZ, midY: (y1 + y2) / 2 },
@@ -13261,28 +13642,32 @@ export async function relayoutMembersNumberingAll(opts) {
       }
     }
     const allColMembers: ColMember[] = [...colMemberByGm.values(), ...colMemberAnon];
-    // 步驟 3:群組同根柱(同 worldX、同 worldZ,容差 2mm)
-    const _rk = (v) => Math.round(v / 2) * 2;   // 2mm bucket
+    // 步驟 3:群組同根柱(同 worldX、同 worldZ);bucket 大小跟「精準度」連動
+    //   md=0 → bucket=1mm;md=1 → 0.1mm;… 等於把同一精準度顯示值的座標合成一群
+    const _bucketTolMm = Math.max(1, Math.pow(10, -_stage1Md));
+    const _rk = (v: number) => Math.round(v / _bucketTolMm) * _bucketTolMm;
     const columnGroups = new Map<string, ColMember[]>();
     for (const cm of allColMembers) {
       const key = `${_rk(cm.world.x)}|${_rk(cm.world.z)}`;
       if (!columnGroups.has(key)) columnGroups.set(key, []);
       columnGroups.get(key)!.push(cm);
     }
-    // 步驟 4:外圈群序按 worldZ 升序 → worldX 升序(同一 Z-rank 切片上的柱子先全部編完;
-    //   讓畫面上「同一橫排 axis line」的柱子連續編號:第 1 根 = 1xx、第 2 根 = 2xx …)
-    //   內圈按 worldY 升序(由下而上)排
+    // 步驟 4:外圈群序按 worldZ wrap-from-origin → worldX wrap-from-origin
+    //   (0 → 正向 ascending → 負向 ascending,從世界原點 (0,0,0) 出發 wrap)
+    //   內圈按 worldY wrap-from-origin(0 那層先,再往上,再從最低層往上回到 0)
+    //   sort tol 用 bucket tol 跟分群一致(差距 < tol 視同同層)
     const sortedCols = [...columnGroups.values()].sort((g1, g2) => {
       const z1 = g1[0].world.z, z2 = g2[0].world.z;
-      if (Math.abs(z1 - z2) > 1) return z1 - z2;
-      return g1[0].world.x - g2[0].world.x;
+      if (Math.abs(z1 - z2) > _bucketTolMm) return _wrapPosSort(z1, z2);
+      return _wrapPosSort(g1[0].world.x, g2[0].world.x);
     });
-    for (const g of sortedCols) g.sort((a, b) => a.world.midY - b.world.midY);
+    for (const g of sortedCols) g.sort((a, b) => _wrapPosSort(a.world.midY, b.world.midY));
     // 步驟 5+6:序貫編號,寫回 page-local m.id
     const cap = state.memberCapY || 99, mult = cap + 1;
     let curStart = 1;
     let i = 0;
     for (const g of sortedCols) {
+      if (cancelled) break;
       i++;
       if (typeof setBusyMessage === "function" && (i % 50 === 0 || i === sortedCols.length)) {
         setBusyMessage(`[1/4] Y 軸(柱)・編號中 ${i}/${sortedCols.length}・起始 ${curStart}`);
@@ -13317,122 +13702,120 @@ export async function relayoutMembersNumberingAll(opts) {
 
   // ============================================================
   // Stage 2: XZ 平面 page-by-page — 每頁順序 row(X) → column(Z) → brace(D)
-  //   X/Z 共用「主累加器」(從 max(2501, Stage1+1) 起)
-  //   D 用獨立「斜撐累加器」(從 100001 起)
+  //   ★ 單一 curStart 累加器:X、Z、D 全部接續累加(brace 接在 column 結束的下一個 100 邊界)
+  //   ★ Stage 2b/2c/3/4 也都用同一 curStart,所有號碼連續
   // ============================================================
+  // _curStart:跨 Stage 2/2b/2c/3/4 共用的單一累加器
+  let _curStart = Math.max(2501,
+    phaseMax.Y > 0 ? _nextMemberZeroBoundary(phaseMax.Y) : 1);
   {
-    let mainCurStart = Math.max(2501,
-      phaseMax.Y > 0 ? _nextMemberZeroBoundary(phaseMax.Y) : 1);
-    let diagCurStart = 100001;
-    console.log(`[Stage 2 XZ] 起始 mainCurStart=${mainCurStart} (phaseMax.Y=${phaseMax.Y}) / diagCurStart=${diagCurStart}`);
+    console.log(`[Stage 2 XZ] 起始 curStart=${_curStart} (phaseMax.Y=${phaseMax.Y})`);
+    const _advance = (mx: number, cat: "X" | "Z" | "D") => {
+      if (!Number.isFinite(mx) || mx <= 0) return;
+      if (mx > (phaseMax as any)[cat]) (phaseMax as any)[cat] = mx;
+      _curStart = _nextMemberZeroBoundary(mx);
+    };
     for (const t of tasks) {
+      if (cancelled) break;
       if (t.pg.plane !== "XZ") continue;
       processed++;
       const pageTag = `${t.f.name}#${t.k}(z=${t.pg.z})`;
       if (typeof setBusyMessage === "function") {
-        setBusyMessage(`[2/4] XZ 平面・${pageTag}・main 起始 ${mainCurStart} / D 起始 ${diagCurStart}`);
+        setBusyMessage(`[2/4] XZ 平面・${pageTag}・起始 ${_curStart}`);
       }
       await busyTick();
-      const beforeMain = mainCurStart, beforeDiag = diagCurStart;
-      // 同一頁依序 X → Z → D
-      // X
-      let r = _renumOnePage(t.pg, t.f.planeOrigin, "X", mainCurStart);
+      const before = _curStart;
+      // 同一頁依序 X → Z → D,全部共用同一累加器
+      let r = _renumOnePage(t.pg, t.f.planeOrigin, "X", _curStart);
       const xMax = (r && r.catMax) ? r.catMax.X : 0;
-      if (Number.isFinite(xMax) && xMax > 0) {
-        if (xMax > phaseMax.X) phaseMax.X = xMax;
-        mainCurStart = _nextMemberZeroBoundary(xMax);
-      }
-      // Z
-      r = _renumOnePage(t.pg, t.f.planeOrigin, "Z", mainCurStart);
+      _advance(xMax, "X");
+      r = _renumOnePage(t.pg, t.f.planeOrigin, "Z", _curStart);
       const zMax = (r && r.catMax) ? r.catMax.Z : 0;
-      if (Number.isFinite(zMax) && zMax > 0) {
-        if (zMax > phaseMax.Z) phaseMax.Z = zMax;
-        mainCurStart = _nextMemberZeroBoundary(zMax);
-      }
-      // D
-      r = _renumOnePage(t.pg, t.f.planeOrigin, "D", diagCurStart);
+      _advance(zMax, "Z");
+      r = _renumOnePage(t.pg, t.f.planeOrigin, "D", _curStart);
       const dMax = (r && r.catMax) ? r.catMax.D : 0;
-      if (Number.isFinite(dMax) && dMax > 0) {
-        if (dMax > phaseMax.D) phaseMax.D = dMax;
-        diagCurStart = _nextMemberZeroBoundary(dMax);
-      }
-      console.log(`[Stage 2 XZ] ${pageTag} X[${beforeMain}→max=${xMax}] Z[?→max=${zMax}] D[${beforeDiag}→max=${dMax}] → next main=${mainCurStart} diag=${diagCurStart}`);
+      _advance(dMax, "D");
+      console.log(`[Stage 2 XZ] ${pageTag} ${before} → X[max=${xMax}] Z[max=${zMax}] D[max=${dMax}] → next ${_curStart}`);
     }
-    // Stage 2b:也處理 X 軸在 XY 頁(這些在 user spec 沒提到,但若不處理會留下舊 m.id 跟新 ID 撞號)
-    //   接續 main 累加器
+    // Stage 2b:X 軸在 XY 頁(若有)— 接續 _curStart
     for (const t of tasks) {
+      if (cancelled) break;
       if (t.pg.plane !== "XY") continue;
       const pageTag = `${t.f.name}#${t.k}(XY,z=${t.pg.z})`;
       if (typeof setBusyMessage === "function") {
-        setBusyMessage(`[2b/4] X 軸@XY・${pageTag}・main 起始 ${mainCurStart}`);
+        setBusyMessage(`[2b/4] X 軸@XY・${pageTag}・起始 ${_curStart}`);
       }
       await busyTick();
-      const beforeMain = mainCurStart;
-      const r = _renumOnePage(t.pg, t.f.planeOrigin, "X", mainCurStart);
+      const before = _curStart;
+      const r = _renumOnePage(t.pg, t.f.planeOrigin, "X", _curStart);
       const xMax = (r && r.catMax) ? r.catMax.X : 0;
-      if (Number.isFinite(xMax) && xMax > 0) {
-        if (xMax > phaseMax.X) phaseMax.X = xMax;
-        mainCurStart = _nextMemberZeroBoundary(xMax);
-      }
-      console.log(`[Stage 2b X@XY] ${pageTag} X[${beforeMain}→max=${xMax}] → next main=${mainCurStart}`);
+      _advance(xMax, "X");
+      console.log(`[Stage 2b X@XY] ${pageTag} ${before} → X[max=${xMax}] → next ${_curStart}`);
     }
-    // Stage 2c:也處理 Z 軸在 YZ 頁
+    // Stage 2c:Z 軸在 YZ 頁 — 接續 _curStart
     for (const t of tasks) {
+      if (cancelled) break;
       if (t.pg.plane !== "YZ") continue;
       const pageTag = `${t.f.name}#${t.k}(YZ,z=${t.pg.z})`;
       if (typeof setBusyMessage === "function") {
-        setBusyMessage(`[2c/4] Z 軸@YZ・${pageTag}・main 起始 ${mainCurStart}`);
+        setBusyMessage(`[2c/4] Z 軸@YZ・${pageTag}・起始 ${_curStart}`);
       }
       await busyTick();
-      const beforeMain = mainCurStart;
-      const r = _renumOnePage(t.pg, t.f.planeOrigin, "Z", mainCurStart);
+      const before = _curStart;
+      const r = _renumOnePage(t.pg, t.f.planeOrigin, "Z", _curStart);
       const zMax = (r && r.catMax) ? r.catMax.Z : 0;
-      if (Number.isFinite(zMax) && zMax > 0) {
-        if (zMax > phaseMax.Z) phaseMax.Z = zMax;
-        mainCurStart = _nextMemberZeroBoundary(zMax);
-      }
-      console.log(`[Stage 2c Z@YZ] ${pageTag} Z[${beforeMain}→max=${zMax}] → next main=${mainCurStart}`);
+      _advance(zMax, "Z");
+      console.log(`[Stage 2c Z@YZ] ${pageTag} ${before} → Z[max=${zMax}] → next ${_curStart}`);
     }
   }
 
   // ============================================================
-  // Stage 3: YZ 平面 brace(D)— 跨頁 D 累加器接續 Stage 2 的 D
+  // Stage 3: YZ 平面 brace(D)— 接續同一 _curStart
   // ============================================================
   {
-    let curStart = phaseMax.D > 0 ? _nextMemberZeroBoundary(phaseMax.D) : 100001;
     for (const t of tasks) {
+      if (cancelled) break;
       if (t.pg.plane !== "YZ") continue;
       processed++;
       if (typeof setBusyMessage === "function") {
-        setBusyMessage(`[3/4] YZ 平面 brace・${t.f.name}#${t.k}・起始 ${curStart}`);
+        setBusyMessage(`[3/4] YZ 平面 brace・${t.f.name}#${t.k}・起始 ${_curStart}`);
       }
       await busyTick();
-      const r = _renumOnePage(t.pg, t.f.planeOrigin, "D", curStart);
+      const before = _curStart;
+      const r = _renumOnePage(t.pg, t.f.planeOrigin, "D", _curStart);
       if (r && r.catMax && Number.isFinite(r.catMax.D) && r.catMax.D > 0) {
         if (r.catMax.D > phaseMax.D) phaseMax.D = r.catMax.D;
-        curStart = _nextMemberZeroBoundary(r.catMax.D);
+        _curStart = _nextMemberZeroBoundary(r.catMax.D);
       }
+      console.log(`[Stage 3 D@YZ] ${t.f.name}#${t.k} ${before} → D[max=${r && r.catMax ? r.catMax.D : 0}] → next ${_curStart}`);
     }
   }
 
   // ============================================================
-  // Stage 4: XY 平面 brace(D)— 同上
+  // Stage 4: XY 平面 brace(D)— 跨頁連續編號(不對齊 100-block)
+  //   每個 XY 頁可能只有 1-2 條 D,如果每頁跑完都對齊 100-block,會看到 61501,61502 → 61601 跳號
+  //   改成頁間 +1 連續,所有 XY 頁跑完才對齊 100-block 給下一階段
   // ============================================================
   {
-    let curStart = phaseMax.D > 0 ? _nextMemberZeroBoundary(phaseMax.D) : 100001;
+    let runStart = _curStart;
     for (const t of tasks) {
+      if (cancelled) break;
       if (t.pg.plane !== "XY") continue;
       processed++;
       if (typeof setBusyMessage === "function") {
-        setBusyMessage(`[4/4] XY 平面 brace・${t.f.name}#${t.k}・起始 ${curStart}`);
+        setBusyMessage(`[4/4] XY 平面 brace・${t.f.name}#${t.k}・起始 ${runStart}`);
       }
       await busyTick();
-      const r = _renumOnePage(t.pg, t.f.planeOrigin, "D", curStart);
+      const before = runStart;
+      const r = _renumOnePage(t.pg, t.f.planeOrigin, "D", runStart);
       if (r && r.catMax && Number.isFinite(r.catMax.D) && r.catMax.D > 0) {
         if (r.catMax.D > phaseMax.D) phaseMax.D = r.catMax.D;
-        curStart = _nextMemberZeroBoundary(r.catMax.D);
+        runStart = r.catMax.D + 1;   // ★ +1 不跳 100-block,頁間連續
       }
+      console.log(`[Stage 4 D@XY] ${t.f.name}#${t.k} ${before} → D[max=${r && r.catMax ? r.catMax.D : 0}] → next ${runStart}`);
     }
+    // 全部 XY D 跑完後對齊 100-block(雖然 Stage 4 是最後一階段,但留著保險)
+    _curStart = _nextMemberZeroBoundary(runStart - 1);
   }
 
   ok = state.files.reduce((s, f) => s + Object.keys(f.pages || {}).length, 0);
@@ -13440,6 +13823,33 @@ export async function relayoutMembersNumberingAll(opts) {
   lastMemberMax = Math.max(phaseMax.Y, phaseMax.X, phaseMax.Z, phaseMax.D);
   if (typeof hideBusy === "function") hideBusy();
   state.selection.members.clear();
+  // ★ Leftover 掃描:m.id 仍是負數的桿件 = 沒被任何 stage 分類處理到
+  //   (常見原因:短桿件被長度門檻過濾、座標漂移卡在分類邊界、page._orphan 但又跑進去等)
+  //   策略:從 maxPhase 之後的下一個 100-block 起連續派 fallback id,並標進 memberCollisions
+  //   讓畫面亮綠色高亮,使用者可進一步檢查
+  let _leftoverCount = 0;
+  {
+    const _maxPhase = Math.max(phaseMax.Y, phaseMax.X, phaseMax.Z, phaseMax.D, 0);
+    let _fb = _maxPhase > 0 ? _nextMemberZeroBoundary(_maxPhase) : 1;
+    if (!state.memberCollisions) state.memberCollisions = new Set();
+    for (const f of state.files) {
+      for (const pg of Object.values(f.pages || {})) {
+        if (!pg || (pg as any)._orphan) continue;
+        for (const m of ((pg as any).members || [])) {
+          if (Number.isFinite((m as any).id) && (m as any).id < 0) {
+            (m as any).id = _fb;
+            (state.memberCollisions as Set<number>).add(_fb);
+            _fb++;
+            _leftoverCount++;
+          }
+        }
+      }
+    }
+    if (_leftoverCount) {
+      console.warn(`[全局重排桿件編號] Stage 1~4 後仍有 ${_leftoverCount} 條桿件未被分類處理 → 派 fallback id 從 ${_nextMemberZeroBoundary(_maxPhase)} 起,並亮綠色高亮提示`);
+      lastMemberMax = Math.max(lastMemberMax, _fb - 1);
+    }
+  }
   // 收尾:跨頁同物理桿件 ID 融合(同 globalMemberId → 最小 id)
   const unifyStats = unifyCrossPageMemberIds();
 
@@ -13489,10 +13899,17 @@ export async function relayoutMembersNumberingAll(opts) {
     console.log(`[全局重排桿件編號] 跨頁融合 ・ gm ${unifyStats.gmsUnified} / 改寫 member ${unifyStats.rewritten}` +
       (unifyStats.conflicts ? ` / 衝突跳過 ${unifyStats.conflicts}` : ""));
   }
-  console.log(`[全局重排桿件編號] 完成 ${ok} 頁(略過空頁 ${skipped})・桿件最終 max=${lastMemberMax}`);
+  document.removeEventListener("keydown", onEsc, true);
+  console.log(`[全局重排桿件編號] ${cancelled ? "已取消" : "完成"} ${ok} 頁(略過空頁 ${skipped})・桿件最終 max=${lastMemberMax}`);
   render(); refreshLists();
-  if (!skipConfirm) alert(`全局重排桿件編號完成:${ok} 頁已重編,${skipped} 頁略過。\n桿件最終 max=${lastMemberMax}・跨頁融合 gm ${unifyStats.gmsUnified} / member ${unifyStats.rewritten}` +
-    (unifyStats.conflicts ? `・衝突跳過 ${unifyStats.conflicts}` : ""));
+  if (!skipConfirm) {
+    if (cancelled) {
+      alert(`全局重排桿件編號已取消・處理了 ${ok} 頁(已完成的保留,可用 Ctrl+Z 還原)`);
+    } else {
+      alert(`全局重排桿件編號完成:${ok} 頁已重編,${skipped} 頁略過。\n桿件最終 max=${lastMemberMax}・跨頁融合 gm ${unifyStats.gmsUnified} / member ${unifyStats.rewritten}` +
+        (unifyStats.conflicts ? `・衝突跳過 ${unifyStats.conflicts}` : ""));
+    }
+  }
 }
 
 // ========== 跨頁桿件去重 / 融合 ==========
@@ -13556,9 +13973,14 @@ function unifyCrossPageMemberIds() {
   let gmsUnified = 0, rewritten = 0, conflicts = 0;
   for (const refs of gmToRefs.values()) {
     if (refs.length < 2) continue;
+    // canonical = 同 gm 副本中最小的「正號」m.id;跳過 sentinel/leftover 的負數
+    //   避免在 relayoutMembersNumberingAll 中途呼叫時,sentinel(-1, -2, ...)被當成 canonical
+    //   把全部 ref 改成負號 → 後續 leftover 修補又再覆寫一次,白做工且短暫狀態錯亂
     let canonical = Infinity;
-    for (const r of refs) if (r.m.id < canonical) canonical = r.m.id;
-    if (!Number.isFinite(canonical)) continue;
+    for (const r of refs) {
+      if (Number.isFinite(r.m.id) && r.m.id > 0 && r.m.id < canonical) canonical = r.m.id;
+    }
+    if (!Number.isFinite(canonical) || canonical <= 0) continue;
     let touched = 0;
     for (const r of refs) {
       if (r.m.id === canonical) continue;
@@ -13862,9 +14284,9 @@ export function drawSnapGrid() {
 import { render } from "./render";
 export { render };   // re-export 讓 dialog 等 module 仍能從 "./legacy" import render
 
-export function el(tag, attrs, text) {
+export function el(tag: string, attrs: Record<string, any>, text?: any) {
   const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
-  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v as string);
   if (text != null) e.textContent = text;
   return e;
 }
@@ -13938,8 +14360,10 @@ export function showCtxMenu(x, y, target) {
     $("ctxBindGlobal").textContent = "綁定到既有 N…";
   }
   // 選取模式(選取點/選取線)已移除,改用 Shift+S 切換單/多選,ctxFilterGroup 不再顯示
+  //   原本後面還有 `if (showFilter) updateCtxFilterRadios();`,但 showFilter 變數從來沒宣告
+  //   (是更早期的舊機制殘留),會 ReferenceError 中斷 showCtxMenu → 右鍵選單跳不出來。
+  //   既然整塊已強制隱藏,radios 也不用更新了,直接拿掉。
   $("ctxFilterGroup").style.display = "none";
-  if (showFilter) updateCtxFilterRadios();
 
   // 標題
   const total = joints.size + members.size + orphans.size;
@@ -14818,6 +15242,7 @@ export function refreshLists() {
   if (typeof refreshSectionLinkList === "function") refreshSectionLinkList();
   if (typeof _updateGlobalOriginUI === "function") _updateGlobalOriginUI();
   if (typeof _refreshFloorTypeSidebar === "function") _refreshFloorTypeSidebar();
+  if (typeof _updateAnchorToggleBtn === "function") _updateAnchorToggleBtn();
   const p = getPage();
   const af0 = getActiveFile();
   const orig = af0 && af0.planeOrigin;
@@ -15473,6 +15898,136 @@ export function hideHoverTip() {
   const t = document.getElementById("hoverTip");
   if (t) t.style.display = "none";
 }
+// 釘住的節點資訊視窗:點擊節點 → 在點擊位置開出,可拖移、可關;hover tip 同時隱藏避免重疊
+//   建一次就重用,內容用 fmtJointInfo 產生,titlebar 由 popup 自己加(jip-titlebar)
+let _jipDragState: any = null;   // { startX, startY, left, top } — 拖移期間活著
+export function showJointInfoPopup(j: any, ev: MouseEvent) {
+  hideHoverTip();
+  let popup = document.getElementById("jointInfoPopup") as HTMLDivElement | null;
+  if (!popup) {
+    popup = document.createElement("div");
+    popup.id = "jointInfoPopup";
+    document.body.appendChild(popup);
+    // 拖移:整個 window 監一次,popup 重建時不重綁
+    window.addEventListener("mousemove", (e: MouseEvent) => {
+      if (!_jipDragState) return;
+      const pp = document.getElementById("jointInfoPopup") as HTMLDivElement | null;
+      if (!pp) return;
+      const nx = _jipDragState.left + (e.clientX - _jipDragState.startX);
+      const ny = _jipDragState.top  + (e.clientY - _jipDragState.startY);
+      // clamp 不要拖出視窗
+      pp.style.left = Math.max(0, Math.min(window.innerWidth - 60, nx)) + "px";
+      pp.style.top  = Math.max(0, Math.min(window.innerHeight - 24, ny)) + "px";
+    });
+    window.addEventListener("mouseup", () => { _jipDragState = null; });
+    // Esc 關閉
+    window.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        const pp = document.getElementById("jointInfoPopup") as HTMLDivElement | null;
+        if (pp && pp.style.display !== "none") pp.style.display = "none";
+      }
+    });
+  }
+  const titleId = displayJointId(j);
+  popup.innerHTML =
+    `<div class="jip-titlebar"><span class="jip-title-text">節點 J${titleId}</span><span class="jip-close" title="關閉 (Esc)">×</span></div>` +
+    `<div class="jip-body">${fmtJointInfo(j)}</div>`;
+  // 定位在點擊處附近,clamp 進視窗
+  const off = 14;
+  popup.style.display = "block";
+  const r = popup.getBoundingClientRect();
+  let x = ev.clientX + off, y = ev.clientY + off;
+  if (x + r.width  > window.innerWidth)  x = ev.clientX - r.width  - off;
+  if (y + r.height > window.innerHeight) y = ev.clientY - r.height - off;
+  popup.style.left = Math.max(0, x) + "px";
+  popup.style.top  = Math.max(0, y) + "px";
+  // titlebar drag handler(每次重綁,因為 innerHTML 換掉子元素)
+  const tbar = popup.querySelector(".jip-titlebar") as HTMLElement | null;
+  if (tbar) {
+    tbar.addEventListener("mousedown", (e: MouseEvent) => {
+      if ((e.target as HTMLElement).classList.contains("jip-close")) return;
+      const rect = popup!.getBoundingClientRect();
+      _jipDragState = { startX: e.clientX, startY: e.clientY, left: rect.left, top: rect.top };
+      e.preventDefault();
+    });
+  }
+  // close button
+  const closeBtn = popup.querySelector(".jip-close") as HTMLElement | null;
+  if (closeBtn) {
+    closeBtn.addEventListener("click", (e: MouseEvent) => {
+      e.stopPropagation();
+      popup!.style.display = "none";
+    });
+  }
+}
+export function hideJointInfoPopup() {
+  const popup = document.getElementById("jointInfoPopup");
+  if (popup) popup.style.display = "none";
+}
+// 設為錨點 → 跳支座類型選擇 modal(FIXED / PINNED / 取消)
+//   回傳 Promise<"FIXED" | "PINNED" | null>;null 代表取消(Esc / 取消鈕 / 點 backdrop)
+//   為了避免多次重建 DOM,modal 第一次呼叫時 createElement,之後重用,只換 resolve 跟內容
+let _stmResolve: ((v: "FIXED" | "PINNED" | null) => void) | null = null;
+export function pickSupportTypeModal(jointCount: number): Promise<"FIXED" | "PINNED" | null> {
+  return new Promise((resolve) => {
+    let modal = document.getElementById("supportTypeModal") as HTMLDivElement | null;
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "supportTypeModal";
+      document.body.appendChild(modal);
+      // 一次性綁鍵盤 Esc(走 document 因為 modal 是新建的)
+      document.addEventListener("keydown", (e: KeyboardEvent) => {
+        const m = document.getElementById("supportTypeModal");
+        if (m && m.classList.contains("active") && e.key === "Escape") {
+          e.preventDefault();
+          if (_stmResolve) { _stmResolve(null); _stmResolve = null; }
+          m.classList.remove("active");
+        }
+      });
+    }
+    const _close = (v: "FIXED" | "PINNED" | null) => {
+      if (_stmResolve) { _stmResolve(v); _stmResolve = null; }
+      modal!.classList.remove("active");
+    };
+    _stmResolve = resolve;
+    modal.innerHTML =
+      `<div class="stm-card">` +
+      `  <div class="stm-titlebar">設定支座類型</div>` +
+      `  <div class="stm-body">` +
+      `    將選取的 <b>${jointCount}</b> 顆節點標為錨點,並指定支座類型:` +
+      `    <ul style="margin:8px 0 0 18px;padding:0">` +
+      `      <li><b style="color:#5ab9ff">FIXED</b> — 6 個自由度全鎖,鋼柱基座最常見</li>` +
+      `      <li><b style="color:#5ab9ff">PINNED</b> — 只鎖位移不鎖旋轉,銷接</li>` +
+      `    </ul>` +
+      `  </div>` +
+      `  <div class="stm-buttons">` +
+      `    <button class="stm-btn" data-act="cancel">取消</button>` +
+      `    <button class="stm-btn secondary" data-act="pinned">PINNED</button>` +
+      `    <button class="stm-btn primary" data-act="fixed">FIXED</button>` +
+      `  </div>` +
+      `</div>`;
+    // backdrop 點擊也算取消
+    modal.onclick = (e: MouseEvent) => {
+      if ((e.target as HTMLElement).id === "supportTypeModal") _close(null);
+    };
+    // 三顆按鈕
+    modal.querySelectorAll<HTMLButtonElement>(".stm-btn").forEach(btn => {
+      btn.onclick = (e: MouseEvent) => {
+        e.stopPropagation();
+        const act = btn.dataset.act;
+        if (act === "fixed") _close("FIXED");
+        else if (act === "pinned") _close("PINNED");
+        else _close(null);
+      };
+    });
+    modal.classList.add("active");
+    // 焦點放在 FIXED(預設)讓 Enter 直接送出
+    setTimeout(() => {
+      const fb = modal!.querySelector<HTMLButtonElement>('.stm-btn[data-act="fixed"]');
+      fb && fb.focus();
+    }, 30);
+  });
+}
 function positionHoverTip(t, mx, my) {
   const off = 14;
   const r = t.getBoundingClientRect();
@@ -15494,10 +16049,15 @@ export function fmtJointInfo(j) {
   const id = displayJointId(j);
   // i18n helper:沒翻譯回 fallback
   const T = (k, fb) => (typeof _t === "function" && _t(k)) || fb;
-  const anchorTag = j.isAnchor ? ` <span style="color:#ff8c00;font-weight:700">▼ ${T("hover.anchor","錨點")}</span>` : "";
+  const _supType = (j.supportType === "PINNED") ? "PINNED" : (j.isAnchor ? "FIXED" : null);
+  const anchorTag = j.isAnchor
+    ? ` <span style="color:#ff8c00;font-weight:700">▼ ${T("hover.anchor","錨點")}</span>` +
+      (_supType ? ` <span style="color:#5ab9ff;font-weight:700">[${_supType}]</span>` : "")
+    : "";
   const lines = [`<span class="ttip-title">${T("hover.joint.title","節點")} J${id}${anchorTag}</span>`];
   if (j.isAnchor) {
     lines.push(tipRow(T("hover.anchor","錨點"), "手動標記 — rank 編號時視為座標軸 anchor(等同 H+V 真實交點),不會被推到後段"));
+    lines.push(tipRow("支座類型", `${_supType}${_supType === "FIXED" ? "(6 自由度全鎖)" : "(只鎖位移)"}`));
   }
   if (state.scale && o) {
     const p0 = getPage();
@@ -16261,8 +16821,8 @@ initBlank();
 //   切換分頁 = snapshot 目前 state 到舊專案 + load 目標專案到 state。
 //   未活躍專案的 pdf / image / cachedBgSvg 物件仍在記憶體(不序列化),切回去可直接 render。
 //   關閉時若有未儲存變更會彈出「儲存 / 丟棄 / 取消」三選一對話框。
-const projects = [];
-let activeProjectId = null;
+export const projects = [];
+export let activeProjectId = null;
 let nextProjId = 1;
 export let projectDirty = false;    // 活躍專案自上次儲存後是否有變更
 // Phase 8e:跨模組(materialMgr)要寫這個 flag → 必須走 setter,ES module 不能直接寫 let import

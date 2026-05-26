@@ -13,7 +13,6 @@
 //     • showBusy / setBusyMessage / busyTick — ui/busy
 //     • _saveRecentProject — state/recentProjects(8h)
 //     • base64ToArrayBuffer / fmtMB — state/projectFile(8i)
-// @ts-nocheck
 
 import {
   state, $, applyTransform, clearSelection, render,
@@ -24,9 +23,10 @@ import {
   nextGlobalJointId, nextGlobalMemberId,
   setNextJointId, setNextMemberId, setNextFileId, setNextGlobalJointId, setNextGlobalMemberId,
   setProjectDirty,
+  projects, activeProjectId,
 } from "../legacy";
 import { showBusy, setBusyMessage, busyTick } from "../ui/busy";
-import { inferAllGlobalJoints } from "../core/globalJoints";
+import { inferGlobalJoint } from "../core/globalJoints";
 import { _saveRecentProject } from "./recentProjects";
 import { base64ToArrayBuffer, fmtMB } from "./projectFile";
 
@@ -66,12 +66,12 @@ export async function loadProjectFull(file, handle) {
     if (data.state.coordDecimals != null) {
       const _cd = parseInt(data.state.coordDecimals, 10);
       state.coordDecimals = Math.min(6, Math.max(0, Number.isFinite(_cd) ? _cd : 0));
-      if ($("coordDecimals")) $("coordDecimals").value = state.coordDecimals;
+      if ($("coordDecimals")) ($("coordDecimals") as HTMLInputElement).value = String(state.coordDecimals);
     }
     if (data.state.measureDecimals != null) {
       const _md = parseInt(data.state.measureDecimals, 10);
       state.measureDecimals = Math.min(6, Math.max(0, Number.isFinite(_md) ? _md : 0));
-      if ($("measureDecimals")) $("measureDecimals").value = state.measureDecimals;
+      if ($("measureDecimals")) ($("measureDecimals") as HTMLInputElement).value = String(state.measureDecimals);
     }
     if (data.state.globalOriginId != null) {
       state.globalOriginId = data.state.globalOriginId;
@@ -83,18 +83,18 @@ export async function loadProjectFull(file, handle) {
     }
     if (data.state.relayoutDirection) {
       state.relayoutDirection = (data.state.relayoutDirection === "horizontal") ? "horizontal" : "vertical";
-      if ($("relayoutDirection")) $("relayoutDirection").value = state.relayoutDirection;
+      if ($("relayoutDirection")) ($("relayoutDirection") as HTMLInputElement).value = state.relayoutDirection;
     }
     if (data.state.relayoutCapacity != null) {
       state.relayoutCapacity = Math.max(10, parseInt(data.state.relayoutCapacity, 10) || 100);
-      if ($("relayoutCapacity")) $("relayoutCapacity").value = state.relayoutCapacity;
+      if ($("relayoutCapacity")) ($("relayoutCapacity") as HTMLInputElement).value = String(state.relayoutCapacity);
     }
     // 桿件編號 cap(全局)— 4 個方向
     for (const key of ["memberCapY", "memberCapX", "memberCapZ", "memberCapDiag"]) {
       const v = parseInt(data.state[key], 10);
       if ([9, 99, 999, 9999].includes(v)) {
         state[key] = v;
-        if ($(key)) $(key).value = String(v);
+        if ($(key)) ($(key) as HTMLInputElement).value = String(v);
       }
     }
     if (data.state.fileListShow && typeof data.state.fileListShow === "object") {
@@ -106,7 +106,7 @@ export async function loadProjectFull(file, handle) {
       ["fileListShowType","fileListShowPlane","fileListShowStats"].forEach(id => {
         const el = $(id); if (!el) return;
         const k = id === "fileListShowType" ? "type" : id === "fileListShowPlane" ? "plane" : "stats";
-        el.checked = !!state.fileListShow[k];
+        (el as HTMLInputElement).checked = !!state.fileListShow[k];
       });
     }
     state.zoom          = data.state.zoom || 1;
@@ -122,8 +122,8 @@ export async function loadProjectFull(file, handle) {
         fontPt:      (Number.isFinite(fp) && fp >= 6 && fp <= 200) ? fp : 15,
         strokeWidth: (Number.isFinite(sw) && sw >= 1 && sw <= 50) ? sw : 30,
       };
-      if ($("slFontPt"))      $("slFontPt").value      = state.sectionLinkStyle.fontPt;
-      if ($("slStrokeWidth")) $("slStrokeWidth").value = state.sectionLinkStyle.strokeWidth;
+      if ($("slFontPt"))      ($("slFontPt") as HTMLInputElement).value      = String(state.sectionLinkStyle.fontPt);
+      if ($("slStrokeWidth")) ($("slStrokeWidth") as HTMLInputElement).value = String(state.sectionLinkStyle.strokeWidth);
     }
   }
   if (data.counters) {
@@ -190,7 +190,7 @@ export async function loadProjectFull(file, handle) {
     setBusyMessage(`還原底圖 ${i + 1}/${allFiles.length}:${fs.name}…`);
     await busyTick();
    try {
-    const entry = {
+    const entry: any = {
       id: fs.id,
       name: fs.name,
       sourceName: fs.sourceName,
@@ -226,13 +226,13 @@ export async function loadProjectFull(file, handle) {
       cachedBgHeight: fs.cachedBgHeight || null,
     };
     // 舊格式相容:若專案檔含 binaryKind + binary,還原為 pdf.js / Image 物件
-    if (fs.binaryKind === "pdf" && fs.binary && fs.binary.length > 100 && window.pdfjsLib) {
+    if (fs.binaryKind === "pdf" && fs.binary && fs.binary.length > 100 && (window as any).pdfjsLib) {
       const buf = base64ToArrayBuffer(fs.binary);
       entry.pdfData = buf;
       try {
-        entry.pdf = await pdfjsLib.getDocument({ data: buf.slice(0) }).promise;
+        entry.pdf = await (window as any).pdfjsLib.getDocument({ data: buf.slice(0) }).promise;
       } catch (e1) {
-        entry.pdf = await pdfjsLib.getDocument({ data: buf.slice(0), disableWorker: true }).promise;
+        entry.pdf = await (window as any).pdfjsLib.getDocument({ data: buf.slice(0), disableWorker: true }).promise;
       }
     } else if (fs.binaryKind === "image" && fs.binary && fs.binary.length > 100) {
       const buf  = base64ToArrayBuffer(fs.binary);
@@ -304,8 +304,17 @@ export async function loadProjectFull(file, handle) {
 
   // 還原 zoom / pan(activatePage 不會動到,直接套)
   applyTransform && applyTransform();
-  // 對所有全局節點重新推算 3D(檔案/頁面/scale 都已就位)
-  if (typeof inferAllGlobalJoints === "function") inferAllGlobalJoints();
+  // 儲存檔的 globalJoint 座標是 source of truth — 只對「沒座標」的 globalJoint 補 infer,
+  // 不去覆蓋已存的值。否則 page joints 跟 planeOrigin 的 sub-precision 漂移會讓
+  // rank cache 重算後落到不同 bucket → 節點 display ID 在儲存後重讀就跑掉。
+  if (typeof inferGlobalJoint === "function" && Array.isArray(state.globalJoints)) {
+    for (const g of state.globalJoints) {
+      if (!g) continue;
+      if (g.x == null || g.y == null || g.z == null) {
+        try { inferGlobalJoint(g); } catch (_) {}
+      }
+    }
+  }
   refreshFileList && refreshFileList();
   refreshPageSelector && refreshPageSelector();
   refreshPageCoordSection && refreshPageCoordSection();
@@ -317,7 +326,11 @@ export async function loadProjectFull(file, handle) {
     alert(`部分檔案還原失敗(已保留中繼資料):\n${failedFiles.map(n => "  • " + n).join("\n")}`);
   }
   // 多專案:把當前活躍 tab 的名稱改為載入的檔案名(拿掉 .stproj.json / .json 副檔名)
-  if (typeof projects !== "undefined" && activeProjectId != null) {
+  //   ★ 原本用 `typeof projects !== "undefined"` 守護,但 projects/activeProjectId 是
+  //     legacy.ts 的 module-private 變數,ES module 從未 export → 永遠 undefined →
+  //     整塊跳過 → 重讀檔案後 tab 名一直停在「未命名」。
+  //     改成正常 import + null check 即可。
+  if (activeProjectId != null) {
     const cur = projects.find(p => p.id === activeProjectId);
     if (cur && file && file.name) {
       cur.name = file.name.replace(/\.stproj\.json$/i, "").replace(/\.json$/i, "");
@@ -328,5 +341,15 @@ export async function loadProjectFull(file, handle) {
     }
   }
   // 加入「最近開啟」紀錄(handle 若為空也存,讓使用者至少看得到名字)
-  try { if (file && file.name) _saveRecentProject(file.name, handle || null); } catch (_) {}
+  //   多帶 size + lastModified → 同名但不同內容的檔可以在清單裡並存區分
+  try {
+    if (file && file.name) {
+      _saveRecentProject(
+        file.name,
+        handle || null,
+        Number.isFinite(file.size) ? file.size : 0,
+        Number.isFinite(file.lastModified) ? file.lastModified : 0,
+      );
+    }
+  } catch (_) {}
 }

@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Phase 8l — 搜尋 popup(Cmd+F):桿件 / 節點 + 方向 / 範圍 + 編號 + 檔案頁面
 //   獨立 browser popup;點搜尋結果可 zoom 主畫面 canvas + 3D 預覽視窗(如已開)。
 //   包含 _searchModel(實際搜尋邏輯)與 _renderSearchResults(結果 UI)。
@@ -11,7 +12,6 @@
 //     core/rankCache: _worldForRank
 //     i18n: _t / _applyI18nOnDoc
 //     dialogs/materialMgr: openMaterialMgrWindow
-// @ts-nocheck
 
 import {
   $, state, _searchWin, setSearchWin, setSearchWinAutofill,
@@ -1977,6 +1977,10 @@ export function _renderSearchResults(div, doc, result, win) {
         try {
           state.selection.joints  = new Set((g.joints  || []).map(j => j.id));
           state.selection.members = new Set((g.members || []).map(m => m.id));
+          // ★ 標記 selection 來源頁為剛跳過去的這頁,讓 render 的 _selOnSrc 判斷成立 → 節點/桿件變紫色
+          //   只設 selection 不設 source 的話 _selOnSrc=false → 即使有選取也不會上色
+          state.selection.sourceFileId = g.file.id;
+          state.selection.sourcePageIdx = g.key;
           render && render();
           refreshLists && refreshLists();
         } catch (_) {}

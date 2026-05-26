@@ -10,7 +10,6 @@
 //     • buildModel / showBuildModelCollisionsIfAny — core/buildModel
 //     • buildExportContext — export/shared
 //     • unitToMeter / meterToTarget / staadUnitKeyword — utils/units
-// @ts-nocheck
 
 import { state, $ } from "../legacy";
 import { buildModel, showBuildModelCollisionsIfAny } from "../core/buildModel";
@@ -29,7 +28,7 @@ function download(name, text) {
 export function exportStdFile() {
   // === 共用邏輯透過 buildExportContext()(Phase 4 dedup;原本同樣 ~120 行在這跟 exportXlsxFile 各一份)
   const { joints, members } = buildModel();
-  const tgt = $("exportUnit").value;
+  const tgt = ($("exportUnit") as HTMLSelectElement).value;
   const kFromCalib = unitToMeter(state.unitName);
   const kToTarget  = meterToTarget(tgt);
   const k = kFromCalib * kToTarget;
@@ -62,7 +61,7 @@ export function exportStdFile() {
   const lines = [];
   lines.push("STAAD SPACE");
   lines.push("START JOB INFORMATION");
-  lines.push(`JOB NAME ${$("jobName").value || "Frame"}`);
+  lines.push(`JOB NAME ${($("jobName") as HTMLInputElement).value || "Frame"}`);
   lines.push(`ENGINEER DATE ${new Date().toISOString().slice(0,10)}`);
   lines.push("END JOB INFORMATION");
   lines.push("INPUT WIDTH 79");
@@ -160,7 +159,7 @@ export function exportStdFile() {
       lines.push("* MEMBER Y-axis");
       const ranked = _memY.map(mr => {
         const j1 = _jWorldById.get(mr.m.j1);
-        const rk = j1 ? (_rankByJointId.get(j1.id) || {}) : {};
+        const rk: any = j1 ? (_rankByJointId.get(j1.id) || {}) : {};
         return { mr, xr: rk.xr || null, zr: rk.zr || null };
       });
       ranked.sort((a, b) => {
@@ -205,10 +204,11 @@ export function exportStdFile() {
           if (a[1].elev !== b[1].elev) return a[1].elev - b[1].elev;
           return a[0].localeCompare(b[0]);
         });
+        const _byId = (a: any, b: any) => (a.m.id || 0) - (b.m.id || 0);
         for (const [pageName, info] of sortedPages) {
           lines.push(`* ${pageName}`);
-          const xRows = info.items.filter(mr => mr.cat === "X").sort(_byId);
-          const zRows = info.items.filter(mr => mr.cat === "Z").sort(_byId);
+          const xRows = (info as any).items.filter((mr: any) => mr.cat === "X").sort(_byId);
+          const zRows = (info as any).items.filter((mr: any) => mr.cat === "Z").sort(_byId);
           if (xRows.length) {
             lines.push("* X-axis");
             lines.push(..._packLinesByRuns(xRows, _fmtM));
@@ -328,6 +328,41 @@ export function exportStdFile() {
     _writeMatGroup("BRACE XZ",  _memBraceXZ);
     _writeMatGroup("BRACE XY",  _memBraceXY);
     _writeMatGroup("BRACE YZ",  _memBraceYZ);
+  }
+  // === SUPPORTS:錨點(isAnchor=true 的 joint)→ FIXED / PINNED 分組輸出 ===
+  //   STAAD 格式:
+  //     SUPPORTS
+  //     1 5 9 TO 12 FIXED
+  //     20 21 PINNED
+  //   未指定 supportType 的錨點預設 FIXED
+  {
+    const fixedIds: number[] = [];
+    const pinnedIds: number[] = [];
+    for (const j of joints as any[]) {
+      if (!j.isAnchor) continue;
+      if (j.supportType === "PINNED") pinnedIds.push(j.id);
+      else fixedIds.push(j.id);   // FIXED 為預設
+    }
+    if (fixedIds.length || pinnedIds.length) {
+      lines.push("SUPPORTS");
+      // 跟 MEMBER PROPERTY 一樣壓 TO range,每列 ≤ 6 slot
+      const _writeSupportLines = (ids: number[], kind: string) => {
+        if (!ids.length) return;
+        const segs = _idsToSegs(ids);
+        const MAX_SLOTS = 6;
+        let buf = "", used = 0;
+        const _flush = () => { if (buf) { lines.push(`${buf} ${kind}`); buf = ""; used = 0; } };
+        for (const seg of segs) {
+          const segSlots = seg.includes(" TO ") ? 3 : 1;
+          if (used > 0 && used + segSlots > MAX_SLOTS) _flush();
+          buf = buf ? `${buf} ${seg}` : seg;
+          used += segSlots;
+        }
+        _flush();
+      };
+      _writeSupportLines(fixedIds, "FIXED");
+      _writeSupportLines(pinnedIds, "PINNED");
+    }
   }
   lines.push("FINISH");
   download("model.std", lines.join("\n"));

@@ -1,7 +1,6 @@
 // Phase 5 — 全局節點管理 dialog + 跳轉 popup(從 legacy.ts 整段搬過來,@ts-nocheck 過渡)
 //   功能:列出所有 globalJoint、搜尋(label / 內部 id / 顯示編號 / 座標 fuzzy)、
 //        篩選 + 排序、左清單 + 右詳細、編輯 label、跳轉 / 解除單一綁定、設原點、刪除
-// @ts-nocheck
 
 import {
   state, $, render, refreshLists, escapeHtml,
@@ -16,9 +15,9 @@ function openGlobalJointMgrDialog() {
   const dlg = document.getElementById("globalJointMgrDialog");
   if (!dlg) return;
   const summaryEl = document.getElementById("gjmSummary");
-  const searchEl  = document.getElementById("gjmSearch");
-  const filterEl  = document.getElementById("gjmFilter");
-  const sortEl    = document.getElementById("gjmSort");
+  const searchEl  = document.getElementById("gjmSearch") as HTMLInputElement | null;
+  const filterEl  = document.getElementById("gjmFilter") as HTMLSelectElement | null;
+  const sortEl    = document.getElementById("gjmSort")   as HTMLSelectElement | null;
   const countEl   = document.getElementById("gjmCount");
   const listEl    = document.getElementById("gjmList");
   const detailEl  = document.getElementById("gjmDetail");
@@ -49,7 +48,7 @@ function openGlobalJointMgrDialog() {
     for (const g of (state.globalJoints || [])) {
       const binds = listGlobalBindings(g.id);
       const fileSet = new Set(binds.map(b => b.fileId));
-      const st = {
+      const st: any = {
         binds,
         fileSet,
         warnCount: (g.warnings && g.warnings.length) || 0,
@@ -395,22 +394,22 @@ function openGlobalJointMgrDialog() {
   if (sortEl)   sortEl.onchange   = () => { sortMode   = sortEl.value;   _refresh(); };
   // 關閉
   const _closeDlg = () => { dlg.classList.remove("active"); };
-  const btnClose = document.getElementById("gjmClose");
-  const btnCloseFooter = document.getElementById("gjmCloseBtn");
+  const btnClose = document.getElementById("gjmClose") as HTMLElement | null;
+  const btnCloseFooter = document.getElementById("gjmCloseBtn") as HTMLElement | null;
   if (btnClose) btnClose.onclick = _closeDlg;
   if (btnCloseFooter) btnCloseFooter.onclick = _closeDlg;
-  const mask = dlg.querySelector(".gjm-mask");
+  const mask = dlg.querySelector(".gjm-mask") as HTMLElement | null;
   if (mask) mask.onclick = _closeDlg;
   // 拖曳標題列(複用 floorTypesDialog 同樣 pattern;只 init 一次)
-  if (!openGlobalJointMgrDialog._dragInited) {
-    openGlobalJointMgrDialog._dragInited = true;
-    const card = dlg.querySelector(".dlg-card");
-    const tbar = dlg.querySelector(".gjm-titlebar");
+  if (!(openGlobalJointMgrDialog as any)._dragInited) {
+    (openGlobalJointMgrDialog as any)._dragInited = true;
+    const card = dlg.querySelector(".dlg-card") as HTMLElement | null;
+    const tbar = dlg.querySelector(".gjm-titlebar") as HTMLElement | null;
     if (card && tbar) {
-      let drag = null;
-      tbar.addEventListener("mousedown", (e) => {
+      let drag: any = null;
+      tbar.addEventListener("mousedown", (e: MouseEvent) => {
         if (e.button !== 0) return;
-        if (e.target && e.target.classList.contains("gjm-close")) return;
+        if (e.target && (e.target as HTMLElement).classList.contains("gjm-close")) return;
         const rect = card.getBoundingClientRect();
         card.style.position = "absolute";
         card.style.left = rect.left + "px";
@@ -419,7 +418,7 @@ function openGlobalJointMgrDialog() {
         drag = { startX: e.clientX, startY: e.clientY, left: rect.left, top: rect.top };
         e.preventDefault();
       });
-      window.addEventListener("mousemove", (e) => {
+      window.addEventListener("mousemove", (e: MouseEvent) => {
         if (!drag) return;
         const maxX = window.innerWidth - 60;
         const maxY = window.innerHeight - 40;

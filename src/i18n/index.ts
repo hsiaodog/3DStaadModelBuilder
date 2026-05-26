@@ -9,7 +9,6 @@
 //     popup 的 document 仍由 i18n 統一接管翻譯。
 //   • window._t / window._tx / window._addI18n / window._setLanguage 仍會掛在
 //     window 上,讓 popup / devtools / 第三方腳本可直接呼叫。
-// @ts-nocheck
 
 import {
   state, getPage, render, refreshLists,
@@ -473,6 +472,10 @@ const _I18N = {
   "tb.bgHidden":                 { "zh-TW": "底圖 隱藏",             "en": "BG: Hidden" },
   "tb.lblShown":                 { "zh-TW": "標示 顯示",             "en": "Labels: On" },
   "tb.lblHidden":                { "zh-TW": "標示 隱藏",             "en": "Labels: Off" },
+  "tb.jointLblShown":            { "zh-TW": "節點標號 顯示",         "en": "Joint Labels: On" },
+  "tb.jointLblHidden":           { "zh-TW": "節點標號 隱藏",         "en": "Joint Labels: Off" },
+  "tb.memberLblShown":           { "zh-TW": "桿件標號 顯示",         "en": "Member Labels: On" },
+  "tb.memberLblHidden":          { "zh-TW": "桿件標號 隱藏",         "en": "Member Labels: Off" },
   "tb.crossViewActive":          { "zh-TW": "跨頁同步 ✓",            "en": "Cross-View Sync ✓" },
   "tb.crossView":                { "zh-TW": "跨頁同步",              "en": "Cross-View Sync" },
   "tb.scaleRulerPending":        { "zh-TW": "比例尺…",               "en": "Scale Ruler…" },
@@ -552,9 +555,9 @@ export function _t(key) {
     const e = _I18N[key];
     if (!e) {
       // 開發者模式:每個未翻譯 key 在 console 警告一次,方便補字典
-      if (typeof window !== "undefined" && window.STAAD_I18N_DEBUG) {
-        if (!_t._warned) _t._warned = {};
-        if (!_t._warned[key]) { _t._warned[key] = true; console.warn(`[i18n] missing key: ${key}`); }
+      if (typeof window !== "undefined" && (window as any).STAAD_I18N_DEBUG) {
+        if (!(_t as any)._warned) (_t as any)._warned = {};
+        if (!(_t as any)._warned[key]) { (_t as any)._warned[key] = true; console.warn(`[i18n] missing key: ${key}`); }
       }
       return null;
     }
@@ -584,10 +587,10 @@ export function _addI18n(entries) {
 // 全域曝露,讓 popup / devtools / 第三方腳本都能直接呼叫
 try {
   if (typeof window !== "undefined") {
-    window._t = _t; window._tx = _tx; window._addI18n = _addI18n;
-    window._setLanguage = _setLanguage;
+    (window as any)._t = _t; (window as any)._tx = _tx; (window as any)._addI18n = _addI18n;
+    (window as any)._setLanguage = _setLanguage;
     // 除錯模式 toggle:在 devtools 執行 STAAD_I18N_DEBUG = true 即啟用 missing-key 警告
-    if (!("STAAD_I18N_DEBUG" in window)) window.STAAD_I18N_DEBUG = false;
+    if (!("STAAD_I18N_DEBUG" in window)) (window as any).STAAD_I18N_DEBUG = false;
   }
 } catch (_) {}
 // 動態設定按鈕文字 + i18n 綁定:取代 `btn.textContent = "..."`,保留 .btn-icon、
@@ -646,7 +649,7 @@ export function _applyI18n() {
   // submenu 勾選符號
   const langMap = { "zh-TW": "lang-zh", "en": "lang-en" };
   document.querySelectorAll("#langMenu .submenu .menu-entry").forEach(e => {
-    e.classList.toggle("checked", e.dataset.action === langMap[_lang]);
+    e.classList.toggle("checked", (e as HTMLElement).dataset.action === langMap[_lang]);
   });
 }
 export function _setLanguage(lang) {
@@ -667,7 +670,8 @@ export function _setLanguage(lang) {
   try { if (typeof updateJointVisBtn  === "function") updateJointVisBtn();  } catch (_) {}
   try { if (typeof updateMemberVisBtn === "function") updateMemberVisBtn(); } catch (_) {}
   try { if (typeof updateSelectToolLabel === "function") updateSelectToolLabel(); } catch (_) {}
-  try { if (typeof updatePageSelector === "function") updatePageSelector(); } catch (_) {}
+  // updatePageSelector 從未在 legacy export,改用 refreshPageSelector 已足夠(下面那行)
+  try { if (typeof (globalThis as any).updatePageSelector === "function") (globalThis as any).updatePageSelector(); } catch (_) {}
   try { if (typeof refreshPageSelector === "function") refreshPageSelector(); } catch (_) {}
   try { if (typeof refreshFileList === "function") refreshFileList(); } catch (_) {}
   try { if (typeof _setToolFinishVisuals === "function" && typeof state !== "undefined") _setToolFinishVisuals(state.tool); } catch (_) {}

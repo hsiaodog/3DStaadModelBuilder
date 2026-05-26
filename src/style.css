@@ -360,6 +360,50 @@
   #hoverTip .ttip-row   { color: #c8ccd0; }
   #hoverTip .ttip-key   { color: #8a92a0; }
   #hoverTip .ttip-val   { color: #fff; }
+  /* 設為錨點 → 跳出支座類型選擇 modal(FIXED / PINNED / 取消) */
+  #supportTypeModal { position: fixed; inset: 0; z-index: 2000; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.5); }
+  #supportTypeModal.active { display: flex; }
+  #supportTypeModal .stm-card { background: #1e1e22; color: #eaeaea;
+    border: 1px solid #555; border-radius: 8px; padding: 0;
+    min-width: 360px; max-width: 480px;
+    box-shadow: 0 10px 32px rgba(0,0,0,0.7);
+    font: 12px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  #supportTypeModal .stm-titlebar { background: rgba(255,255,255,0.06); padding: 8px 14px;
+    border-bottom: 1px solid #444; border-radius: 8px 8px 0 0;
+    color: #ffd23f; font-weight: 700; font-size: 13px; }
+  #supportTypeModal .stm-body { padding: 14px 18px; color: #c8ccd0; }
+  #supportTypeModal .stm-body b { color: #fff; }
+  #supportTypeModal .stm-buttons { padding: 10px 14px 14px; display: flex; gap: 8px; justify-content: flex-end; }
+  #supportTypeModal .stm-btn { padding: 6px 16px; border-radius: 4px; cursor: pointer;
+    border: 1px solid #555; background: #2a2a2e; color: #eaeaea;
+    font: 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  #supportTypeModal .stm-btn:hover { background: #3a3a3e; }
+  #supportTypeModal .stm-btn.primary { background: #1976d2; border-color: #2196f3; color: #fff; }
+  #supportTypeModal .stm-btn.primary:hover { background: #2196f3; }
+  #supportTypeModal .stm-btn.secondary { background: #455a64; border-color: #607d8b; color: #fff; }
+  #supportTypeModal .stm-btn.secondary:hover { background: #607d8b; }
+  /* 點擊節點 → 釘住的資訊視窗(可拖、可關)。樣式同 hoverTip 但 pointer-events: auto */
+  #jointInfoPopup { position: fixed; pointer-events: auto; z-index: 1600;
+    background: rgba(15,15,18,0.97); color: #eaeaea;
+    border: 1px solid #777; border-radius: 6px; padding: 0;
+    font: 11px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    display: none; max-width: 380px; }
+  #jointInfoPopup .jip-titlebar { background: rgba(255,255,255,0.06); padding: 4px 8px;
+    border-bottom: 1px solid #444; border-radius: 6px 6px 0 0; cursor: move;
+    display: flex; justify-content: space-between; align-items: center; user-select: none; }
+  #jointInfoPopup .jip-title-text { color: #ffd23f; font-weight: 700; font-size: 12px; }
+  #jointInfoPopup .jip-close { color: #9aa0a6; padding: 0 6px; cursor: pointer; border-radius: 3px;
+    font-size: 14px; line-height: 1; }
+  #jointInfoPopup .jip-close:hover { background: rgba(255,80,80,0.3); color: #fff; }
+  #jointInfoPopup .jip-body { padding: 6px 10px; }
+  #jointInfoPopup .ttip-title { color: #ffd23f; font-weight: 700; display: block; margin-bottom: 3px; }
+  #jointInfoPopup .ttip-row   { color: #c8ccd0; }
+  #jointInfoPopup .ttip-key   { color: #8a92a0; }
+  #jointInfoPopup .ttip-val   { color: #fff; }
   #vector line, #vector circle, #vector rect { vector-effect: non-scaling-stroke; }
   #hud { position: fixed; bottom: 18px; left: 75%; transform: translateX(-50%);
     background: rgba(0,0,0,0.7); padding: 8px 12px; border-radius: 6px;

@@ -1,7 +1,7 @@
+// @ts-nocheck
 // Phase 5 — 節點編號管理 dialog(從 legacy.ts 整段搬過來,@ts-nocheck 過渡)
 //   功能:樓層類型 / 斜撐起始 兩 tab,各自 CRUD + 頁面指派 + filter + sort + 預覽
 //   未來可進一步拆 list / filter / preview / actions 子檔
-// @ts-nocheck
 
 import {
   state, $, render, refreshLists, getPage, getActiveFile,
@@ -349,12 +349,22 @@ function openFloorTypesDialog() {
     const otherKind = activeKind === "floor" ? "brace" : "floor";
     const otherPendingCounts = new Map();
     for (const tk of pendingByKind[otherKind].values()) otherPendingCounts.set(tk, (otherPendingCounts.get(tk) || 0) + 1);
-    // 每型佔據的階集合;頁數 N 佔據 ceil(N / 10) 個階,從 yyStart 起。跨 kind 全部納入(共用一池)
+    // 每型佔據的階集合:優先用 rank cache 的「實際 unique Y 值數」算 slots,fallback 才用頁數 / 10
+    //   ★ 修補:rank cache 是 per-joint Y 分桶,bucket 可能比頁數預期還大(同一頁多個 Y 值;
+    //     或跨多個 page 共享 Y 值)→ dialog 必須跟 rank cache 同基準,不然 yyStart 下拉看起來
+    //     有空位、實際匯出時 Y rank 會跨進「下一階」撞到別人。
+    //   slots 公式:ceil(Y數 / 10) — 每個 ALLOWED_YY 階預留 10 個 rank slot
+    //   全域共用:floor + brace 都吃同一個 ALLOWED_YY 池
     const occupiedByType = new Map();
+    const rcBuckets = ((window as any)._lastRankCacheYBuckets) || {};
     for (const tt of state.floorTypes) {
-      const cnt = ((tt.kind || "floor") === activeKind)
+      // 優先:rank cache 算出的實際 Y 數;次之:頁數(rank cache 還沒跑時的 fallback)
+      const rcY = (rcBuckets[tt.key] && Number.isFinite(rcBuckets[tt.key].totalY))
+        ? rcBuckets[tt.key].totalY : null;
+      const pageCnt = ((tt.kind || "floor") === activeKind)
         ? (pendingCounts.get(tt.key) || 0)
         : (otherPendingCounts.get(tt.key) || 0);
+      const cnt = rcY != null ? rcY : pageCnt;
       const start = tt.yyStart || 1;
       const slots = Math.max(1, Math.ceil(cnt / 10));   // 至少佔自己這格
       const occ = new Set();
@@ -435,6 +445,9 @@ function openFloorTypesDialog() {
       tdL.appendChild(inL); tr.appendChild(tdL);
       // yyStart —— 顯示全部 10 個階,被其他型佔走的 disable + 註明擁有者
       //   這樣某型切換後空出的階會立即在其他下拉「亮起來」(由 disabled 變成可選)。
+      //   ★ 改進:不只看「被別人占的 yyStart」,還做衝突預測 —
+      //     模擬「若此型 yyStart 改成 v,需要佔幾階」,看會不會踩到別人的階 → 踩到也 disable
+      //     例:brace_xy 有 11 個 Y → 占 2 階。yyStart=71 會占 71+81,如果 81 已被別人 → disable 71
       const tdY = document.createElement("td");
       const sel = document.createElement("select");
       // 反查每個 ALLOWED_YY 值的「擁有者 type key」(被誰佔了)
@@ -442,15 +455,44 @@ function openFloorTypesDialog() {
       for (const [tk, occ] of occupiedByType.entries()) {
         for (const v of occ) if (!ownerByYY.has(v)) ownerByYY.set(v, tk);
       }
+      // 算此型需要幾階(用 rank cache 實際 Y 數,沒有就用頁數 fallback)
+      const _myRcY = (rcBuckets[t.key] && Number.isFinite(rcBuckets[t.key].totalY))
+        ? rcBuckets[t.key].totalY : null;
+      const _myPageCnt = ((t.kind || "floor") === activeKind)
+        ? (pendingCounts.get(t.key) || 0)
+        : (otherPendingCounts.get(t.key) || 0);
+      const _myCnt = _myRcY != null ? _myRcY : _myPageCnt;
+      const _mySlotsNeeded = Math.max(1, Math.ceil(_myCnt / 10));
+      // 對每個候選 yyStart v,模擬選擇後會占哪些階;若任一階被「別人」占走 → 衝突
+      const _conflictAt = (v: number): string | null => {
+        const baseIdx = ALLOWED_YY.indexOf(v);
+        if (baseIdx < 0) return null;
+        for (let i = 0; i < _mySlotsNeeded; i++) {
+          const candIdx = baseIdx + i;
+          if (candIdx >= ALLOWED_YY.length) return `超出 cap(yyStart=${v} 需要 ${_mySlotsNeeded} 階,但 ${v} 之後只剩 ${ALLOWED_YY.length - baseIdx} 階)`;
+          const candYY = ALLOWED_YY[candIdx];
+          const owner = ownerByYY.get(candYY);
+          if (owner && owner !== t.key) {
+            const ot = state.floorTypes.find(tt => tt.key === owner);
+            return `會延伸到 ${candYY} 階,但該階已被「${ot ? (ot.label || ot.key) : owner}」使用`;
+          }
+        }
+        return null;
+      };
       for (const v of ALLOWED_YY) {
         const opt = document.createElement("option");
         opt.value = String(v);
         const owner = ownerByYY.get(v);
         const isSelf = owner === t.key;
         const isOther = owner && !isSelf;
+        const conflict = isOther ? null : _conflictAt(v);   // 已被他人占的直接擋,自己佔的或空的再算延伸衝突
         if (isOther) {
           const ot = state.floorTypes.find(tt => tt.key === owner);
           opt.textContent = `${v} — 已被「${ot ? (ot.label || ot.key) : owner}」使用`;
+          opt.disabled = true;
+        } else if (conflict && v !== (t.yyStart || 1)) {
+          // 衝突 — 不可選(但目前自己的選項即使有衝突也保留可選,以免使用者改其他欄位時被甩到別處)
+          opt.textContent = `${v} — ⚠ ${conflict}`;
           opt.disabled = true;
         } else {
           opt.textContent = String(v);
@@ -465,10 +507,29 @@ function openFloorTypesDialog() {
           sel.value = String(t.yyStart || 1);
           return;
         }
+        const conflict = _conflictAt(newVal);
+        if (conflict) {
+          alert(`不能選 yyStart=${newVal} — ${conflict}`);
+          sel.value = String(t.yyStart || 1);
+          return;
+        }
         t.yyStart = newVal;
         _refresh();
       });
-      tdY.appendChild(sel); tr.appendChild(tdY);
+      tdY.appendChild(sel);
+      // 同列加一個小灰字顯示「此型實際占用」— 11 個 Y 值 → 占 61, 71
+      const occCells = occupiedByType.get(t.key);
+      const occList = occCells ? [...occCells].sort((a: number, b: number) => a - b) : [];
+      const note = document.createElement("div");
+      note.style.cssText = "font-size:10px;color:#9aa0a6;margin-top:2px;line-height:1.3";
+      if (_myCnt > 0) {
+        const src = _myRcY != null ? "Y 值" : "頁數";
+        note.textContent = `占 ${_mySlotsNeeded} 階(${src} ${_myCnt} 個) → ${occList.join(", ")}`;
+      } else {
+        note.textContent = `占 1 階(尚無頁面 / Y 值)`;
+      }
+      tdY.appendChild(note);
+      tr.appendChild(tdY);
       // action
       const tdA = document.createElement("td");
       // 樓層 tab 的 default 內建不可刪;斜撐 tab 沒有內建型,全部可刪

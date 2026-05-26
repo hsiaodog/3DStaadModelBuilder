@@ -10,7 +10,6 @@
 //
 //   模組載入時即執行 IIFE,跟原本在 legacy 內嵌的位置等價。
 //   _refreshRecentProjectMenu 也順手暴露到 window,讓 state/recentProjects 的 callback 能找到。
-// @ts-nocheck
 
 import {
   $, state, pushUndo, withBusy,
@@ -46,19 +45,31 @@ async function _refreshRecentProjectMenu() {
     cont.appendChild(e);
     return;
   }
+  // 檔案大小格式化(MB / KB)
+  const _fmtSize = (n) => {
+    if (!Number.isFinite(n) || n <= 0) return "";
+    if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB";
+    if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
+    return n + " B";
+  };
+  const _fmtDate = (ts) => {
+    if (!Number.isFinite(ts) || ts <= 0) return "";
+    try { const d = new Date(ts); return isNaN(d.getTime()) ? "" : d.toLocaleString(); }
+    catch (_) { return ""; }
+  };
   for (const item of list) {
     const row = document.createElement("div");
     row.className = "menu-entry";
-    row.style.cssText = "display:flex;align-items:center;gap:6px;justify-content:space-between";
+    // 改成兩列:第 1 列檔名 + 上次開啟時間 + ✕;第 2 列檔案大小 + 修改時間(灰色小字,辨識同名不同位置用)
+    row.style.cssText = "display:flex;flex-direction:column;gap:2px;padding:6px 14px";
+    const topRow = document.createElement("div");
+    topRow.style.cssText = "display:flex;align-items:center;gap:6px;justify-content:space-between";
     const main = document.createElement("span");
     main.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
     main.textContent = item.name;
     const when = document.createElement("span");
     when.style.cssText = "font-size:10px;color:#9aa0a6;flex-shrink:0";
-    try {
-      const d = new Date(item.lastOpened || 0);
-      when.textContent = isNaN(d.getTime()) ? "" : d.toLocaleString();
-    } catch (_) {}
+    when.textContent = _fmtDate(item.lastOpened);
     const del = document.createElement("span");
     del.textContent = "×";
     del.title = "從清單移除";
@@ -67,13 +78,25 @@ async function _refreshRecentProjectMenu() {
     del.onmouseleave = () => { del.style.background = "transparent"; del.style.color = "#9aa0a6"; };
     del.onclick = async (e) => {
       e.stopPropagation();
-      await _removeRecentProject(item.name);
+      await _removeRecentProject(item.key);
       _refreshRecentProjectMenu();
     };
-    row.title = `${item.name}${when.textContent ? " · " + when.textContent : ""}`;
-    row.appendChild(main);
-    row.appendChild(when);
-    row.appendChild(del);
+    topRow.appendChild(main);
+    topRow.appendChild(when);
+    topRow.appendChild(del);
+    // 第 2 列:辨識同名不同檔的指紋 — 大小 · 修改時間
+    const meta = document.createElement("div");
+    meta.style.cssText = "font-size:10px;color:#7a8088;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+    const sizeStr = _fmtSize(item.size);
+    const mtimeStr = _fmtDate(item.lastModified);
+    const metaParts = [];
+    if (sizeStr) metaParts.push(sizeStr);
+    if (mtimeStr) metaParts.push(`修改 ${mtimeStr}`);
+    meta.textContent = metaParts.length ? metaParts.join(" · ") : "(無檔案指紋資訊)";
+    // tooltip:把全部資訊塞進去,hover 可看完整
+    row.title = `${item.name}${sizeStr ? " · " + sizeStr : ""}${mtimeStr ? " · 修改 " + mtimeStr : ""}${when.textContent ? " · 上次開啟 " + when.textContent : ""}`;
+    row.appendChild(topRow);
+    row.appendChild(meta);
     row.addEventListener("click", (e) => {
       // 不被父選單的 close-all 截斷:讓父選單先 close 後再開
       e.stopPropagation();
@@ -93,14 +116,14 @@ async function _refreshRecentProjectMenu() {
     // 整個 .menu-item(含 14px padding 與背景區域)都可觸發;dropdown 內的 click 透過
     //   `e.target.closest(".menu-dropdown")` 過濾掉,避免點 dropdown 內部時誤關選單
     item.addEventListener("click", (e) => {
-      if (e.target.closest(".menu-dropdown")) return;
+      if ((e.target as HTMLElement).closest(".menu-dropdown")) return;
       e.stopPropagation();
       const wasOpen = item.classList.contains("open");
       closeAll();
       if (!wasOpen) {
         item.classList.add("open");
         // 打開檔案選單時,順便更新「最近開啟」子選單
-        if (item.dataset.menu === "file") _refreshRecentProjectMenu();
+        if ((item as HTMLElement).dataset.menu === "file") _refreshRecentProjectMenu();
       }
     });
     // 滑過已開啟的選單列時,自動切換到目前的項目(類似傳統選單列)
@@ -108,7 +131,7 @@ async function _refreshRecentProjectMenu() {
       if (items.some(m => m.classList.contains("open"))) {
         closeAll();
         item.classList.add("open");
-        if (item.dataset.menu === "file") _refreshRecentProjectMenu();
+        if ((item as HTMLElement).dataset.menu === "file") _refreshRecentProjectMenu();
       }
     });
   });
@@ -129,20 +152,20 @@ async function _refreshRecentProjectMenu() {
     "clear-all":       () => $("clearAll") && $("clearAll").click(),
     "new-project":     () => newProjectPrompt(),
     "close-project":   () => closeCurrentProject(),
-    "consolidate-all-pages":   () => consolidateAllPagesWithConfirm(),
+    "consolidate-all-pages":   () => consolidateAllPagesWithConfirm({}),
     "extend-check-all":        () => startExtendableMemberCheck(),
     // 新版「適配關聯」走精準度配對;保留舊 entry id 以相容外部呼叫
-    "infer-all-both":          () => withBusy("適配關聯(精準度)…", () => _runFitMergeByPrecision()),
-    "infer-all-joints":        () => withBusy("適配關聯(精準度)…", () => _runFitMergeByPrecision()),
-    "infer-all-members":       () => withBusy("適配關聯(精準度)…", () => _runFitMergeByPrecision()),
-    "relayout-all":            () => relayoutNumberingAll(),
-    "relayout-members-all":    () => relayoutMembersNumberingAll(),
+    "infer-all-both":          () => withBusy("適配關聯(精準度)…", () => _runFitMergeByPrecision({})),
+    "infer-all-joints":        () => withBusy("適配關聯(精準度)…", () => _runFitMergeByPrecision({})),
+    "infer-all-members":       () => withBusy("適配關聯(精準度)…", () => _runFitMergeByPrecision({})),
+    "relayout-all":            () => relayoutNumberingAll({}),
+    "relayout-members-all":    () => relayoutMembersNumberingAll({}),
     "recompute-world-all":     () => withBusy("重新計算 3D 座標(全部頁面)…", () => {
       pushUndo();
       if (typeof _afterCalibrationChanged === "function") _afterCalibrationChanged();
       let pages = 0, joints = 0;
       for (const f of state.files) {
-        for (const pg of Object.values(f.pages || {})) {
+        for (const pg of Object.values(f.pages || {}) as any[]) {
           if (!pg || pg._orphan) continue;
           pages++; joints += (pg.joints || []).length;
         }
@@ -168,10 +191,10 @@ async function _refreshRecentProjectMenu() {
 
   // 開啟專案:優先使用 FSA showOpenFilePicker 取得 handle → 後續「儲存專案」可直接覆寫到同一個檔案
   async function openProjectWithPicker() {
-    console.log("[開啟專案] showOpenFilePicker available?", !!window.showOpenFilePicker);
-    if (window.showOpenFilePicker) {
+    console.log("[開啟專案] showOpenFilePicker available?", !!(window as any).showOpenFilePicker);
+    if ((window as any).showOpenFilePicker) {
       try {
-        const [handle] = await window.showOpenFilePicker({
+        const [handle] = await (window as any).showOpenFilePicker({
           types: [{
             description: "STAAD Tracer 專案 / JSON",
             accept: { "application/json": [".stproj.json", ".json"] },
@@ -202,7 +225,7 @@ async function _refreshRecentProjectMenu() {
     entry.addEventListener("click", (e) => {
       e.stopPropagation();
       closeAll();
-      const fn = actions[entry.dataset.action];
+      const fn = (actions as any)[(entry as HTMLElement).dataset.action!];
       if (fn) fn();
     });
   });

@@ -21,9 +21,12 @@ export function _displayIdForJointWith(file: any, page: any, j: any): number | s
     const r = parseFloat(v.toFixed(md));
     return r === 0 ? 0 : r;
   };
-  const xr = _rankCache.x?.get(round(w.x));
-  const yr = _rankCache.y?.get(round(w.y));
-  const zr = _rankCache.z?.get(round(w.z));
+  const rx = round(w.x), ry = round(w.y), rz = round(w.z);
+  const xr = _rankCache.x?.get(rx);
+  // Y rank 先查 per-3D-position(per-joint bucket),沒有再退回 Y-value-only fallback
+  //   同 Y 不同 (X,Z) 的 joint 可能落在不同 bucket → yBy3D 是正確答案,_rankCache.y 是 fallback
+  const yr = _rankCache.yBy3D?.get(`${rx}|${ry}|${rz}`) ?? _rankCache.y?.get(ry);
+  const zr = _rankCache.z?.get(rz);
   if (xr == null || yr == null || zr == null) return j.id;
   const Nx = String(_axisCap("x")).length;
   const Ny = String(_axisCap("y")).length;

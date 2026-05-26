@@ -6,7 +6,6 @@
 //   不支援(會被忽略):SPLINE / ELLIPSE / HATCH / DIMENSION / IMAGE
 //   產生的 SVG:用 viewBox 正規化到 [0..W, 0..H],Y 軸翻轉(DXF 為 Y-up,SVG 為 Y-down);
 //   每個圖元都有 class="bg-stroke" data-bg-idx,讓現有點選/選取/比例尺等流程通用。
-// @ts-nocheck
 
 // 支援:LINE / LWPOLYLINE / POLYLINE+VERTEX / CIRCLE / ARC / TEXT / MTEXT / INSERT (BLOCK)
 //   不支援(會被忽略):SPLINE / ELLIPSE / HATCH / DIMENSION / IMAGE

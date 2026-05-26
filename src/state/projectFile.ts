@@ -12,9 +12,11 @@
 //
 //   保留 fmtMB / base64ToArrayBuffer 一起搬:legacy 其他位置(addFile / loadProjectFull)
 //   也會用,改用 re-export 維持 import 兼容。
-// @ts-nocheck
 
-import { state, $, withBusy, activatePage, setProjectDirty } from "../legacy";
+import {
+  state, $, withBusy, activatePage, setProjectDirty,
+  nextJointId, nextMemberId, nextFileId, nextGlobalJointId, nextGlobalMemberId,
+} from "../legacy";
 import { busyTick, setBusyMessage, showBusy, hideBusy } from "../ui/busy";
 import { _saveRecentProject } from "./recentProjects";
 
@@ -54,12 +56,12 @@ export function fmtMB(bytes) {
 //   等 handle + readwrite 權限到位後,才開始 buildProjectBlob 的重活
 export async function startSave(forceAs) {
   let handle = forceAs ? null : state.projectFileHandle;
-  const projectName = ($("jobName") && $("jobName").value.trim()) || "project";
+  const projectName = ($("jobName") && ($("jobName") as HTMLInputElement).value.trim()) || "project";
 
   // step 1:在 user gesture 還活著時取得可寫的 handle
-  if (!handle && window.showSaveFilePicker) {
+  if (!handle && (window as any).showSaveFilePicker) {
     try {
-      handle = await window.showSaveFilePicker({
+      handle = await (window as any).showSaveFilePicker({
         suggestedName: `${projectName}.stproj.json`,
         types: [{
           description: "STAAD Tracer 專案",
@@ -143,7 +145,7 @@ async function buildProjectBlob() {
     const f = state.files[i];
     setBusyMessage(`封裝 ${i + 1}/${total}:${f.name}…`);
     await busyTick();
-    const meta = {
+    const meta: any = {
       id: f.id,
       name: f.name,
       sourceName: f.sourceName || null,
@@ -217,7 +219,7 @@ async function buildProjectBlob() {
     files: filesData,
   };
   const text = JSON.stringify(data);
-  const projectName = ($("jobName") && $("jobName").value.trim()) || "project";
+  const projectName = ($("jobName") && ($("jobName") as HTMLInputElement).value.trim()) || "project";
   console.log(`[儲存專案] 檔案數 ${state.files.length}・JSON ${fmtMB(text.length)}・底圖快取 ${fmtMB(totalCacheBytes)}`);
   return { text, projectName, totalCacheBytes };
 }
@@ -273,11 +275,11 @@ async function writeProjectWithHandle(text, projectName, forceAs) {
     }
   }
   // showSaveFilePicker:首次儲存 / 另存新檔 / 覆寫失敗的回退
-  if (window.showSaveFilePicker) {
+  if ((window as any).showSaveFilePicker) {
     try {
       setBusyMessage("選擇儲存位置…");
       await busyTick();
-      handle = await window.showSaveFilePicker({
+      handle = await (window as any).showSaveFilePicker({
         suggestedName: `${projectName}.stproj.json`,
         types: [{
           description: "STAAD Tracer 專案",

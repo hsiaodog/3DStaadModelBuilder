@@ -13,7 +13,13 @@ import { joint2DToWorld3D } from "./projection";
 interface RankCacheShape {
   dirty: boolean;
   x: Map<number, number> | null;
-  y: Map<number, number> | null;
+  y: Map<number, number> | null;   // fallback:Y-value-only(不分桶,給未綁定 globalJoint 的散點用)
+  // ★ per-joint Y rank,key = `${rx}|${ry}|${rz}`(3D 座標 round 後的字串)
+  //   讓「同 Y 不同 (X,Z) 的 joint」可以落在不同 bucket → 不同 rank
+  //   修補:gid=2287 在 Z=0(只接 XY brace)跟 gid=3024 在 Z=1700(接 YZ brace)
+  //         過去都因為 Y=7855 那層 yToBraceType 寫成 brace_yz 而同被歸 YZ;現在按 joint 自己的
+  //         斜撐端點所屬平面分桶,各自落在 brace_xy / brace_yz bucket
+  yBy3D: Map<string, number> | null;
   z: Map<number, number> | null;
   signature: string | null;
   anchorMax?: { x: number; y: number; z: number };
@@ -24,7 +30,7 @@ interface RankCacheShape {
   _lastOverflowAlertAt?: number;
 }
 
-export const _rankCache: RankCacheShape = { dirty: true, x: null, y: null, z: null, signature: null };
+export const _rankCache: RankCacheShape = { dirty: true, x: null, y: null, yBy3D: null, z: null, signature: null };
 
 export function invalidateRankCache(): void {
   _rankCache.dirty = true;
@@ -139,7 +145,73 @@ export function _ensureRankCache(): void {
   }
 
   const _anchorMax = { x: 0, y: 0, z: 0 };
-  // Y → typeKey 對應規則(floor 優先 → braceYZ → braceXY → default)
+  // ★ Per-3D-position bucket 分類(取代舊的 Y-value-only / per-gid 兩種版本)
+  //   bucket key = `${rx}|${ry}|${rz}`(世界座標 round 過的字串)— 不依賴 globalJoint
+  //   優點:同物理位置不管有沒有綁 gid 都是同一 bucket,跨 3D 一鍵處理的 transient state
+  //         (step 2 清空 gjs → step 3 重建 gjs)也成立。
+  //
+  //   優先順序:XZ floor > brace_xy > brace_yz > default
+  const coordToBucket = new Map<string, string>();
+  const _coordKey = (w: { x: number; y: number; z: number } | null | undefined) => {
+    if (!w) return null;
+    return `${round(w.x)}|${round(w.y)}|${round(w.z)}`;
+  };
+  // Pass 1:XZ floor(最高優先)— 每個 XZ 頁的所有 joint 套該頁的 floorType
+  for (const f of s.files) {
+    for (const pg of Object.values(f.pages || {}) as any[]) {
+      if (!pg || pg._orphan || pg.plane !== "XZ") continue;
+      const ft = pg.floorType || "default";
+      for (const j of pg.joints || []) {
+        const w = _worldForRank(f, pg, j);
+        const k = _coordKey(w);
+        if (k && !coordToBucket.has(k)) coordToBucket.set(k, ft);
+      }
+    }
+  }
+  // Pass 2 / 3:brace_xy / brace_yz — 只收該頁上斜撐 member 的端點(柱/樑端點不算)
+  //   判定:page-local 2D 兩端 dx 跟 dy 都明顯非零 → 該 member 是斜撐
+  const _braceEndpointDxTol = 5;
+  const _scanBracePlane = (wantPlane: "YZ" | "XY") => {
+    for (const f of s.files) {
+      if (!_fileHasFullSetup(f)) continue;
+      for (const pg of Object.values(f.pages || {}) as any[]) {
+        if (!pg || pg._orphan || pg.plane !== wantPlane) continue;
+        const btk = pg.braceType;
+        if (!btk || btk === "default") continue;
+        const _jmap = new Map<number, any>();
+        for (const j of pg.joints || []) _jmap.set(j.id, j);
+        const _braceJointIds = new Set<number>();
+        for (const m of pg.members || []) {
+          const ja = _jmap.get(m.j1), jb = _jmap.get(m.j2);
+          if (!ja || !jb) continue;
+          const dx = Math.abs((ja.x ?? 0) - (jb.x ?? 0));
+          const dy = Math.abs((ja.y ?? 0) - (jb.y ?? 0));
+          if (dx > _braceEndpointDxTol && dy > _braceEndpointDxTol) {
+            _braceJointIds.add(m.j1);
+            _braceJointIds.add(m.j2);
+          }
+        }
+        for (const j of pg.joints || []) {
+          if (!_braceJointIds.has(j.id)) continue;
+          const w = _worldForRank(f, pg, j);
+          const k = _coordKey(w);
+          if (k && !coordToBucket.has(k)) coordToBucket.set(k, btk);
+        }
+      }
+    }
+  };
+  // brace_xy 先掃,brace_yz 後掃 — 同時是兩種 brace 端點時優先 XY
+  _scanBracePlane("XY");
+  _scanBracePlane("YZ");
+  // 取得任一 scanInfo 對應 joint 的 bucketKey:用 (rx, ry, rz) 查
+  const _bucketOf = (info: any): string => {
+    const k = _coordKey(info.w);
+    if (k && coordToBucket.has(k)) return coordToBucket.get(k)!;
+    return "default";
+  };
+
+  // 向下相容:還是建一份 yToType / yToBraceType,讓只有 Y 值能查的舊呼叫端(目前只剩 fallback)能用
+  //   priority:floor > brace(first non-default seen)。同 Y 不同 bucket 取「首見」。
   const yToType = new Map<number, string>();
   for (const f of s.files) {
     for (const pg of Object.values(f.pages || {}) as any[]) {
@@ -151,28 +223,21 @@ export function _ensureRankCache(): void {
     }
   }
   const yToBraceType = new Map<number, string>();
-  for (const wantPlane of ["YZ", "XY"] as const) {
-    for (const f of s.files) {
-      if (!_fileHasFullSetup(f)) continue;
-      for (const pg of Object.values(f.pages || {}) as any[]) {
-        if (!pg || pg._orphan) continue;
-        if (pg.plane !== wantPlane) continue;
-        const btk = pg.braceType;
-        if (!btk || btk === "default") continue;
-        for (const j of pg.joints || []) {
-          const w = _worldForRank(f, pg, j);
-          if (!w) continue;
-          const ry = round(w.y);
-          if (yToType.has(ry)) continue;
-          if (!yToBraceType.has(ry)) yToBraceType.set(ry, btk);
-        }
-      }
-    }
+  for (const info of _scanInfos) {
+    const bk = _bucketOf(info);
+    if (bk === "default") continue;
+    const ry = round(info.w.y);
+    if (yToType.has(ry)) continue;
+    if (!yToBraceType.has(ry)) yToBraceType.set(ry, bk);
   }
 
   for (const ax of ["x", "y", "z"] as const) {
     const c = caps[ax];
     if (ax === "y") {
+      // ★ Per-joint Y rank:每個 joint 套自己的 bucket(_bucketOf 算出),Y rank 在該 bucket 內計算
+      //   舊版用 Y-value-only 分桶 → 同 Y 不同 (X,Z) 的 joint 同 rank,無法區分 brace 來源
+      //   新版用 (rx, ry, rz) 3D key,因為同位置 joint 必定同 bucket(globalJoint 跨頁共用),
+      //   不同位置可能不同 bucket
       const types = Array.isArray(s.floorTypes) && s.floorTypes.length
         ? s.floorTypes
         : [{ key: "default", label: "預設", yyStart: 1, kind: "floor" }];
@@ -181,49 +246,129 @@ export function _ensureRankCache(): void {
         typeMap.set(t.key, {
           key: t.key,
           yyStart: t.yyStart || 1,
-          anchorVals: [] as number[],
-          demotedOnly: [] as number[],
+          // anchor / demoted 改存 set,因為同一 Y 值可能被多個 joint 對應而重複加入
+          anchorYSet: new Set<number>(),
+          demotedYSet: new Set<number>(),
           kind: t.kind === "brace" ? "brace" : "floor",
         });
       }
       if (!typeMap.has("default")) {
         typeMap.set("default", {
-          key: "default", yyStart: 1, anchorVals: [], demotedOnly: [], kind: "floor",
+          key: "default", yyStart: 1, anchorYSet: new Set<number>(), demotedYSet: new Set<number>(), kind: "floor",
         });
       }
-      for (const v of cls.y.ortho) {
-        const tk = yToType.get(v) || yToBraceType.get(v) || "default";
-        const bucket = typeMap.get(tk) || typeMap.get("default")!;
-        if (cls.y.anchorVal.has(v)) bucket.anchorVals.push(v);
-        else bucket.demotedOnly.push(v);
+      // 把每個 scanInfo 的 Y 值收進對應 bucket(以 joint 為單位,不是 Y 值)
+      //   若同 Y 在不同 bucket 都出現,各 bucket 都會記錄 → 各自有 rank,(rx,ry,rz) 區分
+      //   ★ 兩-pass 設計:先把所有 anchor Y 加進 anchorYSet,再把 non-anchor Y 加進 demotedYSet
+      //     (排除已在 anchorYSet 的)。避免單-pass 時若 demoted scanInfo 先到、anchor 後到,
+      //     會發生 ry 同時在兩個 set → rank 計數器多跳一次 → 撐爆 cap → 觸發 overflow 警示。
+      // Pass 1: 全部 anchor Y 入 anchorYSet
+      for (const info of _scanInfos) {
+        const isAnchor = info.gid != null
+          ? finalAnchorGids.has(info.gid)
+          : info.localIsAnchor;
+        if (!isAnchor) continue;
+        const bk = _bucketOf(info);
+        const bucket = typeMap.get(bk) || typeMap.get("default")!;
+        bucket.anchorYSet.add(round(info.w.y));
       }
-      const map = new Map<number, number>();
+      // Pass 2: 全部 non-anchor Y 入 demotedYSet(排除已在 anchorYSet 的)
+      for (const info of _scanInfos) {
+        const isAnchor = info.gid != null
+          ? finalAnchorGids.has(info.gid)
+          : info.localIsAnchor;
+        if (isAnchor) continue;
+        const bk = _bucketOf(info);
+        const bucket = typeMap.get(bk) || typeMap.get("default")!;
+        const ry = round(info.w.y);
+        if (!bucket.anchorYSet.has(ry)) bucket.demotedYSet.add(ry);
+      }
+      // 建 (rx, ry, rz) → Y rank 的對應(per-3D-position)
+      //   先把每個 bucket 內的 Y values 排好 rank,再用 _scanInfos 把每個 joint 的 (rx,ry,rz) 對應到 rank
+      const bucketYRank = new Map<string, Map<number, number>>();   // bucketKey → Map<Yvalue, rank>
+      const yByValueFallback = new Map<number, number>();           // fallback:Y value → first-assigned rank
       const braceRanks = new Set<number>();
       let overallAnchorMax = 0;
+      // ★ 算每個 bucket 的「實際 cap」= 下個 bucket 的 yyStart - 1(若是最後一個 bucket → c)
+      //   修補:若 brace_xy yyStart=61、default yyStart=71,brace_xy 只能用 61..70(10 個 slot);
+      //         超過 → 與 default 的 rank 71 撞,xlsx / std 匯出時 display ID 會撞號 fallback。
+      //   檢出 overflow 時錯誤訊息要指出是哪個 bucket 撐爆 + 建議解法(調大下一個 bucket 的 yyStart)。
+      const _sortedBuckets = [...typeMap.values()].sort((a, b) => (a.yyStart || 1) - (b.yyStart || 1));
+      const _bucketEffCap = new Map<string, number>();
+      for (let i = 0; i < _sortedBuckets.length; i++) {
+        const t = _sortedBuckets[i];
+        const next = _sortedBuckets[i + 1];
+        const effCap = next ? Math.min(c, (next.yyStart || 1) - 1) : c;
+        _bucketEffCap.set(t.key, effCap);
+      }
+      // 收集每個 bucket 的 overflow 詳情(供 alert 顯示)
+      const _bucketOverflows: Array<{ key: string; yyStart: number; total: number; effCap: number; needed: number }> = [];
       for (const t of typeMap.values()) {
-        t.anchorVals.sort(_wrapPosSort);
-        t.demotedOnly.sort(_wrapPosSort);
+        const sortedAnchor = [...t.anchorYSet].sort(_wrapPosSort);
+        const sortedDemoted = [...t.demotedYSet].sort(_wrapPosSort);
         let rank = t.yyStart;
         const isBraceBucket = t.kind === "brace";
+        const bMap = new Map<number, number>();
+        bucketYRank.set(t.key, bMap);
+        const effCap = _bucketEffCap.get(t.key) ?? c;
+        const totalY = sortedAnchor.length + sortedDemoted.length;
+        const neededMax = t.yyStart + totalY - 1;
+        if (neededMax > effCap) {
+          _bucketOverflows.push({ key: t.key, yyStart: t.yyStart, total: totalY, effCap, needed: neededMax });
+          overflow.y++;
+        }
         const assign = (arr: number[]) => {
           for (const v of arr) {
-            const r = Math.min(rank, c);
-            map.set(v, r);
+            const r = Math.min(rank, effCap);   // ★ 用 bucket-specific cap,避免跨 bucket 撞 rank
+            bMap.set(v, r);
+            // fallback:Y-value-only 表只記首見 rank(同 Y 多 bucket 時取第一個);
+            //   只供未綁定 globalJoint 的散點查詢,正式查詢都走 yBy3D
+            if (!yByValueFallback.has(v)) yByValueFallback.set(v, r);
             if (isBraceBucket) braceRanks.add(r);
-            if (rank > c) overflow.y++;
             rank++;
           }
         };
-        assign(t.anchorVals);
+        assign(sortedAnchor);
         if (!isBraceBucket) {
-          const lastAnchorRank = t.anchorVals.length ? (t.yyStart + t.anchorVals.length - 1) : 0;
+          const lastAnchorRank = sortedAnchor.length ? (t.yyStart + sortedAnchor.length - 1) : 0;
           if (lastAnchorRank > overallAnchorMax) overallAnchorMax = Math.min(lastAnchorRank, c);
         }
-        assign(t.demotedOnly);
+        assign(sortedDemoted);
+      }
+      // 暴露給 alert 用
+      (window as any)._lastRankCacheBucketOverflows = _bucketOverflows;
+      // 把每個 joint 的 (rx, ry, rz) 對應到該 bucket 內的 Y rank
+      const yBy3D = new Map<string, number>();
+      for (const info of _scanInfos) {
+        const bk = _bucketOf(info);
+        const bMap = bucketYRank.get(bk) || bucketYRank.get("default");
+        if (!bMap) continue;
+        const rx = round(info.w.x), ry = round(info.w.y), rz = round(info.w.z);
+        const r = bMap.get(ry);
+        if (r == null) continue;
+        const key = `${rx}|${ry}|${rz}`;
+        // 同 3D 位置可能有多個 scanInfo(跨頁同 gid)— 取第一個寫入即可
+        if (!yBy3D.has(key)) yBy3D.set(key, r);
       }
       _anchorMax.y = overallAnchorMax;
-      _rankCache.y = map;
+      _rankCache.y = yByValueFallback;
+      _rankCache.yBy3D = yBy3D;
       _rankCache.braceRanks = braceRanks;
+      // ★ Debug 用:把每個 bucket 內的 Y 值 + 預期最大 rank 暴露到 window,方便 console 抓出爆 cap 的 bucket
+      const _dbg: any = {};
+      for (const t of typeMap.values()) {
+        const a = [...t.anchorYSet].sort(_wrapPosSort);
+        const dy = [...t.demotedYSet].sort(_wrapPosSort);
+        const total = a.length + dy.length;
+        const maxRank = total > 0 ? t.yyStart + total - 1 : t.yyStart;
+        _dbg[t.key] = {
+          yyStart: t.yyStart,
+          anchorYCount: a.length, demotedYCount: dy.length, totalY: total,
+          maxRank, overflows: maxRank > c,
+          anchorYs: a, demotedYs: dy,
+        };
+      }
+      (window as any)._lastRankCacheYBuckets = _dbg;
       continue;
     }
     const anchorVals = [...cls[ax].anchorVal].sort(_wrapPosSort);
@@ -266,8 +411,9 @@ export function _ensureRankCache(): void {
         nearAdjacentPairs: tightPairs.slice(0, 10),
       };
     }
-    console.log("[rank cache] 每軸 unique 座標統計", stats, "(tol=" + tol + " mm)");
+    console.log("[rank cache v2-twopass] 每軸 unique 座標統計", stats, "(tol=" + tol + " mm)");
     (window as any)._lastRankCacheStats = stats;
+    (window as any)._rankCacheBuildVersion = "v2-twopass";
   }
 
   if (overflow.x || overflow.y || overflow.z) {
@@ -305,15 +451,33 @@ export function _ensureRankCache(): void {
           lines.push(`  前 20 個座標值:[${d.sample.slice(0, 20).map((v: number) => v.toFixed(1)).join(", ")}]${d.sample.length > 20 ? ` …(共 ${d.sample.length})` : ""}`);
           lines.push("");
         }
-        lines.push("可能原因:");
-        lines.push("  1. 跨檔案 / 跨頁的 calibration(planeOrigin / scaleRuler)有誤差 → 同物理位置在不同檔案得到稍不同的世界座標");
-        lines.push("  2. 「誤差範圍」(numberTolerance) 太小,鄰近 bucket 沒合併");
-        lines.push("  3. 真的存在那麼多 unique 位置(超過軸 capacity)");
-        lines.push("");
-        lines.push("建議:");
-        lines.push("  • 先把「誤差範圍」調大(右側欄,現在 " + tol + " mm → 試 10 mm)");
-        lines.push("  • 或把該軸最大編號調成 999");
-        lines.push("  • 跨檔的「同物理位置」joint 用「三視圖自動配對」綁同一個 globalJoint,讓世界座標統一");
+        // ★ 若是 Y 軸 overflow,印出哪個 bucket 撐爆 + 建議怎麼調 yyStart
+        const bucketOverflows = (window as any)._lastRankCacheBucketOverflows as
+          Array<{ key: string; yyStart: number; total: number; effCap: number; needed: number }> | undefined;
+        if (axisDiag.y && bucketOverflows && bucketOverflows.length) {
+          lines.push("【Y 軸 bucket 撐爆細節】");
+          // 按 yyStart 排,讓使用者知道下一個 bucket 是誰
+          const sortedTypes = [...((s.floorTypes as any[]) || [])].sort((a, b) => (a.yyStart || 1) - (b.yyStart || 1));
+          for (const bo of bucketOverflows) {
+            const idx = sortedTypes.findIndex(t => t.key === bo.key);
+            const nextT = idx >= 0 ? sortedTypes[idx + 1] : null;
+            const nextStr = nextT ? `${nextT.label || nextT.key}(yyStart=${nextT.yyStart})` : "(無 — 已到 cap 99)";
+            lines.push(`  • bucket「${bo.key}」yyStart=${bo.yyStart}・有 ${bo.total} 個 unique Y → 需要 rank 到 ${bo.needed},但被下一個 bucket 卡在 ${bo.effCap}`);
+            lines.push(`    建議:把下一個 bucket「${nextStr}」的 yyStart 調大到至少 ${bo.needed + 1}`);
+          }
+          lines.push("");
+          lines.push("(調整位置:節點編號管理 dialog → 樓層類型 / 斜撐起始 tab → 改 yyStart)");
+        } else {
+          lines.push("可能原因:");
+          lines.push("  1. 跨檔案 / 跨頁的 calibration(planeOrigin / scaleRuler)有誤差 → 同物理位置在不同檔案得到稍不同的世界座標");
+          lines.push("  2. 「誤差範圍」(numberTolerance) 太小,鄰近 bucket 沒合併");
+          lines.push("  3. 真的存在那麼多 unique 位置(超過軸 capacity)");
+          lines.push("");
+          lines.push("建議:");
+          lines.push("  • 先把「誤差範圍」調大(右側欄,現在 " + tol + " mm → 試 10 mm)");
+          lines.push("  • 或把該軸最大編號調成 999");
+          lines.push("  • 跨檔的「同物理位置」joint 用「三視圖自動配對」綁同一個 globalJoint,讓世界座標統一");
+        }
         alert(lines.join("\n"));
       }, 0);
     }

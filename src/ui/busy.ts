@@ -4,7 +4,6 @@
 //   busyTick:讓瀏覽器有機會 paint 的 yield 策略,綜合 rAF / scheduler / MessageChannel,
 //   並處理「主 tab 在背景被節流」與「popup rAF 卡死」等 edge case。
 //   依賴 legacy.ts 的 _3dPreviewWindow live binding(已 export)。
-// @ts-nocheck
 
 import { _3dPreviewWindow } from "../legacy";
 
@@ -54,13 +53,14 @@ export function busyTick() {
   if (typeof document === "undefined" || !document.hidden) {
     return _mainRaf();
   }
-  if (typeof scheduler !== "undefined" && typeof scheduler.postTask === "function") {
+  const _scheduler = (globalThis as any).scheduler;
+  if (typeof _scheduler !== "undefined" && typeof _scheduler.postTask === "function") {
     try {
-      return scheduler.postTask(() => {}, { priority: "user-blocking" });
+      return _scheduler.postTask(() => {}, { priority: "user-blocking" });
     } catch (_) { /* 不支援 options → 往下走 */ }
   }
   if (typeof MessageChannel === "function") {
-    return new Promise(r => {
+    return new Promise<void>(r => {
       const ch = new MessageChannel();
       ch.port1.onmessage = () => r();
       ch.port2.postMessage(null);

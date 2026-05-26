@@ -3,7 +3,6 @@
 //   measure overlay、id 計數器 全部以深拷貝形式存進 snapshot 物件。
 //   applySnap 把 snapshot 寫回 state(注意:保留現有 file 物件以保留 pdf/image 參照,只替換 pages
 //   等資料欄位),並用 setter 重設模組級 id 計數器(ESM let 不能跨模組直接寫,故走 setNext*Id)。
-// @ts-nocheck
 
 import {
   state,

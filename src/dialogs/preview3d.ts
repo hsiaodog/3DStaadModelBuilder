@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Phase 8k — 3D 立體預覽 popup(獨立浮動視窗)
 //   跳出後可拖移 / 縮放,跟主畫面同時運作。
 //   操作:中鍵拖曳 = 旋轉、滾輪 = 縮放、Shift+中鍵 或 右鍵 = 平移、Hover = 詳情。
@@ -18,7 +19,6 @@
 //     • joint2DToWorld3D — core/projection
 //     • _t / _applyI18nOnDoc — i18n
 //     • setBusyMessage — ui/busy
-// @ts-nocheck
 
 import {
   $, state,
@@ -30,6 +30,7 @@ import {
   relayoutNumberingAll, relayoutMembersNumberingAll,
   displayMemberId, refreshLists, render,
   openSearchWindow, _startSaveWithHook,
+  fmtWorld3D,
 } from "../legacy";
 import { _displayIdForJointWith } from "../core/displayId";
 import { joint2DToWorld3D } from "../core/projection";
@@ -733,14 +734,14 @@ export function open3DPreviewDialog() {
     const planeWithDepth = axis === "x" ? "YZ" : axis === "y" ? "XZ" : "XY";
     const out = new Set();
     for (const f of state.files) {
-      for (const pg of Object.values(f.pages || {})) {
+      for (const pg of Object.values(f.pages || {}) as any[]) {
         if (!pg || pg._orphan) continue;
         if (pg.plane !== planeWithDepth) continue;
         const z = pg.z;
         if (Number.isFinite(z)) out.add(z);
       }
     }
-    return [...out].sort((a, b) => a - b);
+    return [...out as Set<number>].sort((a, b) => a - b);
   }
   function snapCutValueToPage(value) {
     if (!cutState.axis) return value;
@@ -756,7 +757,7 @@ export function open3DPreviewDialog() {
   // 收集 cut 軸上所有 unique node 座標(來自當前 data.nodes,已是 3D 合併後的世界座標)
   function collectNodeValuesForCutAxis(axis) {
     if (!axis || !data || !data.nodes) return [];
-    const out = new Set();
+    const out = new Set<number>();
     for (const n of data.nodes) {
       const v = n[axis];
       if (Number.isFinite(v)) out.add(v);

@@ -192,10 +192,13 @@ export function buildExportContext(model: { joints: Joint[]; members: Member[] }
   };
   const rankOf = (j: Joint): JointRank => {
     if (!_rankCache || !_rankCache.x || !_rankCache.y || !_rankCache.z) return { xr: null, zr: null, yr: null };
+    const rx = rndForRank(j.x), ry = rndForRank(j.y), rz = rndForRank(j.z);
+    // Y rank:per-joint bucket 在 yBy3D(key = "rx|ry|rz");沒有再退回 Y-value-only fallback
+    const yr = _rankCache.yBy3D?.get(`${rx}|${ry}|${rz}`) ?? _rankCache.y.get(ry) ?? null;
     return {
-      xr: _rankCache.x.get(rndForRank(j.x)) || null,
-      yr: _rankCache.y.get(rndForRank(j.y)) || null,
-      zr: _rankCache.z.get(rndForRank(j.z)) || null,
+      xr: _rankCache.x.get(rx) || null,
+      yr: yr,
+      zr: _rankCache.z.get(rz) || null,
     };
   };
   const rankByJointId = new Map<number, JointRank>();

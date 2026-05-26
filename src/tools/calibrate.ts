@@ -8,7 +8,6 @@
 //   兩者皆 pushUndo,結束時 render + refreshLists + 各種按鈕狀態同步。
 //   依賴 legacy.ts 的 _resyncSectionLinksForFile / refreshSectionLinkList / updatePlaneOriginButton /
 //   updateCalibrateButton / refreshPageCoordSection / _updateGlobalOriginUI(都已 export)。
-// @ts-nocheck
 
 import {
   state, pushUndo, render, refreshLists,
@@ -169,7 +168,7 @@ export function calibrateAllFilesToCustomOrigin(px, py, pz, opts) {
   for (const f of filesWithScale) {
     const ratio = f.scaleRuler.ratio;
     let refPage = null;
-    for (const pg of Object.values(f.pages || {})) {
+    for (const pg of Object.values(f.pages || {}) as any[]) {
       if (pg && !pg._orphan && pg.plane) { refPage = pg; break; }
     }
     if (refPage && f.planeOrigin) {
@@ -181,7 +180,7 @@ export function calibrateAllFilesToCustomOrigin(px, py, pz, opts) {
         default:   f.planeOrigin = { x: ox + px / ratio, y: oy - py / ratio }; break;
       }
     }
-    for (const pg of Object.values(f.pages || {})) {
+    for (const pg of Object.values(f.pages || {}) as any[]) {
       if (!pg || pg._orphan) continue;
       if (pg.z == null || !Number.isFinite(pg.z)) continue;
       switch (pg.plane) {
