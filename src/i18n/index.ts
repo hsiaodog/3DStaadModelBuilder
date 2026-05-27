@@ -80,6 +80,7 @@ const _I18N = {
   "file.exportJson":    { "zh-TW": "儲存標線",       "en": "Export JSON" },
   "file.exportStd":     { "zh-TW": "匯出 .std",      "en": "Export .std" },
   "file.exportXlsx":    { "zh-TW": "匯出 .xlsx",     "en": "Export .xlsx" },
+  "file.xlsxSettings":  { "zh-TW": "xlsx 輸出設定…", "en": "xlsx Export Settings…" },
   "file.clearAll":      { "zh-TW": "清除所有節點與桿件", "en": "Clear All Joints & Members" },
   "file.tbMode":        { "zh-TW": "工具列顯示",     "en": "Toolbar Display" },
   "file.tbModeText":    { "zh-TW": "文字",           "en": "Text" },

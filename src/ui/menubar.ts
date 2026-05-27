@@ -22,6 +22,7 @@ import {
   startExtendableMemberCheck, _startSaveWithHook,
 } from "../legacy";
 import { exportXlsxFile } from "../export/xlsx";
+import { openXlsxSettingsDialog } from "../dialogs/xlsxSettings";
 import { openFloorTypesDialog } from "../dialogs/floorTypes";
 import { openGlobalJointMgrDialog } from "../dialogs/globalJoints";
 import { openMaterialMgrWindow } from "../dialogs/materialMgr";
@@ -149,6 +150,7 @@ async function _refreshRecentProjectMenu() {
     "export-json":     () => $("exportJson") && $("exportJson").click(),
     "export-std":      () => $("exportStaad") && $("exportStaad").click(),
     "export-xlsx":     () => exportXlsxFile(),
+    "xlsx-settings":   () => openXlsxSettingsDialog(),
     "clear-all":       () => $("clearAll") && $("clearAll").click(),
     "new-project":     () => newProjectPrompt(),
     "close-project":   () => closeCurrentProject(),

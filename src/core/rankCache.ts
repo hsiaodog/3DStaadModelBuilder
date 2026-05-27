@@ -9,6 +9,8 @@
 
 import { state, _fileHasFullSetup, _getJointMemberDirs, _hasAnyPerpPair, _allDirsCollinear } from "../legacy";
 import { joint2DToWorld3D } from "./projection";
+import { wrapPosSort as _wrapPosSort } from "../utils/sort";
+import { setDebugVar, getDebugVar } from "../utils/debug";
 
 interface RankCacheShape {
   dirty: boolean;
@@ -108,13 +110,6 @@ export function _ensureRankCache(): void {
 
   const caps = { x: capX, y: capY, z: capZ } as const;
   const overflow = { x: 0, y: 0, z: 0 };
-  const _wrapPosSort = (a: number, b: number) => {
-    if (a === 0) return b === 0 ? 0 : -1;
-    if (b === 0) return 1;
-    if (a > 0 && b < 0) return -1;
-    if (a < 0 && b > 0) return 1;
-    return a - b;
-  };
 
   const coordAnchorGids = new Set<number>(manualAnchorGids);
   for (const [gid, pl] of gidPlanes) if (pl.size >= 3) coordAnchorGids.add(gid);
@@ -336,7 +331,7 @@ export function _ensureRankCache(): void {
         assign(sortedDemoted);
       }
       // 暴露給 alert 用
-      (window as any)._lastRankCacheBucketOverflows = _bucketOverflows;
+      setDebugVar("_lastRankCacheBucketOverflows", _bucketOverflows);
       // 把每個 joint 的 (rx, ry, rz) 對應到該 bucket 內的 Y rank
       const yBy3D = new Map<string, number>();
       for (const info of _scanInfos) {
@@ -368,7 +363,7 @@ export function _ensureRankCache(): void {
           anchorYs: a, demotedYs: dy,
         };
       }
-      (window as any)._lastRankCacheYBuckets = _dbg;
+      setDebugVar("_lastRankCacheYBuckets", _dbg);
       continue;
     }
     const anchorVals = [...cls[ax].anchorVal].sort(_wrapPosSort);
@@ -412,8 +407,8 @@ export function _ensureRankCache(): void {
       };
     }
     console.log("[rank cache v2-twopass] 每軸 unique 座標統計", stats, "(tol=" + tol + " mm)");
-    (window as any)._lastRankCacheStats = stats;
-    (window as any)._rankCacheBuildVersion = "v2-twopass";
+    setDebugVar("_lastRankCacheStats", stats);
+    setDebugVar("_rankCacheBuildVersion", "v2-twopass");
   }
 
   if (overflow.x || overflow.y || overflow.z) {
@@ -452,8 +447,7 @@ export function _ensureRankCache(): void {
           lines.push("");
         }
         // ★ 若是 Y 軸 overflow,印出哪個 bucket 撐爆 + 建議怎麼調 yyStart
-        const bucketOverflows = (window as any)._lastRankCacheBucketOverflows as
-          Array<{ key: string; yyStart: number; total: number; effCap: number; needed: number }> | undefined;
+        const bucketOverflows = getDebugVar<Array<{ key: string; yyStart: number; total: number; effCap: number; needed: number }>>("_lastRankCacheBucketOverflows");
         if (axisDiag.y && bucketOverflows && bucketOverflows.length) {
           lines.push("【Y 軸 bucket 撐爆細節】");
           // 按 yyStart 排,讓使用者知道下一個 bucket 是誰

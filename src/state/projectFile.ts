@@ -216,6 +216,7 @@ async function buildProjectBlob() {
     globalMembers: state.globalMembers || [],
     materials: Array.isArray(state.materials) ? state.materials : [],
     floorTypes: Array.isArray(state.floorTypes) ? state.floorTypes : [{ key: "default", label: "預設", yyStart: 1, kind: "floor" }],
+    xlsxExportSettings: (state as any).xlsxExportSettings || undefined,
     files: filesData,
   };
   const text = JSON.stringify(data);

@@ -25,6 +25,7 @@ import {
   wrap, cKeyDown, allocJointId, allocMemberId,
 } from "../legacy";
 import { _worldForRank } from "../core/rankCache";
+import { setDebugVar, getDebugVar } from "../utils/debug";
 
 // Render 看門狗 — 量測單次 render 耗時;超過閾值 → 自動觸發 fitToView() 回復整圖顯示
 //   觸發場景:zoom 太深 / 頁面元素極多 / 巨大 SVG → SVG 主執行緒阻塞、畫面卡死
@@ -920,8 +921,8 @@ function _renderImpl() {
     const merged = _getMergedSectionLinks(af);
     if (af && merged.length) {
       // 只在 merged group 數變化時印一次 log,協助排查(衍生模型不再有 raw entries 概念)
-      if ((window as any)._lastSLCount !== merged.length) {
-        (window as any)._lastSLCount = merged.length;
+      if (getDebugVar<number>("_lastSLCount") !== merged.length) {
+        setDebugVar("_lastSLCount", merged.length);
         const sl0 = merged[0] && merged[0].rep;
         if (sl0 && sl0.p1 && sl0.p2) {
           const sx1 = state.panX + sl0.p1.x * state.zoom;

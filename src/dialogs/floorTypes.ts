@@ -12,6 +12,7 @@ import { invalidateRankCache, _rankCache, _worldForRank } from "../core/rankCach
 import { joint2DToWorld3D } from "../core/projection";
 import { inferAllGlobalJoints } from "../core/globalJoints";
 import { ALLOWED_YY } from "../constants";
+import { getDebugVar } from "../utils/debug";
 
 export 
 function openFloorTypesDialog() {
@@ -356,7 +357,7 @@ function openFloorTypesDialog() {
     //   slots 公式:ceil(Y數 / 10) — 每個 ALLOWED_YY 階預留 10 個 rank slot
     //   全域共用:floor + brace 都吃同一個 ALLOWED_YY 池
     const occupiedByType = new Map();
-    const rcBuckets = ((window as any)._lastRankCacheYBuckets) || {};
+    const rcBuckets = getDebugVar<Record<string, any>>("_lastRankCacheYBuckets") || {};
     for (const tt of state.floorTypes) {
       // 優先:rank cache 算出的實際 Y 數;次之:頁數(rank cache 還沒跑時的 fallback)
       const rcY = (rcBuckets[tt.key] && Number.isFinite(rcBuckets[tt.key].totalY))

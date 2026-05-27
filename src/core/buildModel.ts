@@ -6,6 +6,7 @@
 import { state, displayMemberId } from "../legacy";
 import { joint2DToWorld3D } from "./projection";
 import { _displayIdForJointWith } from "./displayId";
+import { setDebugVar, getDebugVar } from "../utils/debug";
 
 interface JointCollision {
   originalDisplayId: string;
@@ -120,15 +121,13 @@ export function buildModel(): BuildModelResult {
       }
     }
   }
-  (window as any)._lastBuildModelCollisions = { joints: jointCollisions, members: memberCollisions };
+  setDebugVar("_lastBuildModelCollisions", { joints: jointCollisions, members: memberCollisions });
   return { joints: allJoints, members: allMembers };
 }
 
 /** 顯示「匯出時撞號 fallback」清單;buildModel 之後呼叫,集中跳一次 alert */
 export function showBuildModelCollisionsIfAny(exportLabel?: string): boolean {
-  const c = (window as any)._lastBuildModelCollisions as
-    | { joints: JointCollision[]; members: MemberCollision[] }
-    | undefined;
+  const c = getDebugVar<{ joints: JointCollision[]; members: MemberCollision[] }>("_lastBuildModelCollisions");
   if (!c) return false;
   const total = c.joints.length + c.members.length;
   if (total === 0) return false;

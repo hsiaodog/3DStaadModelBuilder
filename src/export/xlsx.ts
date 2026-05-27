@@ -17,6 +17,7 @@ import { buildModel, showBuildModelCollisionsIfAny } from "../core/buildModel";
 import { buildExportContext } from "./shared";
 import { unitToMeter, meterToTarget } from "../utils/units";
 import { xlsxCell as _xlsxCell } from "../utils/ooxml";
+import { getXlsxSettings, cssHexToArgb } from "./xlsxSettings";
 
 // ============================================================================
 // .xlsx 匯出(無外部 lib;簡易 OOXML + STORE-method ZIP)
@@ -114,6 +115,7 @@ function _buildZip(files) {
 
 // 主匯出函式:依目前模型聚合 → 組 sheet1.xml → 包成 .xlsx ZIP 下載
 export function exportXlsxFile() {
+  const _xs = getXlsxSettings();   // 字型 / 字級 / 區塊填色 / 分隔欄寬 / 檔名樣板 / sheet 名
   // 用 buildModel() 把所有檔案 / 頁面聚合成單一 3D 模型(同 .std 匯出)
   let model;
   try { model = buildModel(); }
@@ -807,11 +809,12 @@ export function exportXlsxFile() {
   //   col 11 → 0-based col 10 (K) :JOINT 類 vs MEMBER 類(JOINT 右塊 col I 後留 col J 空欄 + col K 黃線)
   //   col 74 → 0-based col 73 (BV):MEMBER 類 vs MATERIAL 類
   //     (MEMBER 從 col 11 起,5 塊各 11 欄,PROPERTIES 從 col 74 起 8 欄)
-  //   width=2 + customWidth=1 把分隔欄縮窄,視覺上更像分區線
+  //   width 從 xlsx 輸出設定讀(預設 2);customWidth=1 才會被 Excel 認可
+  const _sepW = _xs.separatorWidth;
   const colsXml = `<cols>` +
-    `<col min="11" max="11" width="2" customWidth="1" style="6"/>` +
-    `<col min="74" max="74" width="2" customWidth="1" style="6"/>` +
-    `<col min="92" max="92" width="2" customWidth="1" style="6"/>` +
+    `<col min="11" max="11" width="${_sepW}" customWidth="1" style="6"/>` +
+    `<col min="74" max="74" width="${_sepW}" customWidth="1" style="6"/>` +
+    `<col min="92" max="92" width="${_sepW}" customWidth="1" style="6"/>` +
     `</cols>`;
   const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${colsXml}<sheetData>${rowsXml}</sheetData></worksheet>`;
@@ -828,9 +831,11 @@ export function exportXlsxFile() {
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
 </Relationships>`;
+  // sheet name 從 xlsx 設定讀;Excel 限制 31 字、不能含 :\/?*[]
+  const _sheetName = (_xs.sheetName || "Model").replace(/[:\\\/?*\[\]]/g, "_").slice(0, 31);
   const wb = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-<sheets><sheet name="Model" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+<sheets><sheet name="${_sheetName}" sheetId="1" r:id="rId1"/></sheets></workbook>`;
   const wbRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
@@ -843,24 +848,34 @@ export function exportXlsxFile() {
   //   5 桿件 / 材料 ID 欄(淡綠底)
   //   6 大區分隔欄(純黃色,JOINT / MEMBER / MATERIAL 三類之間)
   //   7 柱線 sub-header(* XX nn / * ZZ nn,淡藍底,斜體灰字)— 跟 BRACE 等差色
+  // 字型 / 區塊填色都從 xlsx 設定讀(預設值維持原本配色);ARGB 寫法 "FFRRGGBB"
+  const _fName = _xs.fontName || "Calibri";
+  const _fSize = Number.isFinite(_xs.fontSize) ? _xs.fontSize : 12;
+  const _fillBlockHeader  = cssHexToArgb(_xs.colors.blockHeader);
+  const _fillColumnHeader = cssHexToArgb(_xs.colors.columnHeader);
+  const _fillSubHeader    = cssHexToArgb(_xs.colors.subHeader);
+  const _fillJointId      = cssHexToArgb(_xs.colors.jointId);
+  const _fillMemberId     = cssHexToArgb(_xs.colors.memberId);
+  const _fillSeparator    = cssHexToArgb(_xs.colors.separator);
+  const _fillColumnLine   = cssHexToArgb(_xs.colors.columnLine);
   const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <fonts count="4">
-<font><sz val="12"/><name val="Calibri"/></font>
-<font><sz val="12"/><name val="Calibri"/><b/><color rgb="FFFFFFFF"/></font>
-<font><sz val="12"/><name val="Calibri"/><b/></font>
-<font><sz val="12"/><name val="Calibri"/><i/><color rgb="FF666666"/></font>
+<font><sz val="${_fSize}"/><name val="${_fName}"/></font>
+<font><sz val="${_fSize}"/><name val="${_fName}"/><b/><color rgb="FFFFFFFF"/></font>
+<font><sz val="${_fSize}"/><name val="${_fName}"/><b/></font>
+<font><sz val="${_fSize}"/><name val="${_fName}"/><i/><color rgb="FF666666"/></font>
 </fonts>
 <fills count="9">
 <fill><patternFill patternType="none"/></fill>
 <fill><patternFill patternType="gray125"/></fill>
-<fill><patternFill patternType="solid"><fgColor rgb="FF1F4E78"/><bgColor indexed="64"/></patternFill></fill>
-<fill><patternFill patternType="solid"><fgColor rgb="FFEDEDED"/><bgColor indexed="64"/></patternFill></fill>
-<fill><patternFill patternType="solid"><fgColor rgb="FFFFE4B5"/><bgColor indexed="64"/></patternFill></fill>
-<fill><patternFill patternType="solid"><fgColor rgb="FFD0E4F5"/><bgColor indexed="64"/></patternFill></fill>
-<fill><patternFill patternType="solid"><fgColor rgb="FFD4EFCC"/><bgColor indexed="64"/></patternFill></fill>
-<fill><patternFill patternType="solid"><fgColor rgb="FFFFFF00"/><bgColor indexed="64"/></patternFill></fill>
-<fill><patternFill patternType="solid"><fgColor rgb="FFCCE5FF"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="${_fillBlockHeader}"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="${_fillColumnHeader}"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="${_fillSubHeader}"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="${_fillJointId}"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="${_fillMemberId}"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="${_fillSeparator}"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="${_fillColumnLine}"/><bgColor indexed="64"/></patternFill></fill>
 </fills>
 <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
@@ -887,9 +902,14 @@ export function exportXlsxFile() {
   const zip = _buildZip(files);
   const blob = new Blob([zip], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const projectName = ($("jobName") && $("jobName").value.trim()) || "model";
+  // 套檔名樣板:{projectName} 會被代換,其他文字原樣保留
+  const _baseName = (_xs.filenamePattern || "{projectName}")
+    .replace(/\{projectName\}/g, projectName)
+    .replace(/[\\\/:*?"<>|]/g, "_")    // 移除作業系統不合法字元
+    .trim() || projectName;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url; a.download = `${projectName}.xlsx`;
+  a.href = url; a.download = `${_baseName}.xlsx`;
   document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
   if ($("hud")) $("hud").textContent = `匯出 .xlsx 完成・${joints.length} 節點 / ${members.length} 桿件 / ${_matRowCount} 材料`;
