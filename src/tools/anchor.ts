@@ -15,6 +15,7 @@ import {
   state, $, getPage, pushUndo, withBusy, render, refreshLists,
 } from "../legacy";
 import { invalidateRankCache } from "../core/rankCache";
+import { _setBtnLabel } from "../i18n";
 
 // ---------- pickSupportTypeModal: FIXED / PINNED / 取消 ----------
 //   為了避免多次重建 DOM,modal 第一次呼叫時 createElement,之後重用,只換 resolve 跟內容
@@ -84,20 +85,41 @@ export function pickSupportTypeModal(jointCount: number): Promise<"FIXED" | "PIN
 // ---------- 按鈕 label 同步 ----------
 // 「設為錨點 / 取消錨點」按鈕 label:選取中的 joint 多數已是錨點 → 顯示「取消錨點」
 //   refreshLists 每次選取變更會呼叫 → 自動更新
+//
+//   重要:這顆按鈕 label 會在「設為錨點」↔「取消錨點」之間切,所以容易被 textContent= 洗掉
+//   .btn-icon → icon-only 模式就只剩空白。為了在任何情況下都保有 anchor 圖示,函式自己
+//   在每次呼叫時補上 .btn-icon / .btn-text 兩個 span(若缺)→ self-healing。
+const _ANCHOR_ICON_SVG =
+  '<svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.2"/><line x1="12" y1="7" x2="12" y2="20"/>' +
+  '<path d="M5 14a7 7 0 0 0 14 0"/><line x1="9" y1="11" x2="15" y2="11"/></svg>';
+
+function _ensureAnchorBtnStructure(btn: any) {
+  let iconSpan = btn.querySelector(".btn-icon");
+  let textSpan = btn.querySelector(".btn-text");
+  if (iconSpan && textSpan) return textSpan;
+  // 結構壞了 → 重建
+  const txt = (textSpan && textSpan.textContent) || btn.textContent.trim() || "設為錨點";
+  btn.innerHTML =
+    `<span class="btn-icon">${_ANCHOR_ICON_SVG}</span>` +
+    `<span class="btn-text" data-i18n="subtool.selToolsAnchorToggle">${txt}</span>`;
+  return btn.querySelector(".btn-text");
+}
+
 export function _updateAnchorToggleBtn() {
   const btn = $("selToolsAnchorToggle");
   if (!btn) return;
+  _ensureAnchorBtnStructure(btn);
   const p = getPage();
-  if (!p) { btn.textContent = "設為錨點"; return; }
-  const ids = [...state.selection.joints];
-  if (!ids.length) { btn.textContent = "設為錨點"; return; }
+  const ids = p ? [...state.selection.joints] : [];
   let anchored = 0;
   for (const id of ids) {
-    const j = p.joints.find(x => x.id === id);
+    const j = p && p.joints.find(x => x.id === id);
     if (j && j.isAnchor) anchored++;
   }
   // 跟 toggleAnchorOnSelectedJoints 內的 setTo 判定一致:多數已是錨點 → 改顯示取消
-  btn.textContent = (anchored >= ids.length / 2) ? "取消錨點" : "設為錨點";
+  const isCancel = ids.length > 0 && anchored >= ids.length / 2;
+  _setBtnLabel(btn, isCancel ? "subtool.selToolsAnchorToggle.cancel" : "subtool.selToolsAnchorToggle",
+               isCancel ? "取消錨點" : "設為錨點");
 }
 
 // 依目前選取狀態更新「支座 FIXED / PINNED」按鈕的 label(若該按鈕還有掛)

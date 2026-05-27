@@ -170,6 +170,7 @@ const _I18N = {
   "subtool.selToolsJMerge":      { "zh-TW": "兩點合一",         "en": "Merge Two Joints" },
   "subtool.selToolsMeasure":     { "zh-TW": "標示距離",         "en": "Mark Distance" },
   "subtool.selToolsAnchorToggle":{ "zh-TW": "設為錨點",         "en": "Mark Anchor" },
+  "subtool.selToolsAnchorToggle.cancel": { "zh-TW": "取消錨點", "en": "Unmark Anchor" },
   "subtool.selToolsIntersectSel":{ "zh-TW": "切交點(選取)",    "en": "Cut Intersections" },
   "subtool.btnDel":              { "zh-TW": "刪除",             "en": "Delete" },
   "subtool.selToolsMove":        { "zh-TW": "移動",             "en": "Move" },

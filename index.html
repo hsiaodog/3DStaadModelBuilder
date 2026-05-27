@@ -326,8 +326,8 @@
         <div class="tb-buttons">
           <button id="btnConsolidate" title="整理:合併同位置的節點、刪除重複桿件,並把任何節點落在桿件中段(含共線重疊)的桿件拆段;確保模型內無重複或重疊"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="btn-text" data-i18n="tb.consolidate">整理</span></button>
           <button id="btnExtendCheck" title="檢查可延伸桿件(當前頁):掃描目前 active 頁,找出桿件延伸後可碰到既存節點的斷點(柱子斷層 / 樑接頭微 gap 都會抓);逐條檢視可選跳過或補上延伸桿件,或一鍵全部延伸。全部頁面請用「編輯」選單。Ctrl+Z 可還原"><span class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="7 8 3 12 7 16"/><polyline points="17 8 21 12 17 16"/><line x1="3" y1="12" x2="21" y2="12"/></svg></span><span class="btn-text" data-i18n="tb.extendCheck">檢查可延伸桿件</span></button>
-          <button id="btnRelayoutCurrent" title="編排節點編號(當頁):依「節點編號(全局)」設定重新編排當前頁面的節點與桿件編號(XXZZYY 或 YYZZXX)。若該頁是 active file 的第一頁,會先跑切面節點/桿件推斷。Ctrl+Z 可還原"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="5" cy="6" r="1.6"/><circle cx="5" cy="12" r="1.6"/><circle cx="5" cy="18" r="1.6"/><line x1="10" y1="6" x2="20" y2="6"/><line x1="10" y1="12" x2="20" y2="12"/><line x1="10" y1="18" x2="20" y2="18"/></svg></span><span class="btn-text" data-i18n="tb.relayoutCur">編排節點編號</span></button>
-          <button id="btnRelayoutMembersCurrent" title="編排桿件編號(當頁):只重編桿件 ID(不動節點 ID)。順序 Y 軸 → X 軸 → Z 軸 → 斜撐(XZ 平面為 X → Z → 斜),從 planeOrigin 遞增。Ctrl+Z 可還原"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="6" y2="6"/><line x1="3" y1="12" x2="6" y2="12"/><line x1="3" y1="18" x2="6" y2="18"/><line x1="10" y1="6" x2="20" y2="6"/><line x1="10" y1="12" x2="20" y2="12"/><line x1="10" y1="18" x2="20" y2="18"/></svg></span><span class="btn-text" data-i18n="tb.relayoutMembers">編排桿件編號</span></button>
+          <button id="btnRelayoutCurrent" title="編排節點編號(當頁):依「節點編號(全局)」設定重新編排當前頁面的節點與桿件編號(XXZZYY 或 YYZZXX)。若該頁是 active file 的第一頁,會先跑切面節點/桿件推斷。Ctrl+Z 可還原"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.2" fill="currentColor" stroke="none"/><circle cx="6" cy="12" r="2.2" fill="currentColor" stroke="none"/><circle cx="6" cy="18" r="2.2" fill="currentColor" stroke="none"/><text x="11" y="9" font-size="6" fill="currentColor" stroke="none">1</text><text x="11" y="15" font-size="6" fill="currentColor" stroke="none">2</text><text x="11" y="21" font-size="6" fill="currentColor" stroke="none">3</text><polyline points="17 5 20 8 17 11"/><line x1="17" y1="8" x2="20" y2="8"/></svg></span><span class="btn-text" data-i18n="tb.relayoutCur">編排節點編號</span></button>
+          <button id="btnRelayoutMembersCurrent" title="編排桿件編號(當頁):只重編桿件 ID(不動節點 ID)。順序 Y 軸 → X 軸 → Z 軸 → 斜撐(XZ 平面為 X → Z → 斜),從 planeOrigin 遞增。Ctrl+Z 可還原"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="3" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="6" r="1.4" fill="currentColor" stroke="none"/><line x1="3" y1="6" x2="9" y2="6" stroke-width="1.8"/><circle cx="3" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.4" fill="currentColor" stroke="none"/><line x1="3" y1="12" x2="9" y2="12" stroke-width="1.8"/><circle cx="3" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.4" fill="currentColor" stroke="none"/><line x1="3" y1="18" x2="9" y2="18" stroke-width="1.8"/><text x="13" y="9" font-size="6" fill="currentColor" stroke="none">1</text><text x="13" y="15" font-size="6" fill="currentColor" stroke="none">2</text><text x="13" y="21" font-size="6" fill="currentColor" stroke="none">3</text></svg></span><span class="btn-text" data-i18n="tb.relayoutMembers">編排桿件編號</span></button>
         </div>
       </div>
       <div class="tb-section">
@@ -473,47 +473,59 @@
           </svg>
         </button>
         <button id="btnZoomSel" class="zt-sq" title="放大選取區域(將視野縮放到所選節點/桿件)">
+          <!-- 中心被選取物(填實點)外圍 4 個內向箭頭 — 「縮放到選取」-->
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="7"/>
-            <line x1="21" y1="21" x2="16.5" y2="16.5"/>
-            <circle cx="11" cy="11" r="2.5" fill="currentColor" stroke="none"/>
+            <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/>
+            <polyline points="3 7 3 3 7 3"/>
+            <polyline points="6 6 10 10"/>
+            <polyline points="21 7 21 3 17 3"/>
+            <polyline points="18 6 14 10"/>
+            <polyline points="3 17 3 21 7 21"/>
+            <polyline points="6 18 10 14"/>
+            <polyline points="21 17 21 21 17 21"/>
+            <polyline points="18 18 14 14"/>
           </svg>
         </button>
       </div>
       <div class="zt-zoom-row">
         <button id="btnZoomRange" title="範圍放大:點兩下對角匡選 (Esc 取消)">
+          <!-- 虛框 + 對角點選兩端 — 「拉框範圍」(去掉磁鏡避免跟 btnZoomIn/Out 撞)-->
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="2" y="2" width="14" height="14" rx="1" stroke-dasharray="2.5 2"/>
-            <circle cx="11" cy="11" r="4"/>
-            <line x1="14" y1="14" x2="22" y2="22"/>
+            <rect x="3" y="3" width="18" height="18" rx="1" stroke-dasharray="3 2"/>
+            <circle cx="3" cy="3" r="1.8" fill="currentColor" stroke="none"/>
+            <circle cx="21" cy="21" r="1.8" fill="currentColor" stroke="none"/>
+            <line x1="3" y1="3" x2="21" y2="21" stroke-dasharray="2 2"/>
           </svg>
         </button>
         <button id="btnFit" title="回復整圖顯示(將視野縮放到整張底圖)">
+          <!-- 4 個角向外的箭頭 — 「整圖適配」(經典 fit-to-screen 樣式)-->
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 8V3h5"/>
-            <path d="M21 8V3h-5"/>
-            <path d="M3 16v5h5"/>
-            <path d="M21 16v5h-5"/>
-            <circle cx="12" cy="12" r="3"/>
-            <line x1="14" y1="14" x2="16" y2="16"/>
+            <polyline points="9 3 3 3 3 9"/>
+            <polyline points="6 6 10 10"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <polyline points="18 6 14 10"/>
+            <polyline points="3 15 3 21 9 21"/>
+            <polyline points="6 18 10 14"/>
+            <polyline points="21 15 21 21 15 21"/>
+            <polyline points="18 18 14 14"/>
           </svg>
         </button>
       </div>
-      <button id="snapGridBtn" class="zt-wide" title="鎖點視覺切換 (Shift+A):網格 / 點 / 關閉,影響游標自動吸附">鎖點 網格</button>
-      <label class="zoom-tools-row" title="網格鎖點:游標吸附到鎖點間距形成的網格『線』(單軸吸附)"><input type="checkbox" id="snapGridLineChk"/> <span data-i18n="zt.snapGridLine">網格鎖點</span></label>
-      <label class="zoom-tools-row" title="線條優先:同時開啟兩種鎖點時,優先吸附網格『線』而非交點"><input type="checkbox" id="snapLinesPriority" checked/> <span data-i18n="zt.snapLinesPriority">線條優先</span></label>
-      <label class="zoom-tools-row" title="網點鎖點:游標吸附到網格『交點』(雙軸吸附)"><input type="checkbox" id="snapGridPointChk"/> <span data-i18n="zt.snapGridPoint">網點鎖點</span></label>
+      <button id="snapGridBtn" class="zt-wide" title="鎖點視覺切換 (Shift+A):網格 / 點 / 關閉,影響游標自動吸附"><span class="btn-icon"><!-- 磁鐵(U 形)— 「鎖點 / 吸附」通用語意,文字描述狀態 --><svg viewBox="0 0 24 24"><path d="M5 4v9a7 7 0 0 0 14 0V4"/><path d="M5 4h4v9a3 3 0 0 0 6 0V4h4"/></svg></span><span class="btn-text">鎖點 網格</span></button>
+      <label class="zoom-tools-row" title="網格鎖點:游標吸附到鎖點間距形成的網格『線』(單軸吸附)"><input type="checkbox" id="snapGridLineChk"/><span class="zt-icon"><!-- 純網格線,無交點強調 --><svg viewBox="0 0 24 24"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg></span><span data-i18n="zt.snapGridLine">網格鎖點</span></label>
+      <label class="zoom-tools-row" title="線條優先:同時開啟兩種鎖點時,優先吸附網格『線』而非交點"><input type="checkbox" id="snapLinesPriority" checked/><span class="zt-icon"><!-- 線條 + 星號(優先) --><svg viewBox="0 0 24 24"><line x1="3" y1="14" x2="21" y2="14"/><polygon points="12 3 13.8 7 18 7.5 14.8 10.4 15.8 14.5 12 12.4 8.2 14.5 9.2 10.4 6 7.5 10.2 7" stroke-linejoin="round"/></svg></span><span data-i18n="zt.snapLinesPriority">線條優先</span></label>
+      <label class="zoom-tools-row" title="網點鎖點:游標吸附到網格『交點』(雙軸吸附)"><input type="checkbox" id="snapGridPointChk"/><span class="zt-icon"><!-- 3x3 網格交點 --><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="18" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="6" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="6" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="18" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg></span><span data-i18n="zt.snapGridPoint">網點鎖點</span></label>
       <div class="zt-sep"></div>
       <div class="zt-zoom-row" title="標示字體整體放大 / 縮小">
         <button id="btnLblSmaller" class="zt-sq" title="標示字體縮小">A−</button>
         <button id="btnLblReset"   class="zt-sq" title="還原標示字體預設">A</button>
         <button id="btnLblBigger"  class="zt-sq" title="標示字體放大">A+</button>
       </div>
-      <button id="btnJointLblToggle"  class="zt-wide" title="節點標號顯示 / 隱藏">節點標號 顯示</button>
-      <button id="btnMemberLblToggle" class="zt-wide" title="桿件標號顯示 / 隱藏">桿件標號 顯示</button>
+      <button id="btnJointLblToggle"  class="zt-wide" title="節點標號顯示 / 隱藏"><span class="btn-icon"><!-- 節點(圓圈)+ 標號 tag --><svg viewBox="0 0 24 24"><circle cx="7" cy="14" r="3"/><rect x="12" y="6" width="9" height="7" rx="1"/><text x="13.5" y="11.6" font-size="5.5" fill="currentColor" stroke="none">J</text><line x1="9.5" y1="12" x2="12" y2="9.5"/></svg></span><span class="btn-text">節點標號 顯示</span></button>
+      <button id="btnMemberLblToggle" class="zt-wide" title="桿件標號顯示 / 隱藏"><span class="btn-icon"><!-- 桿件(線段)+ 標號 tag --><svg viewBox="0 0 24 24"><line x1="3" y1="18" x2="13" y2="8"/><circle cx="3" cy="18" r="1.6" fill="currentColor" stroke="none"/><circle cx="13" cy="8" r="1.6" fill="currentColor" stroke="none"/><rect x="13" y="13" width="9" height="7" rx="1"/><text x="14" y="18.6" font-size="5.5" fill="currentColor" stroke="none">M</text></svg></span><span class="btn-text">桿件標號 顯示</span></button>
     </div>
     <div id="stage">
       <canvas id="bg-canvas" width="1200" height="800"></canvas>

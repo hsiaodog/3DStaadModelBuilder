@@ -2933,6 +2933,13 @@ window.addEventListener("keydown", (e) => {
     selectAllBgPaths();
     return;
   }
+  // Cmd/Ctrl+A 在選取模式下走「全選」按鈕同一條路徑 — 會套 state.selectFilter 跟 memberDirFilter
+  // (filter=joints 只選點、filter=members 套方向 filter 只選符合方向的線、filter=all 兩個都選)
+  if (mod && e.key.toLowerCase() === "a" && state.tool === "select") {
+    e.preventDefault();
+    selToolsSelectAll();
+    return;
+  }
   if (e.key === "Tab" && state.tool === "select") {
     e.preventDefault();
     cycleSelectFilter();
@@ -13940,10 +13947,10 @@ export function updateSnapGridBtn() {
   if (!btn) return;
   btn.classList.toggle("active", m > 0);
   const u = state.unitName, st = state.snapGrid.step;
-  const T = (k, fb) => (typeof _t === "function" && _t(k)) || fb;
-  if (m === 0)      btn.textContent = T("tb.snapOff", "鎖點 關閉");
-  else if (m === 1) btn.textContent = `${T("tb.snapPoint", "鎖點 點")} · ${st}${u}`;
-  else              btn.textContent = `${T("tb.snapGrid", "鎖點 網格")} · ${st}${u}`;
+  // 用 _setBtnLabel 保留 .btn-icon — 直接 textContent= 會把磁鐵 svg 洗掉
+  if (m === 0)      _setBtnLabel(btn, "tb.snapOff",   "鎖點 關閉");
+  else if (m === 1) _setBtnLabel(btn, "tb.snapPoint", `鎖點 點 · ${st}${u}`);
+  else              _setBtnLabel(btn, "tb.snapGrid",  `鎖點 網格 · ${st}${u}`);
 }
 function cycleSnapGrid() {
   // 順序:網格 → 點 → 關閉 → 網格
@@ -15479,9 +15486,14 @@ export function _applyToolbarMode(mode) {
 const _GENERIC_ICON = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/></svg>';
 const _ICON_SVG = {
   // === selectTools: 選取群組 ===
-  "selToolsAll":        '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1" stroke-dasharray="3 2"/><polyline points="9 12 11 14 16 9"/></svg>',
+  "selToolsAll":        '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1" stroke-dasharray="3 2"/><circle cx="8" cy="8" r="1.6" fill="currentColor" stroke="none"/><circle cx="16" cy="8" r="1.6" fill="currentColor" stroke="none"/><circle cx="8" cy="16" r="1.6" fill="currentColor" stroke="none"/><circle cx="16" cy="16" r="1.6" fill="currentColor" stroke="none"/><line x1="8" y1="8" x2="16" y2="16"/></svg>',
   "selToolsJoints":     '<svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="18" r="2.2"/></svg>',
   "selToolsMembers":    '<svg viewBox="0 0 24 24"><circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/><line x1="7" y1="17" x2="17" y2="7"/></svg>',
+  // 方向 filter:全部以「斜線標示」當區別軸,線本身指方向;O = H+V 十字
+  "selToolsDirV":       '<svg viewBox="0 0 24 24"><line x1="12" y1="3" x2="12" y2="21" stroke-width="2.6"/></svg>',
+  "selToolsDirH":       '<svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12" stroke-width="2.6"/></svg>',
+  "selToolsDirO":       '<svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12" stroke-width="2.4"/><line x1="12" y1="3" x2="12" y2="21" stroke-width="2.4"/></svg>',
+  "selToolsDirD":       '<svg viewBox="0 0 24 24"><line x1="4" y1="20" x2="20" y2="4" stroke-width="2.6"/></svg>',
   "selToolsRepeatHJ":   '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><polyline points="2 6 22 6 18 4 22 6 18 8"/></svg>',
   "selToolsRepeatVJ":   '<svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/><polyline points="18 2 18 22 16 18 18 22 20 18"/></svg>',
   "selToolsRepeatOH":   '<svg viewBox="0 0 24 24"><line x1="3" y1="7" x2="15" y2="7"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="17" x2="15" y2="17"/><polyline points="18 8 21 11 18 14"/></svg>',
@@ -15513,7 +15525,9 @@ const _ICON_SVG = {
   "selToolsMoveAngle":  '<svg viewBox="0 0 24 24"><path d="M4 20 L20 4"/><path d="M4 20 L20 20"/><path d="M14 20a4 4 0 0 0 0-4"/></svg>',
   "selToolsMoveRect":   '<svg viewBox="0 0 24 24"><line x1="4" y1="20" x2="20" y2="20"/><line x1="4" y1="20" x2="4" y2="6"/><polyline points="2 9 4 6 7 9"/><polyline points="17 22 20 20 17 18"/></svg>',
   // === bgEditTools: 選取群組 ===
-  "bgEditSelectAll":    '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1" stroke-dasharray="3 2"/><polyline points="9 12 11 14 16 9"/></svg>',
+  // 全選底圖:虛框內含多個 bg primitive(直線、斜線、圓)→ 區隔 selToolsAll
+  "bgEditSelectAll":    '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1" stroke-dasharray="3 2"/><line x1="6" y1="9" x2="12" y2="9"/><line x1="6" y1="15" x2="14" y2="7"/><circle cx="17" cy="16" r="2.5"/></svg>',
+  // 取消選取(虛框 + X)— 跟 ClearShape(取消形狀類型)區別:這裡虛框是動作框
   "bgEditClear":        '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1" stroke-dasharray="3 2"/><line x1="8" y1="8" x2="16" y2="16"/><line x1="16" y1="8" x2="8" y2="16"/></svg>',
   "bgEditMultiSelect":  '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="14" height="14" rx="1" stroke-dasharray="3 2"/><rect x="8" y="8" width="14" height="14" rx="1" stroke-dasharray="3 2"/></svg>',
   "bgEditSelSquares":   '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1"/></svg>',
@@ -15523,10 +15537,13 @@ const _ICON_SVG = {
   "bgEditSelStraightSolid": '<svg viewBox="0 0 24 24"><line x1="3" y1="21" x2="21" y2="3"/><circle cx="3" cy="21" r="1.4" fill="currentColor" stroke="none"/><circle cx="21" cy="3" r="1.4" fill="currentColor" stroke="none"/></svg>',
   "bgEditSelDiagonals": '<svg viewBox="0 0 24 24"><line x1="3" y1="18" x2="18" y2="3"/><line x1="6" y1="21" x2="21" y2="6"/></svg>',
   "bgEditSelDashedDiagonals": '<svg viewBox="0 0 24 24"><line x1="3" y1="21" x2="21" y2="3" stroke-dasharray="3 2"/></svg>',
-  "bgEditClearShape":   '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1" stroke-dasharray="3 2"/><line x1="7" y1="7" x2="17" y2="17"/><line x1="17" y1="7" x2="7" y2="17"/></svg>',
+  // 取消形狀類型:重疊的多種形狀(rect / circle / 斜線)被 X 切除,跟 bgEditClear 區別
+  "bgEditClearShape":   '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="10" height="10"/><circle cx="16" cy="16" r="4"/><line x1="14" y1="3" x2="21" y2="10"/><line x1="20" y1="4" x2="4" y2="20" stroke-width="2.4"/></svg>',
   // === bgEditTools: 編輯群組 ===
-  "bgEditPlaneOrigin":  '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><line x1="12" y1="1" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="23"/><line x1="1" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="23" y2="12"/></svg>',
-  "bgEditScaleRuler":   '<svg viewBox="0 0 24 24"><path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/></svg>',
+  // bg 模式版本:用「交叉軸 + 中心點」風格(無外圈),跟主工具列 btnPlaneOrigin(同心圓外圈)區別
+  "bgEditPlaneOrigin":  '<svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="12" y1="3" x2="12" y2="21"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>',
+  // bg 模式版本:單條直尺刻度,跟主工具列 btnScaleRuler(斜尺+刻度)區別
+  "bgEditScaleRuler":   '<svg viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="6" rx="1"/><line x1="6" y1="9" x2="6" y2="13"/><line x1="9" y1="9" x2="9" y2="12"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="15" y1="9" x2="15" y2="12"/><line x1="18" y1="9" x2="18" y2="13"/></svg>',
   "bgEditDrawLine":     '<svg viewBox="0 0 24 24"><circle cx="5" cy="19" r="1.6"/><circle cx="19" cy="5" r="1.6"/><line x1="6.4" y1="17.6" x2="17.6" y2="6.4"/></svg>',
   "bgEditDrawDashed":   '<svg viewBox="0 0 24 24"><circle cx="5" cy="19" r="1.6"/><circle cx="19" cy="5" r="1.6"/><line x1="6.4" y1="17.6" x2="17.6" y2="6.4" stroke-dasharray="3 2"/></svg>',
   "bgEditCopyLine":     '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="12" height="12" rx="1"/><rect x="3" y="9" width="12" height="12" rx="1"/></svg>',
@@ -15545,6 +15562,15 @@ const _ICON_SVG = {
   "bgEditScaleRulerMove":'<svg viewBox="0 0 24 24"><path d="M3 17L17 3l4 4L7 21z"/><polyline points="6 6 3 9 6 12"/><polyline points="18 6 21 9 18 12"/></svg>',
   "bgEditMeasureSelect": '<svg viewBox="0 0 24 24"><rect x="2" y="9" width="20" height="7" rx="1"/><polyline points="9 12 11 14 16 9"/></svg>',
   "bgEditMeasureMove":  '<svg viewBox="0 0 24 24"><rect x="2" y="9" width="20" height="7" rx="1"/><polyline points="6 6 3 9 6 12"/><polyline points="18 6 21 9 18 12"/></svg>',
+  // === bgEditTools: 測量群組(原本沒登錄圖示 → fallback 成 generic dot,現在補) ===
+  // 標示距離:雙箭頭量度線(╞════╡)
+  "bgEditMeasure":      '<svg viewBox="0 0 24 24"><line x1="4" y1="12" x2="20" y2="12"/><polyline points="7 9 4 12 7 15"/><polyline points="17 9 20 12 17 15"/><line x1="4" y1="6" x2="4" y2="18"/><line x1="20" y1="6" x2="20" y2="18"/></svg>',
+  // 水平原點距離:從原點(十字)往右量到一條垂直線
+  "bgEditOriginDistH":  '<svg viewBox="0 0 24 24"><line x1="3" y1="9" x2="3" y2="15"/><line x1="3" y1="12" x2="3" y2="12"/><circle cx="3" cy="12" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="12" x2="20" y2="12"/><polyline points="17 9 20 12 17 15"/><line x1="20" y1="4" x2="20" y2="20" stroke-dasharray="3 2"/></svg>',
+  // 垂直原點距離:從原點往下量到一條水平線
+  "bgEditOriginDistV":  '<svg viewBox="0 0 24 24"><line x1="9" y1="3" x2="15" y2="3"/><circle cx="12" cy="3" r="1.6" fill="currentColor" stroke="none"/><line x1="12" y1="3" x2="12" y2="20"/><polyline points="9 17 12 20 15 17"/><line x1="4" y1="20" x2="20" y2="20" stroke-dasharray="3 2"/></svg>',
+  // 與原點最短距離:從原點向斜線方向作垂線(直角符號)
+  "bgEditOriginDistMin":'<svg viewBox="0 0 24 24"><line x1="3" y1="20" x2="21" y2="2"/><circle cx="4" cy="4" r="1.8" fill="currentColor" stroke="none"/><line x1="4" y1="4" x2="13" y2="13"/><polyline points="11 11 13 13 13 11" stroke-width="1.4"/></svg>',
 };
 
 function _decorateSubToolButtons() {
