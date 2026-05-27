@@ -211,6 +211,10 @@ export function openSearchWindow() {
   .block:last-child { border-bottom: none; }
   .block-label { color: #9bb6e8; font-weight: 700; font-size: 11px; flex-shrink: 0; min-width: 64px; }
   .bg-btn-group { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+  /* 搜尋按鈕列裡的 block-label 不必撐寬(min-width 會擠) — 跟旁邊 buttons 自然貼齊 */
+  .search-action-row .block-label { min-width: 0; margin-left: 4px; }
+  /* 細直線分隔搜尋按鈕群 vs 結果包含群,讓視覺有分隔 */
+  .search-row-divider { width: 1px; align-self: stretch; background: #2f3338; margin: 2px 8px; }
   .bg-btn { display: inline-flex; align-items: center; padding: 3px 10px;
     background: #1a1c20; border: 1px solid #444; border-radius: 4px;
     cursor: pointer; user-select: none; font-size: 11px; color: #cfd3d8;
@@ -230,6 +234,9 @@ export function openSearchWindow() {
     white-space: pre-wrap; word-break: normal; overflow-wrap: normal; line-height: 1.4; }
   .id-block textarea:focus { outline: none; border-color: #4f9dff; }
   .id-hist-btn { padding: 4px 10px; font-size: 11px; align-self: stretch; white-space: nowrap; }
+  .id-help-btn { padding: 4px 8px; font-size: 12px; font-weight: 700; align-self: stretch;
+    white-space: nowrap; min-width: 24px; }
+  .id-help-btn.active { background: #2f4a78; border-color: #4f9dff; color: #fff; }
   .id-hist-menu { position: absolute; right: 0; top: 100%; margin-top: 2px;
     min-width: 240px; max-width: 480px;
     background: #1a1c20; border: 1px solid #4f9dff; border-radius: 4px; padding: 4px;
@@ -239,6 +246,24 @@ export function openSearchWindow() {
     border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .id-hist-row:hover { background: #2a2d33; color: #fff; }
   .id-hist-empty { padding: 6px 8px; color: #7b818a; font-size: 11px; font-style: italic; }
+  /* 正則速查 popover — 樣式跟 hist-menu 同款但寬一點;範例可點擊 → 插進 textarea */
+  .id-help-menu { position: absolute; right: 0; top: 100%; margin-top: 2px;
+    width: 360px; max-width: 90vw;
+    background: #1a1c20; border: 1px solid #4f9dff; border-radius: 4px; padding: 8px 10px;
+    z-index: 30; box-shadow: 0 6px 18px rgba(0,0,0,0.55);
+    max-height: 360px; overflow-y: auto; font-size: 11px; color: #cfd3d8; line-height: 1.45; }
+  .id-help-menu h4 { color: #9bb6e8; font-size: 11px; font-weight: 700; margin: 6px 0 4px;
+    border-bottom: 1px solid #2a2d33; padding-bottom: 3px; }
+  .id-help-menu h4:first-child { margin-top: 0; }
+  .id-help-menu .help-row { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }
+  .id-help-menu .help-row code { background: #0f1014; color: #ffd23f; padding: 1px 6px;
+    border-radius: 3px; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px; cursor: pointer; flex-shrink: 0; min-width: 80px; text-align: center;
+    border: 1px solid transparent; transition: border-color 0.08s, background 0.08s; }
+  .id-help-menu .help-row code:hover { border-color: #4f9dff; background: #1a1c20; }
+  .id-help-menu .help-row .help-desc { color: #cfd3d8; }
+  .id-help-menu .help-note { color: #7b818a; font-size: 10.5px; font-style: italic;
+    padding: 4px 0; }
   /* 限定平面 / 頁面:用 bg-btn 排列 */
   #fileList .bg-btn { font-size: 10.5px; padding: 2px 8px; }
   .ms-list-empty { padding: 4px 8px; color: #7b818a; font-size: 11px; font-style: italic; }
@@ -314,13 +339,6 @@ export function openSearchWindow() {
         </div>
         <div class="col col-r">
           <div class="block" style="border-bottom:none">
-            <span class="block-label" data-i18n="search.resultInclude">結果包含:</span>
-            <div class="bg-btn-group">
-              <label class="bg-btn" title="節點搜尋時,將「節點 + 連接的桿件」一併列出"><input type="checkbox" id="incMembers" data-mem-combo><span data-i18n="search.incMembers">含桿件</span></label>
-              <label class="bg-btn checked" title="與「含桿件」相同的資料,但顯示時隱藏獨立的節點列"><input type="checkbox" id="onlyMembers" data-mem-combo checked><span data-i18n="search.onlyMembers">只有桿件</span></label>
-            </div>
-          </div>
-          <div class="block" style="border-bottom:none">
             <span class="block-label" data-i18n="search.limitPlane">限定平面:</span>
             <div class="bg-btn-group" id="planeList">
               <label class="bg-btn" data-val="XY"><input type="checkbox" value="XY">XY</label>
@@ -345,14 +363,16 @@ export function openSearchWindow() {
       <div class="block id-block" data-role="memberSection">
         <span class="block-label" data-i18n="search.idMember">桿件編號:</span>
         <div class="id-row" style="position:relative">
-          <textarea id="memberIdInput" rows="2" data-i18n-placeholder="search.placeholder.id" placeholder="逗號 / 空白 / 換行分隔(可直接從 Excel 貼一整欄),留空 = 全部"></textarea>
+          <textarea id="memberIdInput" rows="2" data-i18n-placeholder="search.placeholder.id" placeholder="逗號 / 空白 / 換行分隔 ・支援 regex(.*52 = 結尾 52、52.* = 開頭 52、.*52.* = 含 52)・留空 = 全部"></textarea>
+          <button class="id-help-btn" data-help-target="memberIdInput" type="button" title="正則表達式速查">?</button>
           <button class="id-hist-btn" data-hist-target="memberIdInput" data-hist-type="member" data-i18n="search.histBtn" type="button" title="最近 50 筆桿件搜尋紀錄">歷史 ▾</button>
         </div>
       </div>
       <div class="block id-block" data-role="jointSection">
         <span class="block-label" data-i18n="search.idJoint">節點編號:</span>
         <div class="id-row" style="position:relative">
-          <textarea id="jointIdInput" rows="2" data-i18n-placeholder="search.placeholder.id" placeholder="逗號 / 空白 / 換行分隔(可直接從 Excel 貼一整欄),留空 = 全部"></textarea>
+          <textarea id="jointIdInput" rows="2" data-i18n-placeholder="search.placeholder.id" placeholder="逗號 / 空白 / 換行分隔 ・支援 regex(.*52 = 結尾 52、52.* = 開頭 52、.*52.* = 含 52)・留空 = 全部"></textarea>
+          <button class="id-help-btn" data-help-target="jointIdInput" type="button" title="正則表達式速查">?</button>
           <button class="id-hist-btn" data-hist-target="jointIdInput" data-hist-type="joint" data-i18n="search.histBtn" type="button" title="最近 50 筆節點搜尋紀錄">歷史 ▾</button>
         </div>
       </div>
@@ -367,12 +387,18 @@ export function openSearchWindow() {
           <button class="id-hist-btn" data-hist-target="materialIdInput" data-hist-type="material" data-i18n="search.histBtn" type="button" title="最近 50 筆材料搜尋紀錄">歷史 ▾</button>
         </div>
       </div>
-      <!-- 搜尋按鈕列 -->
-      <div class="block" style="border-bottom:none;padding-top:6px">
+      <!-- 搜尋按鈕列(結果包含 也移到這排 → 跟操作按鈕同一列) -->
+      <div class="block search-action-row" style="border-bottom:none;padding-top:6px">
         <button id="btnSearch" class="primary" data-i18n="search.btnSearch" title="編號區內可按 Cmd/Ctrl + Enter 直接搜尋(textarea 內單按 Enter 為換行)">搜尋 (Enter)</button>
         <button id="btnClear" data-i18n="search.btnClear">清除</button>
         <button id="btnFilter" data-i18n="search.btnFilter" title="結果篩選(目前支援:依材料設定)">篩選 ⚙</button>
         <button id="btnClearHist" data-i18n="search.btnClearHist" title="清除目前模式的搜尋歷史(節點 / 桿件 分開)">清除歷史</button>
+        <span class="search-row-divider"></span>
+        <span class="block-label" data-i18n="search.resultInclude">結果包含:</span>
+        <div class="bg-btn-group">
+          <label class="bg-btn" title="節點搜尋時,將「節點 + 連接的桿件」一併列出"><input type="checkbox" id="incMembers" data-mem-combo><span data-i18n="search.incMembers">含桿件</span></label>
+          <label class="bg-btn checked" title="與「含桿件」相同的資料,但顯示時隱藏獨立的節點列"><input type="checkbox" id="onlyMembers" data-mem-combo checked><span data-i18n="search.onlyMembers">只有桿件</span></label>
+        </div>
         <span style="flex:1"></span>
         <span data-i18n="search.escClose" style="color:#888;font-size:10px">Esc 關閉</span>
       </div>
@@ -744,6 +770,77 @@ export function openSearchWindow() {
   doc.addEventListener("click", (e) => {
     if (_openHistMenu && !_openHistMenu.contains(e.target) && !e.target.closest(".id-hist-btn")) _closeHistMenu();
   });
+  // === 正則速查 popover ===
+  //   每個範例右側點擊 → append 到對應的 textarea(尾巴若不是空白,先補空白分隔)
+  //   通用語法 + 模型相關範例 + xlsx / TO 提醒
+  let _openHelpMenu: any = null;
+  const _closeHelpMenu = () => {
+    if (_openHelpMenu) { _openHelpMenu.remove(); _openHelpMenu = null; }
+    body.querySelectorAll(".id-help-btn.active").forEach(b => b.classList.remove("active"));
+  };
+  const _insertIntoTextarea = (ta: any, snippet: string) => {
+    if (!ta) return;
+    const cur = ta.value;
+    const needSep = cur.length > 0 && !/\s$/.test(cur);
+    ta.value = cur + (needSep ? " " : "") + snippet;
+    ta.focus();
+    // cursor 移到尾
+    try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (_) {}
+  };
+  const _openHelpFor = (btn: any) => {
+    _closeHelpMenu();
+    _closeHistMenu();
+    const targetId = btn.dataset.helpTarget;
+    const ta = body.querySelector("#" + targetId);
+    const menu = doc.createElement("div");
+    menu.className = "id-help-menu";
+    menu.innerHTML = `
+      <h4>常用樣式</h4>
+      <div class="help-row"><code data-snippet=".*52">.*52</code><span class="help-desc">結尾為 52(例:152、10052)</span></div>
+      <div class="help-row"><code data-snippet="52.*">52.*</code><span class="help-desc">開頭為 52(例:52、521、52001)</span></div>
+      <div class="help-row"><code data-snippet=".*52.*">.*52.*</code><span class="help-desc">含 52(任意位置)</span></div>
+      <div class="help-row"><code data-snippet="\\d{5}">\\d{5}</code><span class="help-desc">恰好 5 位數的編號</span></div>
+      <div class="help-row"><code data-snippet="\\d{5,}">\\d{5,}</code><span class="help-desc">5 位以上(編號很大的)</span></div>
+      <div class="help-row"><code data-snippet="[1-9]\\d{3}">[1-9]\\d{3}</code><span class="help-desc">1000–9999 任意 4 位數</span></div>
+      <h4>進階(OR / 群組)</h4>
+      <div class="help-row"><code data-snippet="(101|102|103).*">(101|102|103).*</code><span class="help-desc">開頭是 101 / 102 / 103 任一</span></div>
+      <div class="help-row"><code data-snippet=".*(51|52|53)">.*(51|52|53)</code><span class="help-desc">結尾是 51 / 52 / 53 任一</span></div>
+      <h4>範圍 / 列表(原本功能)</h4>
+      <div class="help-row"><code data-snippet="5 to 10">5 to 10</code><span class="help-desc">5、6、7、8、9、10 連續展開</span></div>
+      <div class="help-row"><code data-snippet="1, 5, 10, 25">1, 5, 10, 25</code><span class="help-desc">逗號 / 空白 / 換行皆可分隔</span></div>
+      <h4 style="color:#ffd23f">小提醒</h4>
+      <div class="help-note">• regex 會自動加 <code style="display:inline;padding:0 4px;color:#ffd23f;background:#0f1014">^…$</code> 全字串匹配 → <code style="display:inline;padding:0 4px;color:#ffd23f;background:#0f1014">.*52</code> 不會誤中 523</div>
+      <div class="help-note">• 純數字 / regex / TO 範圍 可以混用 — 結果是聯集</div>
+      <div class="help-note">• 從 Excel 整欄(含 <code style="display:inline;padding:0 4px;color:#ffd23f;background:#0f1014">;</code>)直接貼也 OK</div>
+      <div class="help-note">• 無效 regex 會略過(不會炸),console 會有警告</div>
+    `;
+    btn.parentNode.appendChild(menu);
+    btn.classList.add("active");
+    _openHelpMenu = menu;
+    // 範例 code 點擊 → 插進 textarea
+    menu.querySelectorAll<HTMLElement>("code[data-snippet]").forEach(c => {
+      c.addEventListener("click", (e: any) => {
+        e.stopPropagation();
+        _insertIntoTextarea(ta, c.dataset.snippet || "");
+      });
+    });
+    // 阻止 popover 內 click 冒泡到 doc 觸發 close
+    menu.addEventListener("click", (e: any) => e.stopPropagation());
+  };
+  body.querySelectorAll(".id-help-btn").forEach(btn => {
+    btn.addEventListener("click", (e: any) => {
+      e.stopPropagation();
+      if (_openHelpMenu && _openHelpMenu.parentNode === btn.parentNode) { _closeHelpMenu(); return; }
+      _openHelpFor(btn);
+    });
+  });
+  doc.addEventListener("click", (e: any) => {
+    if (_openHelpMenu && !_openHelpMenu.contains(e.target) && !e.target.closest(".id-help-btn")) _closeHelpMenu();
+  });
+  // Esc 關閉 popover(但搜尋 popup 本身的 Esc 也會被處理 — 加 capture 提早攔)
+  doc.addEventListener("keydown", (e: any) => {
+    if (e.key === "Escape" && _openHelpMenu) { e.stopPropagation(); _closeHelpMenu(); }
+  }, true);
   // 保留外部接口名稱:既有 runSearch / clearHist 仍呼叫 _refreshHistUI(現在是 no-op,因為菜單每次開啟都會 reload)
   const _refreshHistUI = () => {};
   // === 結果篩選狀態(由 Filter dialog 設定) ===
@@ -943,8 +1040,10 @@ export function openSearchWindow() {
   });
   btnClearHist.addEventListener("click", () => {
     // 只清除目前模式(桿件 / 節點 / 材料)的歷史,讓三種紀錄可獨立管理
+    // 走 win.confirm 而非主視窗的 confirm — 不然確認窗會跑到主視窗而非搜尋 popup
     const type = body.querySelector("input[name=searchType]:checked").value;
-    if (!confirm(`清除「${type === "material" ? "材料" : (type === "member" ? "桿件" : "節點")}」的所有搜尋歷史(共 ${_loadSearchHistory(type).length} 筆)?`)) return;
+    const msg = `清除「${type === "material" ? "材料" : (type === "member" ? "桿件" : "節點")}」的所有搜尋歷史(共 ${_loadSearchHistory(type).length} 筆)?`;
+    if (!win.confirm(msg)) return;
     try { localStorage.removeItem(_SEARCH_HIST_KEY[type]); } catch (_) {}
     _refreshHistUI();
   });
@@ -1041,7 +1140,16 @@ export function openSearchWindow() {
 //   3) xlsx MEMBER 區直接貼:
 //      `*` 開頭的行 = comment 跳過;每行用 `;` 切成 triplet,每 triplet 取「首個整數 token」當 member ID
 //      例如貼:`1 10106 10105 ; 2 10130 10106 ; 3 10107 10130` → 取出 ID = 1, 2, 3
-//   偵測:text 含 `;` 或任何行起頭是 `*` → 走 (3);否則走 (1) 並對 token 跑 (2) 的 TO 展開
+//   4) RegExp 樣式:token 含 `* . ^ $ [ ] + ? | ( ) \` → 視為正則,自動加 `^…$` 全字串匹配
+//      範例:
+//        `.*52`   → 結尾為 52 的所有編號
+//        `52.*`   → 開頭為 52
+//        `.*52.*` → 中間含 52
+//        `[1-9]\d{3}`  → 1000-9999 任意 4 位數
+//      無效 regex 會自動忽略(不會炸)
+//   偵測:text 含 `;` 或任何行起頭是 `*` → 走 (3);否則 token-by-token 判斷 regex / TO / 純數字
+//
+//   回傳:{ ids: string[], patterns: RegExp[] } 或 null(text 空)
 function _parseIdsWithRanges(text) {
   if (!text) return null;
   const str = String(text);
@@ -1059,15 +1167,19 @@ function _parseIdsWithRanges(text) {
         if (/^\d+$/.test(first)) ids.push(first);
       }
     }
-    return ids.length ? ids : null;
+    return ids.length ? { ids, patterns: [] } : null;
   }
-  // 簡單路徑:逗號 / 空白 / 換行 split,然後跑 TO range 展開
+  // 簡單路徑:逗號 / 空白 / 換行 split,然後跑 TO range 展開 / regex 偵測
   const tokens = str.split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
   const ids = [];
+  const patterns: RegExp[] = [];
   const MAX_RANGE = 100000;
+  const _isRegexLike = (t: string) => /[.*^$\[\]+?|()\\]/.test(t);
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
-    const isToNext = tokens[i + 1] && /^to$/i.test(tokens[i + 1]) && tokens[i + 2] != null;
+    // TO range:左右兩側都必須是純數字,否則不展開
+    const isToNext = tokens[i + 1] && /^to$/i.test(tokens[i + 1]) && tokens[i + 2] != null
+                  && /^\d+$/.test(t) && /^\d+$/.test(tokens[i + 2]);
     if (isToNext) {
       const a = Number(t), b = Number(tokens[i + 2]);
       if (Number.isInteger(a) && Number.isInteger(b)) {
@@ -1079,14 +1191,40 @@ function _parseIdsWithRanges(text) {
         }
       }
     }
-    ids.push(t);
+    if (_isRegexLike(t)) {
+      // 自動加 ^…$ 全字串匹配 → `.*52` 不會誤中 `523`
+      try { patterns.push(new RegExp("^" + t + "$")); }
+      catch (_) { console.warn(`[搜尋] 無效正則樣式略過:${t}`); }
+    } else {
+      ids.push(t);
+    }
   }
-  return ids;
+  return { ids, patterns };
+}
+
+// 給定一個 dispId(字串)→ 是否符合 ids set 或任一 pattern
+function _matchesParsed(parsed, dispId: string): boolean {
+  if (!parsed) return true;
+  if (parsed.ids.length === 0 && parsed.patterns.length === 0) return false;
+  if (parsed.ids.includes(dispId)) return true;
+  for (const re of parsed.patterns) if (re.test(dispId)) return true;
+  return false;
 }
 // 收集匹配:依 criteria 過濾 joints / members,計算 3D 包圍盒
 export function _searchModel(c) {
-  const ids = _parseIdsWithRanges(c.idText);
-  const idSet = ids ? new Set(ids.map(String)) : null;
+  // parsed = null(輸入空白)→ 不篩 ID(全部回);否則用 ids set + regex patterns 雙路徑比對
+  const parsed = _parseIdsWithRanges(c.idText);
+  // idSet 給「沒輸入 ID」path 用 — 維持原本「!idSet → 不篩」語意;有 parsed → 走 _matchesParsed
+  const idSet = parsed ? new Set(parsed.ids.map(String)) : null;
+  const idPatterns = parsed ? parsed.patterns : [];
+  // hasIdFilter:輸入了任何 ID(純數字 或 regex);沒輸入 → 全部回
+  const hasIdFilter = parsed && (parsed.ids.length > 0 || parsed.patterns.length > 0);
+  const _idMatches = (dispId: string) => {
+    if (!hasIdFilter) return true;
+    if (idSet && idSet.has(dispId)) return true;
+    for (const re of idPatterns) if (re.test(dispId)) return true;
+    return false;
+  };
   // 過濾器:支援單值(back-compat)與多值(fileIds[] / planeFilters[])
   const fileIdSet = (Array.isArray(c.fileIds) && c.fileIds.length)
     ? new Set(c.fileIds)
@@ -1147,7 +1285,7 @@ export function _searchModel(c) {
       const jmap = new Map((t.page.joints || []).map(j => [j.id, j]));
       for (const m of (t.page.members || [])) {
         const dispM = String(typeof displayMemberId === "function" ? displayMemberId(m) : m.id);
-        if (idSet && !idSet.has(dispM)) continue;
+        if (!_idMatches(dispM)) continue;
         const a = jmap.get(m.j1), b = jmap.get(m.j2);
         if (!a || !b) continue;
         const wa = _world(t.file, t.page, a), wb = _world(t.file, t.page, b);
@@ -1295,7 +1433,7 @@ export function _searchModel(c) {
     for (const t of pageList) {
       for (const j of (t.page.joints || [])) {
         const dispJ = String(typeof _displayIdForJointWith === "function" ? _displayIdForJointWith(t.file, t.page, j) : j.id);
-        if (idSet && !idSet.has(dispJ)) continue;
+        if (!_idMatches(dispJ)) continue;
         const w = _world(t.file, t.page, j);
         if (!w) continue;
         seeds.push({ file: t.file, page: t.page, key: t.key, j, w });

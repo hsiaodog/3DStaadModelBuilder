@@ -347,7 +347,7 @@ const _I18N = {
   "search.idMember":             { "zh-TW": "桿件編號:",        "en": "Member ID:" },
   "search.idJoint":              { "zh-TW": "節點編號:",        "en": "Joint ID:" },
   "search.idMaterial":           { "zh-TW": "材料名稱:",        "en": "Material:" },
-  "search.placeholder.id":       { "zh-TW": "逗號 / 空白 / 換行分隔(可直接從 Excel 貼一整欄),留空 = 全部", "en": "Comma / space / newline separated (paste an Excel column directly); empty = all" },
+  "search.placeholder.id":       { "zh-TW": "逗號 / 空白 / 換行分隔 ・支援 regex(.*52 = 結尾 52、52.* = 開頭 52、.*52.* = 含 52)・留空 = 全部", "en": "Comma / space / newline separated ・ regex supported (.*52 = ends with 52, 52.* = starts with 52, .*52.* = contains 52) ・ empty = all" },
   "search.placeholder.material": { "zh-TW": "點此選擇 / 輸入字串 filter(留空 = 所有「有材料設定」的桿件)", "en": "Click to select / type to filter (empty = members with any material)" },
   "search.btnSearch":            { "zh-TW": "搜尋 (Enter)",      "en": "Search (Enter)" },
   "search.btnClear":             { "zh-TW": "清除",              "en": "Clear" },
