@@ -49,6 +49,23 @@ function _renderImpl() {
   // 鎖點視覺層(若啟用)— 最早繪製,SVG 文件順序在底層
   drawSnapGrid();
   const p = getPage();
+  // ---------- 熱路徑加速:jointById O(N) → Map O(1);每個 joint 的相連 member 也預建 ----------
+  //   舊版每次 render 在 member loop 內 jointById(...) ≈ 億次 .find 比對;改成 Map 後 O(1)。
+  //   adjMap 給「節點上的 X 軸角度推算」用(原本是 for(p.members) × for(p.joints) = O(J×M))。
+  const jmap: Map<any, any> = new Map();
+  for (const _j of p.joints) jmap.set(_j.id, _j);
+  const jid = (id: any) => jmap.get(id);
+  const adjAngles: Map<any, number[]> = new Map();
+  for (const _m of p.members) {
+    const _a = jmap.get(_m.j1), _b = jmap.get(_m.j2);
+    if (!_a || !_b) continue;
+    if (_a.x === _b.x && _a.y === _b.y) continue;
+    const angAB = Math.atan2(_b.y - _a.y, _b.x - _a.x);
+    let arrA = adjAngles.get(_m.j1); if (!arrA) { arrA = []; adjAngles.set(_m.j1, arrA); }
+    arrA.push(angAB);
+    let arrB = adjAngles.get(_m.j2); if (!arrB) { arrB = []; adjAngles.set(_m.j2, arrB); }
+    arrB.push(angAB + Math.PI);   // 反向就是另一端的入射方向
+  }
   const fs = Math.max(8, 11 / state.zoom);
   // 節點標示大小隨縮放變化(sqrt 曲線),畫面 CSS px 在 2~8 之間;縮小畫面時節點不會相對過大
   const jointR = Math.max(2, Math.min(8, 5 * Math.sqrt(state.zoom || 1))) / state.zoom;
@@ -69,7 +86,7 @@ function _renderImpl() {
   const labelList = [];
 
   for (const m of p.members) {
-    const a = jointById(m.j1), b = jointById(m.j2);
+    const a = jid(m.j1), b = jid(m.j2);
     if (!a || !b) continue;
     const text = String(displayMemberId(m));
     const isSel = state.selection.members.has(m.id);
@@ -124,7 +141,7 @@ function _renderImpl() {
 
   // ---------- 繪製桿件(含其編號) ----------
   for (const m of p.members) {
-    const a = jointById(m.j1), b = jointById(m.j2);
+    const a = jid(m.j1), b = jid(m.j2);
     if (!a || !b) continue;
     const ln = el("line", {
       x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: "member",
@@ -309,17 +326,10 @@ function _renderImpl() {
     const color = (isSel || isLinked) ? "#a855f7" : (j.isAnchor ? "#ff8c00" : "#ff2424");
 
     // 收集相連桿件方向(僅未選取時要計算 X 角度)
+    //   舊版每個 joint 都掃全部 members(O(J×M));改用預建的 adjAngles → O(degree(j))
     let xAngle = Math.PI / 4;
     if (!isSel) {
-      const memAngles = [];
-      for (const mem of p.members) {
-        let other = null;
-        if (mem.j1 === j.id) other = jointById(mem.j2);
-        else if (mem.j2 === j.id) other = jointById(mem.j1);
-        if (other && (other.x !== j.x || other.y !== j.y)) {
-          memAngles.push(Math.atan2(other.y - j.y, other.x - j.x));
-        }
-      }
+      const memAngles = adjAngles.get(j.id) || [];
       let bestGap = -1;
       for (const d of candDeg) {
         const c0 = d * Math.PI / 180;
@@ -480,7 +490,7 @@ function _renderImpl() {
   }
   // preview line / ortho indicator
   if (state.tool === "line" && state.pendingLineStart && !state.manualAlign.active) {
-    const a = jointById(state.pendingLineStart);
+    const a = jid(state.pendingLineStart);
     if (!a) { state.pendingLineStart = null; }
     else {
     const target = snap({ x: state.cursor.sx, y: state.cursor.sy });
@@ -862,7 +872,7 @@ function _renderImpl() {
     }));
     const dx = target.x - b.x, dy = target.y - b.y;
     for (const id of state.selection.joints) {
-      const jt = jointById(id);
+      const jt = jid(id);
       if (!jt) continue;
       svg.appendChild(el("circle", {
         cx: jt.x + dx, cy: jt.y + dy, r: jointR,
@@ -1271,7 +1281,11 @@ function _renderImpl() {
 
 // 對外:render() 是看門狗版本,內部呼叫 _renderImpl(),並量測耗時 → 超時自動排 fitToView
 //   防遞迴關鍵:recovery 跑 fitToView 時(本身也會 call render),flag 維持 true → 內層 render watch=false
-export function render() {
+// rAF 合併:同一 frame 內多次 render() 呼叫(zoom / pan / 標籤頻繁更新等)合併成一次,
+//   避免一個 wheel burst 觸發 N 次全量 DOM 重建。renderNow() 走同步路徑,給必須立刻拿到
+//   新畫面狀態的情境用(如 fit-to-view 接 zoom 量測)。
+let _rafScheduled = false;
+function _renderSync() {
   const threshold = _getRenderTimeoutMs();
   const watch = (threshold > 0) && !_renderRecoveryPending;
   const t0 = watch ? performance.now() : 0;
@@ -1284,9 +1298,8 @@ export function render() {
     }, 100);
     console.warn("[render] watchdog 觸發:" + reason);
   };
-  let result;
   try {
-    result = _renderImpl.apply(this, arguments);
+    _renderImpl();
   } catch (e) {
     console.error("[render] 拋出例外:", e);
     if (!_renderRecoveryPending) {
@@ -1302,5 +1315,17 @@ export function render() {
       _scheduleRecovery(`slow render ${dt.toFixed(0)} ms > ${threshold} ms`);
     }
   }
-  return result;
+}
+export function render() {
+  if (_rafScheduled) return;
+  _rafScheduled = true;
+  requestAnimationFrame(() => {
+    _rafScheduled = false;
+    _renderSync();
+  });
+}
+// 需要「立刻拿到新畫面狀態」的呼叫端(例如 fit-to-view 量測完才用)走這條同步路徑
+export function renderNow() {
+  if (_rafScheduled) _rafScheduled = false;   // 取消已排程的 rAF,避免重複
+  _renderSync();
 }
