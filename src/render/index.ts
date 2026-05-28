@@ -117,22 +117,46 @@ function _renderImpl() {
   }
 
   // ---------- 重疊解析:成對推開,最多 6 輪 ----------
+  // 空間網格加速:cellSize ≥ 最大 label 邊長 → 任意兩個會重疊的 label 必在同 cell 或 8 鄰居 cell。
+  //   舊版 O(N²) × 6 輪在 17k label 規模下 ~9 億次比較;改成網格後接近 O(N × k)。
+  //   每輪重建網格(label 在 iter 內會移動,grid 會 stale 一些 pair → 下一輪會接住)。
+  let _maxLW = 0, _maxLH = 0;
+  for (const L of labelList) { if (L.w > _maxLW) _maxLW = L.w; if (L.h > _maxLH) _maxLH = L.h; }
+  const cellSize = Math.max(_maxLW, _maxLH, 1);
   for (let iter = 0; iter < 6; iter++) {
+    // 重建 grid:Map<"cx|cy", number[]>(value = labelList 索引)
+    const grid: Map<string, number[]> = new Map();
+    for (let i = 0; i < labelList.length; i++) {
+      const L = labelList[i];
+      const key = Math.floor(L.cx / cellSize) + "|" + Math.floor(L.cy / cellSize);
+      let arr = grid.get(key); if (!arr) { arr = []; grid.set(key, arr); }
+      arr.push(i);
+    }
     let moved = false;
     for (let i = 0; i < labelList.length; i++) {
-      for (let k = i + 1; k < labelList.length; k++) {
-        const A = labelList[i], B = labelList[k];
-        const ovX = (A.w + B.w) / 2 - Math.abs(B.cx - A.cx);
-        const ovY = (A.h + B.h) / 2 - Math.abs(B.cy - A.cy);
-        if (ovX > 0 && ovY > 0) {
-          if (ovX < ovY) {
-            const sgn = (B.cx - A.cx) >= 0 ? 1 : -1;
-            A.cx -= sgn * ovX / 2; B.cx += sgn * ovX / 2;
-          } else {
-            const sgn = (B.cy - A.cy) >= 0 ? 1 : -1;
-            A.cy -= sgn * ovY / 2; B.cy += sgn * ovY / 2;
+      const A = labelList[i];
+      const cx = Math.floor(A.cx / cellSize);
+      const cy = Math.floor(A.cy / cellSize);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const cell = grid.get((cx + dx) + "|" + (cy + dy));
+          if (!cell) continue;
+          for (const k of cell) {
+            if (k <= i) continue;   // 每對只檢查一次(沿用舊版 i < k 規約)
+            const B = labelList[k];
+            const ovX = (A.w + B.w) / 2 - Math.abs(B.cx - A.cx);
+            const ovY = (A.h + B.h) / 2 - Math.abs(B.cy - A.cy);
+            if (ovX > 0 && ovY > 0) {
+              if (ovX < ovY) {
+                const sgn = (B.cx - A.cx) >= 0 ? 1 : -1;
+                A.cx -= sgn * ovX / 2; B.cx += sgn * ovX / 2;
+              } else {
+                const sgn = (B.cy - A.cy) >= 0 ? 1 : -1;
+                A.cy -= sgn * ovY / 2; B.cy += sgn * ovY / 2;
+              }
+              moved = true;
+            }
           }
-          moved = true;
         }
       }
     }

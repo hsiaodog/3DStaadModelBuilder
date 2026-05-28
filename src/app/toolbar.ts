@@ -1465,7 +1465,7 @@ export function zoomToSelection() {
   const r = wrap.getBoundingClientRect();
   // 0.7 為留白比例 → 邊界保留約 30% 空間
   const z = Math.min(r.width / w, r.height / h) * 0.7;
-  state.zoom = Math.max(0.0001, Math.min(50, z));
+  state.zoom = Math.max(0.001, Math.min(50, z));
   state.panX = r.width  / 2 - cx * state.zoom;
   state.panY = r.height / 2 - cy * state.zoom;
   applyTransform();

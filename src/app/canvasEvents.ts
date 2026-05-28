@@ -69,6 +69,19 @@ export function setMouseDownPos(v: any) { mouseDownPos = v; }
 // 所有 canvas / window 互動 listener 都包進來,由 legacy.ts 延後 call(避免 TDZ)
 export function wireCanvasEvents() {
 
+// 滾輪 zoom:debounce render — 連續滾輪事件時只更新 CSS transform(GPU 加速,~free),
+//   render() 全量重畫(SVG 30k 元素 + 標籤碰撞網格)延後到滾輪停下 120ms 再跑一次。
+//   原本「每個 wheel event 都呼一次 render」在快滾時會把主執行緒鎖住 — 即使 rAF
+//   coalesce 也只能合到「每個 frame 一次 render」,而單一 render 本身就 > 1 frame,
+//   每個 frame 都被 render 吃掉 → 滾輪事件累積反應慢、看起來卡住。
+let _wheelRenderTimer: any = null;
+const _scheduleWheelRender = () => {
+  if (_wheelRenderTimer) clearTimeout(_wheelRenderTimer);
+  _wheelRenderTimer = setTimeout(() => {
+    _wheelRenderTimer = null;
+    render();
+  }, 120);
+};
 wrap.addEventListener("wheel", (e) => {
   e.preventDefault();
   markInteracting();
@@ -78,11 +91,11 @@ wrap.addEventListener("wheel", (e) => {
   const wx = (mx - state.panX) / state.zoom;
   const wy = (my - state.panY) / state.zoom;
   state.zoom *= factor;
-  state.zoom = Math.max(0.0001, Math.min(50, state.zoom));
+  state.zoom = Math.max(0.001, Math.min(50, state.zoom));
   state.panX = mx - wx * state.zoom;
   state.panY = my - wy * state.zoom;
   applyTransform();
-  render();
+  _scheduleWheelRender();
 }, { passive: false });
 
 let panStart: any = null;

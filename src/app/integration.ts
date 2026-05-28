@@ -1857,7 +1857,7 @@ let rangeZoomSuppressClick = false; // 拖曳完成後 mouseup → click 會緊�
 function applyZoomAt(factor, sx, sy) {
   const wx = (sx - state.panX) / state.zoom;
   const wy = (sy - state.panY) / state.zoom;
-  state.zoom = Math.max(0.0001, Math.min(50, state.zoom * factor));
+  state.zoom = Math.max(0.001, Math.min(50, state.zoom * factor));
   state.panX = sx - wx * state.zoom;
   state.panY = sy - wy * state.zoom;
   applyTransform();
@@ -1907,7 +1907,7 @@ export function finalizeRangeZoomRect(x1, y1, x2, y2) {
   const scale = Math.min(viewR.width / w, viewR.height / h) * 0.95;
   const cx = ((ax + bx) / 2 - state.panX) / state.zoom;
   const cy = ((ay + by) / 2 - state.panY) / state.zoom;
-  state.zoom = Math.max(0.0001, Math.min(50, state.zoom * scale));
+  state.zoom = Math.max(0.001, Math.min(50, state.zoom * scale));
   state.panX = viewR.width  / 2 - cx * state.zoom;
   state.panY = viewR.height / 2 - cy * state.zoom;
   applyTransform();

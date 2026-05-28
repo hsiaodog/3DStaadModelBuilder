@@ -173,7 +173,7 @@ export function _zoomMainCanvasToRect(x1, y1, x2, y2, paddingFactor) {
   const tw = Math.max(w + 2 * padX, minSide);
   const th = Math.max(h + 2 * padY, minSide);
   const z = Math.min(r.width / tw, r.height / th);
-  state.zoom = Math.max(0.0001, Math.min(50, z));
+  state.zoom = Math.max(0.001, Math.min(50, z));
   const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
   state.panX = r.width / 2 - cx * state.zoom;
   state.panY = r.height / 2 - cy * state.zoom;
