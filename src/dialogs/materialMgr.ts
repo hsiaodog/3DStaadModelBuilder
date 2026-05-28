@@ -267,11 +267,9 @@ export function openMaterialMgrWindow() {
   const _onMainUnload = () => { try { win.close(); } catch (_) {} };
   window.addEventListener("beforeunload", _onMainUnload);
   window.addEventListener("pagehide",     _onMainUnload);
-  window.addEventListener("unload",       _onMainUnload);
   win.addEventListener("beforeunload", () => {
     window.removeEventListener("beforeunload", _onMainUnload);
     window.removeEventListener("pagehide",     _onMainUnload);
-    window.removeEventListener("unload",       _onMainUnload);
     setMaterialMgrWin(null);
   });
   _refresh();

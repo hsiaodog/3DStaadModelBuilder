@@ -119,69 +119,69 @@
       <div id="fileList" class="file-list"></div>
       <div id="fileListShowPopup" style="display:none">
         <div class="flsp-title" data-i18n="sb.fileList.show">清單顯示欄位</div>
-        <label class="flsp-row"><input type="checkbox" id="fileListShowType" checked /><span data-i18n="sb.fileList.colType">類型圖示(DXF / PDF / IMG)</span></label>
-        <label class="flsp-row"><input type="checkbox" id="fileListShowPlane" checked /><span data-i18n="sb.fileList.colPlane">平面 + 第三軸</span></label>
-        <label class="flsp-row"><input type="checkbox" id="fileListShowStats" checked /><span data-i18n="sb.fileList.colStats">節點 / 桿件數</span></label>
+        <label class="flsp-row"><input type="checkbox" id="fileListShowType" checked  aria-label="顯示檔案類型"/><span data-i18n="sb.fileList.colType">類型圖示(DXF / PDF / IMG)</span></label>
+        <label class="flsp-row"><input type="checkbox" id="fileListShowPlane" checked  aria-label="顯示頁面平面"/><span data-i18n="sb.fileList.colPlane">平面 + 第三軸</span></label>
+        <label class="flsp-row"><input type="checkbox" id="fileListShowStats" checked  aria-label="顯示節點/桿件數"/><span data-i18n="sb.fileList.colStats">節點 / 桿件數</span></label>
         <div class="flsp-foot" data-i18n="sb.fileList.colNote">(檔名永遠顯示)</div>
       </div>
     </div>
 
     <div class="section">
       <h3 data-i18n="sb.snap">吸附</h3>
-      <label data-i18n="sb.snap.radius">吸附半徑(畫面像素)</label>
-      <input type="number" id="snapPx" value="12" min="2" max="50" title="吸附半徑(畫面像素):游標距離節點 / 線端 / 中點此距離以內,自動吸附到該點" />
+      <label for="snapPx" data-i18n="sb.snap.radius">吸附半徑(畫面像素)</label>
+      <input type="number" id="snapPx" value="12" min="2" max="50" title="吸附半徑(畫面像素):游標距離節點 / 線端 / 中點此距離以內,自動吸附到該點"  aria-label="吸附半徑(畫面像素)"/>
       <label style="display:flex; align-items:center; gap:6px; margin-top:8px;" title="正交模式:畫線時鎖定為水平 / 垂直方向。按住 Shift 也可暫時切換">
-        <input type="checkbox" id="snapAxis" title="正交模式:畫線時鎖定水平 / 垂直" /> <span data-i18n="sb.snap.ortho">正交模式</span>
+        <input type="checkbox" id="snapAxis" title="正交模式:畫線時鎖定水平 / 垂直"  aria-label="正交模式"/> <span data-i18n="sb.snap.ortho">正交模式</span>
       </label>
       <label style="display:flex; align-items:center; gap:6px;" title="吸附線段中點:游標靠近桿件中點時自動吸附到中點">
-        <input type="checkbox" id="snapMid" title="吸附線段中點:游標靠近時吸附桿件中點" /> <span data-i18n="sb.snap.mid">吸附線段中點</span>
+        <input type="checkbox" id="snapMid" title="吸附線段中點:游標靠近時吸附桿件中點"  aria-label="吸附線段中點"/> <span data-i18n="sb.snap.mid">吸附線段中點</span>
       </label>
-      <label style="margin-top:8px" title="鎖點間距:啟用鎖點後,游標吸附到此間距的網格上(單位:mm)"><span data-i18n="sb.snap.gridStep">鎖點間距</span> <span id="snapGridUnit" style="color:#9aa0a6">(mm)</span></label>
-      <input type="number" id="snapGridStep" value="1" min="0.0001" step="0.1" title="鎖點間距(mm):啟用鎖點(Shift+A)後游標會吸附到此距離的網格交點 / 線" />
+      <label for="snapGridStep" style="margin-top:8px" title="鎖點間距:啟用鎖點後,游標吸附到此間距的網格上(單位:mm)"><span data-i18n="sb.snap.gridStep">鎖點間距</span> <span id="snapGridUnit" style="color:#9aa0a6">(mm)</span></label>
+      <input type="number" id="snapGridStep" value="1" min="0.0001" step="0.1" title="鎖點間距(mm):啟用鎖點(Shift+A)後游標會吸附到此距離的網格交點 / 線"  aria-label="鎖點間距(mm)"/>
       <div class="help" data-i18n="sb.snap.gridHelp" style="margin-top:4px">啟用鎖點(<span class="kbd">Shift+A</span>)後,游標會吸附到此間距的網格上。</div>
-      <label data-i18n="sb.snap.bgTol" style="margin-top:8px" title="底圖誤差(mm):「整理」執行時,會把每個節點吸到此距離內的底圖線端點 / 交點上;節點對齊原始底圖幾何">底圖誤差 (mm)</label>
-      <input type="number" id="bgSnapTolerance" min="0" max="100" step="0.1" value="1" title="預設 1mm。值為 0 → 關閉吸附;值大 → 較積極移動節點到底圖交點(可能移到不該移的)" />
+      <label for="bgSnapTolerance" data-i18n="sb.snap.bgTol" style="margin-top:8px" title="底圖誤差(mm):「整理」執行時,會把每個節點吸到此距離內的底圖線端點 / 交點上;節點對齊原始底圖幾何">底圖誤差 (mm)</label>
+      <input type="number" id="bgSnapTolerance" min="0" max="100" step="0.1" value="1" title="預設 1mm。值為 0 → 關閉吸附;值大 → 較積極移動節點到底圖交點(可能移到不該移的)"  aria-label="底圖吸附容差(mm)"/>
     </div>
 
     <div class="section">
       <h3 data-i18n="sb.precision">精準度設定</h3>
-      <label data-i18n="sb.prec.coordDec" title="顯示坐標 / 長度時保留的小數位數">坐標顯示位數</label>
-      <input type="number" id="coordDecimals" min="0" max="6" step="1" value="0" title="座標 / 桿件長度顯示時保留的小數位數(0 = 四捨五入到整數,常用 0~3)" />
-      <label data-i18n="sb.prec.measureDec" title="節點適配 / 編號 bucket 的精準度(小數位數)。0 = 整數 mm bucket;1 = 0.1mm bucket。兩節點顯示成同一個數值 = 適配為同一點" style="margin-top:8px">節點適配位數</label>
-      <input type="number" id="measureDecimals" min="0" max="6" step="1" value="0" title="精準度(位數):兩節點若四捨五入到此精準度後座標相同,適配關聯時會合併成同一個 globalJoint;rank 編號 bucket 也用此精準度" />
+      <label for="coordDecimals" data-i18n="sb.prec.coordDec" title="顯示坐標 / 長度時保留的小數位數">坐標顯示位數</label>
+      <input type="number" id="coordDecimals" min="0" max="6" step="1" value="0" title="座標 / 桿件長度顯示時保留的小數位數(0 = 四捨五入到整數,常用 0~3)"  aria-label="座標小數位數"/>
+      <label for="measureDecimals" data-i18n="sb.prec.measureDec" title="節點適配 / 編號 bucket 的精準度(小數位數)。0 = 整數 mm bucket;1 = 0.1mm bucket。兩節點顯示成同一個數值 = 適配為同一點" style="margin-top:8px">節點適配位數</label>
+      <input type="number" id="measureDecimals" min="0" max="6" step="1" value="0" title="精準度(位數):兩節點若四捨五入到此精準度後座標相同,適配關聯時會合併成同一個 globalJoint;rank 編號 bucket 也用此精準度"  aria-label="精準度(位數)"/>
     </div>
 
     <div class="section">
       <h3 data-i18n="sb.jointNum">節點編號(全局)</h3>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <label data-i18n="sb.num.xMax" style="font-size:11px;color:#9aa0a6;margin:0;width:48px" title="X 軸最大編號:每軸 rank 上限,直接決定 X 部分的位數(9 → 1 位、99 → 2 位、999 → 3 位)">X 最大</label>
-        <select id="numberCapacityX" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px" title="X 軸每軸 rank 值上限;超過會 cap + console.warn">
+        <label for="numberCapacityX" data-i18n="sb.num.xMax" style="font-size:11px;color:#9aa0a6;margin:0;width:48px" title="X 軸最大編號:每軸 rank 上限,直接決定 X 部分的位數(9 → 1 位、99 → 2 位、999 → 3 位)">X 最大</label>
+        <select id="numberCapacityX" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px" title="X 軸每軸 rank 值上限;超過會 cap + console.warn" aria-label="X 軸 rank 容量上限">
           <option value="9">9</option>
           <option value="99" selected>99</option>
           <option value="999">999</option>
         </select>
       </div>
       <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
-        <label data-i18n="sb.num.yMax" style="font-size:11px;color:#9aa0a6;margin:0;width:48px" title="Y 軸最大編號:Y 部分位數">Y 最大</label>
-        <select id="numberCapacityY" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px" title="Y 軸每軸 rank 值上限">
+        <label for="numberCapacityY" data-i18n="sb.num.yMax" style="font-size:11px;color:#9aa0a6;margin:0;width:48px" title="Y 軸最大編號:Y 部分位數">Y 最大</label>
+        <select id="numberCapacityY" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px" title="Y 軸每軸 rank 值上限" aria-label="Y 軸 rank 容量上限">
           <option value="9">9</option>
           <option value="99" selected>99</option>
           <option value="999">999</option>
         </select>
       </div>
       <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
-        <label data-i18n="sb.num.zMax" style="font-size:11px;color:#9aa0a6;margin:0;width:48px" title="Z 軸最大編號:Z 部分位數">Z 最大</label>
-        <select id="numberCapacityZ" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px" title="Z 軸每軸 rank 值上限">
+        <label for="numberCapacityZ" data-i18n="sb.num.zMax" style="font-size:11px;color:#9aa0a6;margin:0;width:48px" title="Z 軸最大編號:Z 部分位數">Z 最大</label>
+        <select id="numberCapacityZ" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px" title="Z 軸每軸 rank 值上限" aria-label="Z 軸 rank 容量上限">
           <option value="9">9</option>
           <option value="99" selected>99</option>
           <option value="999">999</option>
         </select>
       </div>
-      <label data-i18n="sb.num.tol" title="軸坐標誤差範圍(mm):rank 合併容差,世界座標差 < 此值視為同 rank。被 globalId 綁定的節點會用全局位置統一算 rank,不受此值影響" style="margin-top:8px">誤差範圍 (mm)</label>
-      <input type="number" id="numberTolerance" min="0" max="100" step="0.5" value="2" title="預設 2mm。值大 → 同 rank 聚合更多座標;值小 → 區分更嚴格(可能拆出更多 rank,觸及容納數上限)" />
+      <label for="numberTolerance" data-i18n="sb.num.tol" title="軸坐標誤差範圍(mm):rank 合併容差,世界座標差 < 此值視為同 rank。被 globalId 綁定的節點會用全局位置統一算 rank,不受此值影響" style="margin-top:8px">誤差範圍 (mm)</label>
+      <input type="number" id="numberTolerance" min="0" max="100" step="0.5" value="2" title="預設 2mm。值大 → 同 rank 聚合更多座標;值小 → 區分更嚴格(可能拆出更多 rank,觸及容納數上限)"  aria-label="rank 聚合容差(mm)"/>
       <div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap">
-        <label data-i18n="sb.num.priority" style="font-size:11px;color:#9aa0a6;margin:0" title="節點排序優先軸:影響 ID 排列順序(X·Z·Y vs Y·Z·X)">編排優先</label>
-        <select id="numberPriority" style="font-size:11px;padding:2px 4px;flex:1;min-width:90px" title="水平優先:ID = X·Z·Y(XXZZYY,預設);垂直優先:ID = Y·Z·X(YYZZXX)">
+        <label for="numberPriority" data-i18n="sb.num.priority" style="font-size:11px;color:#9aa0a6;margin:0" title="節點排序優先軸:影響 ID 排列順序(X·Z·Y vs Y·Z·X)">編排優先</label>
+        <select id="numberPriority" style="font-size:11px;padding:2px 4px;flex:1;min-width:90px" title="水平優先:ID = X·Z·Y(XXZZYY,預設);垂直優先:ID = Y·Z·X(YYZZXX)" aria-label="節點編號優先軸">
           <option value="h" selected data-i18n="sb.num.priorityH">水平優先</option>
           <option value="v" data-i18n="sb.num.priorityV">垂直優先</option>
         </select>
@@ -217,8 +217,8 @@
     <div class="section">
       <h3 data-i18n="sb.memberNum">桿件編號(全局)</h3>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap" title="Y 軸方向桿件(柱):同 X 列內最大編號 cap;格式 XX·YY">
-        <label data-i18n="sb.memberNum.yMax" style="font-size:11px;color:#9aa0a6;margin:0;width:64px">Y 軸最大</label>
-        <select id="memberCapY" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px">
+        <label for="memberCapY" data-i18n="sb.memberNum.yMax" style="font-size:11px;color:#9aa0a6;margin:0;width:64px">Y 軸最大</label>
+        <select id="memberCapY" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px" aria-label="Y 軸桿件容量">
           <option value="9">9</option>
           <option value="99" selected>99</option>
           <option value="999">999</option>
@@ -226,8 +226,8 @@
         </select>
       </div>
       <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap" title="X 軸方向桿件(水平 XZ 平面樑):格式 ZZ·XX">
-        <label data-i18n="sb.memberNum.xMax" style="font-size:11px;color:#9aa0a6;margin:0;width:64px">X 軸最大</label>
-        <select id="memberCapX" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px">
+        <label for="memberCapX" data-i18n="sb.memberNum.xMax" style="font-size:11px;color:#9aa0a6;margin:0;width:64px">X 軸最大</label>
+        <select id="memberCapX" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px" aria-label="X 軸桿件容量">
           <option value="9">9</option>
           <option value="99" selected>99</option>
           <option value="999">999</option>
@@ -235,8 +235,8 @@
         </select>
       </div>
       <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap" title="Z 軸方向桿件(水平 XZ 平面樑):格式 XX·ZZ">
-        <label data-i18n="sb.memberNum.zMax" style="font-size:11px;color:#9aa0a6;margin:0;width:64px">Z 軸最大</label>
-        <select id="memberCapZ" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px">
+        <label for="memberCapZ" data-i18n="sb.memberNum.zMax" style="font-size:11px;color:#9aa0a6;margin:0;width:64px">Z 軸最大</label>
+        <select id="memberCapZ" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px" aria-label="Z 軸桿件容量">
           <option value="9">9</option>
           <option value="99" selected>99</option>
           <option value="999">999</option>
@@ -244,8 +244,8 @@
         </select>
       </div>
       <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap" title="斜桿件 cap">
-        <label data-i18n="sb.memberNum.dMax" style="font-size:11px;color:#9aa0a6;margin:0;width:64px">斜桿最大</label>
-        <select id="memberCapDiag" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px">
+        <label for="memberCapDiag" data-i18n="sb.memberNum.dMax" style="font-size:11px;color:#9aa0a6;margin:0;width:64px">斜桿最大</label>
+        <select id="memberCapDiag" style="font-size:11px;padding:2px 4px;flex:1;min-width:80px" aria-label="斜撐桿件容量">
           <option value="9">9</option>
           <option value="99" selected>99</option>
           <option value="999">999</option>
@@ -261,10 +261,10 @@
 
     <div class="section">
       <h3 data-i18n="sb.sectionLink">切面樣式</h3>
-      <label data-i18n="sb.sectionLink.fontPt" title="切面標籤字體大小(pt),固定不隨 zoom 縮放">標籤字體 (pt)</label>
-      <input type="number" id="slFontPt" value="15" min="6" max="200" step="1" title="切面頁面名稱標籤的字體大小,單位為 pt(預設 15)" />
-      <label data-i18n="sb.sectionLink.strokeWidth" title="切面主線、箭頭以及定位預覽虛線的線條粗度(px)" style="margin-top:8px">線條粗度 (px)</label>
-      <input type="number" id="slStrokeWidth" value="30" min="1" max="50" step="1" title="切面主線 + 箭頭 + 定位預覽虛線的 stroke-width(預設 30)" />
+      <label for="slFontPt" data-i18n="sb.sectionLink.fontPt" title="切面標籤字體大小(pt),固定不隨 zoom 縮放">標籤字體 (pt)</label>
+      <input type="number" id="slFontPt" value="15" min="6" max="200" step="1" title="切面頁面名稱標籤的字體大小,單位為 pt(預設 15)"  aria-label="切面字體大小(pt)"/>
+      <label for="slStrokeWidth" data-i18n="sb.sectionLink.strokeWidth" title="切面主線、箭頭以及定位預覽虛線的線條粗度(px)" style="margin-top:8px">線條粗度 (px)</label>
+      <input type="number" id="slStrokeWidth" value="30" min="1" max="50" step="1" title="切面主線 + 箭頭 + 定位預覽虛線的 stroke-width(預設 30)"  aria-label="切面線寬"/>
     </div>
 
     <div class="section" id="floorTypeSection">
@@ -515,9 +515,9 @@
         </button>
       </div>
       <button id="snapGridBtn" class="zt-wide" title="鎖點視覺切換 (Shift+A):網格 / 點 / 關閉,影響游標自動吸附"><span class="btn-icon"><!-- 磁鐵(U 形)— 「鎖點 / 吸附」通用語意,文字描述狀態 --><svg viewBox="0 0 24 24"><path d="M5 4v9a7 7 0 0 0 14 0V4"/><path d="M5 4h4v9a3 3 0 0 0 6 0V4h4"/></svg></span><span class="btn-text">鎖點 網格</span></button>
-      <label class="zoom-tools-row" title="網格鎖點:游標吸附到鎖點間距形成的網格『線』(單軸吸附)"><input type="checkbox" id="snapGridLineChk"/><span class="zt-icon"><!-- 純網格線,無交點強調 --><svg viewBox="0 0 24 24"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg></span><span data-i18n="zt.snapGridLine">網格鎖點</span></label>
-      <label class="zoom-tools-row" title="線條優先:同時開啟兩種鎖點時,優先吸附網格『線』而非交點"><input type="checkbox" id="snapLinesPriority" checked/><span class="zt-icon"><!-- 線條 + 星號(優先) --><svg viewBox="0 0 24 24"><line x1="3" y1="14" x2="21" y2="14"/><polygon points="12 3 13.8 7 18 7.5 14.8 10.4 15.8 14.5 12 12.4 8.2 14.5 9.2 10.4 6 7.5 10.2 7" stroke-linejoin="round"/></svg></span><span data-i18n="zt.snapLinesPriority">線條優先</span></label>
-      <label class="zoom-tools-row" title="網點鎖點:游標吸附到網格『交點』(雙軸吸附)"><input type="checkbox" id="snapGridPointChk"/><span class="zt-icon"><!-- 3x3 網格交點 --><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="18" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="6" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="6" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="18" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg></span><span data-i18n="zt.snapGridPoint">網點鎖點</span></label>
+      <label class="zoom-tools-row" title="網格鎖點:游標吸附到鎖點間距形成的網格『線』(單軸吸附)"><input type="checkbox" id="snapGridLineChk" aria-label="啟用鎖點網格線"/><span class="zt-icon"><!-- 純網格線,無交點強調 --><svg viewBox="0 0 24 24"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg></span><span data-i18n="zt.snapGridLine">網格鎖點</span></label>
+      <label class="zoom-tools-row" title="線條優先:同時開啟兩種鎖點時,優先吸附網格『線』而非交點"><input type="checkbox" id="snapLinesPriority" checked aria-label="線優先吸附"/><span class="zt-icon"><!-- 線條 + 星號(優先) --><svg viewBox="0 0 24 24"><line x1="3" y1="14" x2="21" y2="14"/><polygon points="12 3 13.8 7 18 7.5 14.8 10.4 15.8 14.5 12 12.4 8.2 14.5 9.2 10.4 6 7.5 10.2 7" stroke-linejoin="round"/></svg></span><span data-i18n="zt.snapLinesPriority">線條優先</span></label>
+      <label class="zoom-tools-row" title="網點鎖點:游標吸附到網格『交點』(雙軸吸附)"><input type="checkbox" id="snapGridPointChk" aria-label="啟用鎖點網格點"/><span class="zt-icon"><!-- 3x3 網格交點 --><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="18" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="6" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="6" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="18" r="1.4" fill="currentColor" stroke="none"/><circle cx="18" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg></span><span data-i18n="zt.snapGridPoint">網點鎖點</span></label>
       <div class="zt-sep"></div>
       <div class="zt-zoom-row" title="標示字體整體放大 / 縮小">
         <button id="btnLblSmaller" class="zt-sq" title="標示字體縮小">A−</button>
@@ -540,7 +540,7 @@
     <div id="hud">x: 0 · y: 0 · zoom: 100%</div>
     <div id="cmdInputBar" style="display:none">
       <span class="cmd-prompt">命令:</span>
-      <input type="text" id="cmdInputField" autocomplete="off" spellcheck="false"/>
+      <input type="text" id="cmdInputField" autocomplete="off" spellcheck="false" aria-label="命令輸入欄"/>
       <span class="cmd-unit"></span>
     </div>
     <div id="busySpinner"><div class="spin"></div><div class="msg">處理中…</div><button class="cancel-btn" id="busyCancelBtn">取消</button></div>
@@ -551,43 +551,43 @@
 
     <div class="section">
       <h3 data-i18n="rb.currentPage">當前頁面</h3>
-      <select id="pageSelector" title="當前頁面:選擇要顯示與編輯的頁面。多頁 PDF 或多檔案匯入後,從此切換"></select>
+      <select id="pageSelector" title="當前頁面:選擇要顯示與編輯的頁面。多頁 PDF 或多檔案匯入後,從此切換" aria-label="當前頁面"></select>
       <div class="badge" id="stats" style="margin-top:6px">0 節點 · 0 桿件</div>
     </div>
 
     <div class="section">
       <h3 data-i18n="rb.pageCoord">頁面座標</h3>
-      <label data-i18n="rb.worldPlane" title="世界平面:本頁對應 3D 模型中的哪個平面(STAAD 慣例 Y 朝上)">世界平面</label>
-      <select id="planeSelect" title="本頁對應的 3D 平面:XY=立面正視 / YZ=立面側視 / XZ=平面俯視。會影響全局節點的 3D 推算">
+      <label for="planeSelect" data-i18n="rb.worldPlane" title="世界平面:本頁對應 3D 模型中的哪個平面(STAAD 慣例 Y 朝上)">世界平面</label>
+      <select id="planeSelect" title="本頁對應的 3D 平面:XY=立面正視 / YZ=立面側視 / XZ=平面俯視。會影響全局節點的 3D 推算" aria-label="本頁對應 3D 平面">
         <option value="" data-i18n="rb.planeNotSet">未設定</option>
         <option value="XY" data-i18n="rb.planeXY">XY 平面</option>
         <option value="YZ" data-i18n="rb.planeYZ">YZ 平面</option>
         <option value="XZ" data-i18n="rb.planeXZ">XZ 平面</option>
       </select>
       <div id="pageYWrap" style="display:none;margin-top:6px">
-        <label id="pageZLabel" data-i18n="rb.thirdAxis" title="本頁對應的「第三軸」位置(out-of-plane):決定這張圖代表 3D 模型的哪個切面">第三軸位置</label>
-        <input type="number" id="pageZ" value="0" step="0.1" title="本頁對應的第三軸位置(mm)" />
+        <label for="pageZ" id="pageZLabel" data-i18n="rb.thirdAxis" title="本頁對應的「第三軸」位置(out-of-plane):決定這張圖代表 3D 模型的哪個切面">第三軸位置</label>
+        <input type="number" id="pageZ" value="0" step="0.1" title="本頁對應的第三軸位置(mm)"  aria-label="本頁第三軸位置(mm)"/>
       </div>
       <label id="pageFlipXWrap" style="display:none;align-items:center;gap:6px;margin-top:6px;font-size:11px;cursor:pointer" title="左右翻轉:勾選後本頁的水平軸方向反轉(+X / +Z 改成往螢幕左)。常用於背面立面 / 鏡像圖紙。">
-        <input type="checkbox" id="pageFlipX" />
+        <input type="checkbox" id="pageFlipX"  aria-label="本頁左右翻轉"/>
         <span data-i18n="rb.flipX">左右翻轉</span>
       </label>
       <label id="pageFlipYWrap" style="display:none;align-items:center;gap:6px;margin-top:4px;font-size:11px;cursor:pointer" title="上下翻轉:勾選後本頁的縱軸方向反轉(+Y 改成往螢幕下;XZ 平面則是 +Z 改成往螢幕上)。常用於底視 / 鏡像圖紙。">
-        <input type="checkbox" id="pageFlipY" />
+        <input type="checkbox" id="pageFlipY"  aria-label="本頁上下翻轉"/>
         <span data-i18n="rb.flipY">上下翻轉</span>
       </label>
       <label id="pageFlipSyncWrap" style="display:none;align-items:center;gap:6px;margin-top:4px;font-size:11px;cursor:pointer;color:#9bb6e8" title="勾選後:本頁勾 / 取消「左右翻轉」或「上下翻轉」時,自動把同樣設定套到所有同平面的其他頁面 / 檔案(預設開)。\n取消勾選 → 翻轉只影響本頁(原行為);要批次同步請按下方「套用翻轉到同平面」鈕。">
-        <input type="checkbox" id="pageFlipSync" checked />
+        <input type="checkbox" id="pageFlipSync" checked  aria-label="翻轉同步至同檔其他頁"/>
         <span data-i18n="rb.flipSync">同步到全部同平面</span>
       </label>
       <button id="btnApplyFlipToSamePlane" data-i18n="rb.applyFlipSamePlane" style="display:none;font-size:10px;padding:3px 8px;text-transform:none;letter-spacing:0;margin-top:6px;width:100%" title="把目前的「左右翻轉 / 上下翻轉」設定套用到所有同平面的其他頁面 / 檔案。常用於整批立面 / 平面圖需要統一翻轉設定。">套用翻轉到同平面</button>
       <div id="pageFloorTypeWrap" style="display:none;margin-top:8px;font-size:11px" title="樓層類型(XZ 平面圖專用)— 不同種類的層各自從 yyStart 起編 YY rank。例:Main 從 01 起、Mezz 從 51 起。要編輯類型清單請到左欄「樓層類型」區。">
-        <label data-i18n="rb.floorType" style="color:#9bb6e8;display:block;margin-bottom:3px">樓層類型</label>
-        <select id="pageFloorType" style="width:100%;background:#1a1c20;color:#ddd;border:1px solid #444;border-radius:3px;padding:3px 6px;font:inherit;cursor:pointer"></select>
+        <label for="pageFloorType" data-i18n="rb.floorType" style="color:#9bb6e8;display:block;margin-bottom:3px">樓層類型</label>
+        <select id="pageFloorType" style="width:100%;background:#1a1c20;color:#ddd;border:1px solid #444;border-radius:3px;padding:3px 6px;font:inherit;cursor:pointer" aria-label="樓層類型"></select>
       </div>
       <div id="pageBraceTypeWrap" style="display:none;margin-top:8px;font-size:11px" title="斜撐起始(YZ / XY 平面圖專用)— 該頁的「斜撐 joint」會用此起始點對 YY rank 編號。與樓層類型共用同一池 (1, 11, 21, …, 91)。要編輯類型清單請到「節點編號管理」對話框的『斜撐起始』分頁。">
-        <label data-i18n="rb.braceType" style="color:#9bb6e8;display:block;margin-bottom:3px">斜撐起始</label>
-        <select id="pageBraceType" style="width:100%;background:#1a1c20;color:#ddd;border:1px solid #444;border-radius:3px;padding:3px 6px;font:inherit;cursor:pointer"></select>
+        <label for="pageBraceType" data-i18n="rb.braceType" style="color:#9bb6e8;display:block;margin-bottom:3px">斜撐起始</label>
+        <select id="pageBraceType" style="width:100%;background:#1a1c20;color:#ddd;border:1px solid #444;border-radius:3px;padding:3px 6px;font:inherit;cursor:pointer" aria-label="斜撐類型"></select>
       </div>
       <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
         <button id="btnSetFileAsOrigin" data-i18n="rb.setOrigin" style="font-size:10px;padding:3px 8px;text-transform:none;letter-spacing:0;flex:1;min-width:140px" title="把本頁的 planeOrigin + pageZ 直接當作世界原點 (0,0,0);其他檔案的原點需自行設在同一物理位置才會對齊。改完即重畫">本頁原點 = 世界原點</button>
@@ -627,10 +627,10 @@
 
     <div class="section">
       <h3 data-i18n="rb.exportSettings">匯出設定</h3>
-      <label data-i18n="rb.jobName" title="專案名稱:用於 STAAD 匯出時的 JOB NAME 與儲存檔名建議">專案名稱</label>
-      <input type="text" id="jobName" value="倉儲鋼構" title="專案名稱:STAAD 匯出時寫入 JOB NAME,儲存專案時也會建議成檔名" />
-      <label data-i18n="rb.exportUnit" title="匯出單位:.std 檔內節點座標與長度的單位">匯出單位</label>
-      <select id="exportUnit" title="匯出至 STAAD .std 時使用的長度單位">
+      <label for="jobName" data-i18n="rb.jobName" title="專案名稱:用於 STAAD 匯出時的 JOB NAME 與儲存檔名建議">專案名稱</label>
+      <input type="text" id="jobName" value="倉儲鋼構" title="專案名稱:STAAD 匯出時寫入 JOB NAME,儲存專案時也會建議成檔名"  aria-label="專案名稱"/>
+      <label for="exportUnit" data-i18n="rb.exportUnit" title="匯出單位:.std 檔內節點座標與長度的單位">匯出單位</label>
+      <select id="exportUnit" title="匯出至 STAAD .std 時使用的長度單位" aria-label="匯出單位">
         <option value="meter" data-i18n="rb.unit.meter">METER 公尺</option>
         <option value="mmb" selected data-i18n="rb.unit.mmb">MMS 毫米</option>
         <option value="centimeter" data-i18n="rb.unit.cm">CM 公分</option>
@@ -641,8 +641,8 @@
 
   <!-- 隱藏的檔案 input / 按鈕:由頂部選單「檔案」的對應項目觸發 click() -->
   <div id="hiddenInputs" style="display:none">
-    <input type="file" id="loadProject" accept="application/json,.stproj.json" title="讀入完整專案檔(含底圖位元組)" />
-    <input type="file" id="importJson" accept="application/json" title="只讀標線資料(底圖需另外重新導入)" />
+    <input type="file" id="loadProject" accept="application/json,.stproj.json" title="讀入完整專案檔(含底圖位元組)"  aria-label="讀入專案檔"/>
+    <input type="file" id="importJson" accept="application/json" title="只讀標線資料(底圖需另外重新導入)"  aria-label="讀入標線資料 JSON"/>
     <button id="saveProject" title="把所有圖檔(PDF/圖片含位元組)、標線、比例尺、原點、校準、拆分頁等全部存成單一 .stproj.json,可日後讀回繼續編輯"></button>
     <button id="exportStaad"></button>
     <button id="exportJson"></button>
@@ -697,10 +697,10 @@
     <div class="dlg-card" style="max-width:720px;width:92vw">
       <div class="dlg-title">三視圖自動配對</div>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;font-size:12px">
-        <label title="座標差距小於此值才視為同一節點">公差</label>
-        <input id="apTol" type="number" value="5" min="0" step="1" style="width:80px"/>
+        <label for="apTol" title="座標差距小於此值才視為同一節點">公差</label>
+        <input id="apTol" type="number" value="5" min="0" step="1" style="width:80px" aria-label="自動配對容差"/>
         <span id="apUnit" style="color:#9aa0a6">mm</span>
-        <label style="margin-left:8px"><input id="apIncludeBound" type="checkbox"/> 含已綁定節點</label>
+        <label style="margin-left:8px"><input id="apIncludeBound" type="checkbox" aria-label="包含已綁定 joint"/> 含已綁定節點</label>
         <button id="apRescan" class="primary" style="margin-left:8px">掃描候選</button>
         <span id="apSummary" style="color:#9aa0a6;margin-left:auto;font-size:11px"></span>
       </div>
@@ -715,8 +715,8 @@
   <div id="splitDialog" style="display:none">
     <div class="dlg-card">
       <div class="dlg-title">拆分為新頁</div>
-      <label>新頁名稱</label>
-      <input id="splitName" type="text" />
+      <label for="splitName">新頁名稱</label>
+      <input id="splitName" type="text"  aria-label="拆分頁名稱"/>
       <div class="dlg-footer">
         <button id="splitCancel">取消</button>
         <button id="splitConfirm" class="primary">確定</button>
@@ -765,7 +765,7 @@
                 <div class="ft-msel-panel" id="floorTypesFilterPanel"></div>
               </div>
               <span style="color:#7b818a;margin-left:6px">排序</span>
-              <select id="floorTypesSort" class="ft-sort" title="頁面列表排序方式">
+              <select id="floorTypesSort" class="ft-sort" title="頁面列表排序方式" aria-label="樓層列表排序">
                 <option value="auto">預設(平面→第三軸→名稱)</option>
                 <option value="z-asc">第三軸 升序</option>
                 <option value="z-desc">第三軸 降序</option>
@@ -786,7 +786,7 @@
             <span id="floorTypesPreviewName" class="ft-preview-name">點選頁面以預覽 ・ 滾輪縮放 / 拖曳平移</span>
             <span class="ft-zoom">
               <span style="font-size:10px">縮放</span>
-              <input id="floorTypesPreviewZoom" type="range" min="0.5" max="4" step="0.1" value="1">
+              <input id="floorTypesPreviewZoom" type="range" min="0.5" max="4" step="0.1" value="1" aria-label="樓層預覽縮放">
               <span id="floorTypesPreviewZoomVal" style="font-size:10px;color:#7b818a;min-width:32px">100%</span>
             </span>
           </div>
@@ -812,9 +812,9 @@
       </div>
       <div id="gjmSummary" class="gjm-summary"></div>
       <div class="gjm-toolbar">
-        <input id="gjmSearch" type="text" placeholder="搜尋:label / 內部 id / 顯示編號 / 座標 x,y,z" title="搜尋格式:&#10; • 文字 → 比對 label 子字串&#10; • 單一數字 → 比對 內部 id / 顯示編號&#10; • 三個數字(用逗號或空白分隔)→ 用世界座標找最接近,結果依距離升冪排">
+        <input id="gjmSearch" type="text" placeholder="搜尋:label / 內部 id / 顯示編號 / 座標 x,y,z" title="搜尋格式:&#10; • 文字 → 比對 label 子字串&#10; • 單一數字 → 比對 內部 id / 顯示編號&#10; • 三個數字(用逗號或空白分隔)→ 用世界座標找最接近,結果依距離升冪排" aria-label="全局節點搜尋">
         <span style="color:#7b818a;font-size:11px">篩選</span>
-        <select id="gjmFilter">
+        <select id="gjmFilter" aria-label="全局節點篩選">
           <option value="all">全部</option>
           <option value="this">僅本頁有綁</option>
           <option value="warn">僅有警告</option>
@@ -822,7 +822,7 @@
           <option value="origin">已是原點</option>
         </select>
         <span style="color:#7b818a;font-size:11px">排序</span>
-        <select id="gjmSort">
+        <select id="gjmSort" aria-label="全局節點排序">
           <option value="id">ID</option>
           <option value="label">標籤</option>
           <option value="binds">綁定數</option>
@@ -852,7 +852,7 @@
     <div class="gd-card">
       <div class="gd-title" id="gdTitle">標題</div>
       <div class="gd-msg" id="gdMsg"></div>
-      <input id="gdInput" type="text" style="display:none"/>
+      <input id="gdInput" type="text" style="display:none" aria-label="對話框輸入"/>
       <div class="gd-footer" id="gdFooter"></div>
     </div>
   </div>
@@ -927,7 +927,7 @@
           <span id="importPreviewName" class="imp-preview-name">預覽 ・ 滾輪縮放 / 拖曳平移 / 雙擊重置</span>
           <span class="imp-zoom">
             <span style="font-size:10px">縮放</span>
-            <input id="importPreviewZoom" type="range" min="0.25" max="8" step="0.05" value="1">
+            <input id="importPreviewZoom" type="range" min="0.25" max="8" step="0.05" value="1" aria-label="匯入預覽縮放">
             <span id="importPreviewZoomVal" style="font-size:10px;color:#7b818a;min-width:36px">100%</span>
           </span>
         </div>
