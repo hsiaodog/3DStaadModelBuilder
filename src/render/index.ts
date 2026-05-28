@@ -27,6 +27,145 @@ import {
 import { _worldForRank } from "../core/rankCache";
 import { setDebugVar, getDebugVar } from "../utils/debug";
 
+// labelsLayer 事件委派(只設定一次):每次 render 會建 ~17k 個 lbl div,
+//   舊版每個 div 各加 5–6 個 listener = 每次 render ~100k 個 closure 分配。
+//   改成在 labelsLayer 上委派 → div 只設 data-mid / data-jid;事件由父層一次處理。
+let _labelsDelegated = false;
+function _setupLabelsDelegation() {
+  if (_labelsDelegated) return;
+  const layer = $("labelsLayer");
+  if (!layer) return;
+  _labelsDelegated = true;
+  const findLbl = (ev: any) => (ev.target && (ev.target as any).closest)
+    ? (ev.target as any).closest(".lbl-member, .lbl-joint") as HTMLElement | null
+    : null;
+  const memById = (mid: string) => getPage().members.find((x: any) => String(x.id) === mid);
+  const joiById = (jid: string) => getPage().joints.find((x: any) => String(x.id) === jid);
+  layer.addEventListener("click", (ev: any) => {
+    const el2 = findLbl(ev); if (!el2) return;
+    ev.stopPropagation();
+    if (el2.classList.contains("lbl-member")) {
+      const m = memById(el2.dataset.mid!); if (!m) return;
+      if (cKeyDown) {
+        const a = jointById(m.j1), b = jointById(m.j2);
+        if (!a || !b) return;
+        pushUndo();
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const nj: any = { id: allocJointId(), x: mid.x, y: mid.y };
+        const p = getPage();
+        p.joints.push(nj);
+        p.members = p.members.filter((x: any) => x !== m);
+        p.members.push({ id: allocMemberId(), j1: m.j1, j2: nj.id });
+        p.members.push({ id: allocMemberId(), j1: nj.id, j2: m.j2 });
+        render(); refreshLists();
+        return;
+      }
+      if ((state as any).splitMode) return;
+      if ((state as any).moveMode.active) {
+        const w = screenToWorld(ev.clientX, ev.clientY);
+        const sn = snap(w);
+        handleMoveModeClick(sn.x, sn.y);
+        return;
+      }
+      if ((state as any).tool === "line") {
+        const tgt = svg.querySelector(`line.member[data-mid="${m.id}"]`);
+        if (tgt) tgt.dispatchEvent(new MouseEvent("click", {
+          bubbles: false, cancelable: true,
+          clientX: ev.clientX, clientY: ev.clientY,
+          shiftKey: ev.shiftKey, ctrlKey: ev.ctrlKey,
+        }));
+        return;
+      }
+      if ((state as any).tool !== "select") setTool("select");
+      if (subtractiveSelect(ev)) {
+        (state as any).selection.members.delete(m.id);
+      } else {
+        if ((state as any).selectFilter === "joints") return;
+        if (!_memberPassesDirFilter(m)) return;
+        if (!additiveSelect(ev)) clearSelection();
+        (state as any).selection.members.add(m.id);
+      }
+      render(); refreshLists();
+    } else {
+      const j = joiById(el2.dataset.jid!); if (!j) return;
+      if (tryConsumePendingGlobalPair(j)) return;
+      if ((state as any).splitMode) return;
+      if ((state as any).moveMode.active) { handleMoveModeClick(j.x, j.y); return; }
+      if ((state as any).tool === "line") {
+        if (!(state as any).pendingLineStart) (state as any).pendingLineStart = j.id;
+        else {
+          if ((state as any).pendingLineStart !== j.id) {
+            pushUndo();
+            addMemberInteractive((state as any).pendingLineStart, j.id);
+          }
+          (state as any).pendingLineStart = j.id;
+        }
+        render(); refreshLists();
+        return;
+      }
+      if ((state as any).tool !== "select") setTool("select");
+      if (subtractiveSelect(ev)) {
+        (state as any).selection.joints.delete(j.id);
+        if ((state as any).selection.joints.size === 0 && (state as any).selection.members.size === 0) {
+          (state as any).selection.sourceFileId = null;
+          (state as any).selection.sourcePageIdx = null;
+        }
+      } else {
+        if ((state as any).selectFilter === "members") return;
+        if (!additiveSelect(ev)) clearSelection();
+        (state as any).selection.joints.add(j.id);
+        _markSelectionSourceIfEmpty();
+      }
+      render(); refreshLists();
+    }
+  });
+  layer.addEventListener("dblclick", (ev: any) => {
+    const el2 = findLbl(ev); if (!el2) return;
+    ev.stopPropagation();
+    if ((state as any).splitMode) return;
+    if (el2.classList.contains("lbl-member")) {
+      const m = memById(el2.dataset.mid!); if (!m) return;
+      splitMemberAt(m.id, ev.clientX, ev.clientY);
+    }
+  });
+  layer.addEventListener("contextmenu", (ev: any) => {
+    const el2 = findLbl(ev); if (!el2) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const hasSel = (state as any).selection.joints.size + (state as any).selection.members.size > 0;
+    if (hasSel) { showCtxMenu(ev.clientX, ev.clientY, null); return; }
+    if (el2.classList.contains("lbl-member")) {
+      const m = memById(el2.dataset.mid!); if (!m) return;
+      showCtxMenu(ev.clientX, ev.clientY, { type: "member", id: m.id });
+    } else {
+      const j = joiById(el2.dataset.jid!); if (!j) return;
+      showCtxMenu(ev.clientX, ev.clientY, { type: "joint", id: j.id });
+    }
+  });
+  layer.addEventListener("mouseover", (ev: any) => {
+    const el2 = findLbl(ev); if (!el2) return;
+    if (el2.classList.contains("lbl-member")) {
+      const m = memById(el2.dataset.mid!); if (!m) return;
+      showHoverTip(fmtMemberInfo(m), ev);
+    } else {
+      const j = joiById(el2.dataset.jid!); if (!j) return;
+      showHoverTip(fmtJointInfo(j), ev);
+    }
+  });
+  layer.addEventListener("mousemove", (ev: any) => {
+    const el2 = findLbl(ev); if (!el2) return;
+    moveHoverTip(ev);
+  });
+  layer.addEventListener("mouseout", (ev: any) => {
+    const el2 = findLbl(ev); if (!el2) return;
+    // 離開 lbl 才隱藏(避免在同 layer 內滑過時頻繁閃)
+    const to = ev.relatedTarget && (ev.relatedTarget as any).closest
+      ? (ev.relatedTarget as any).closest(".lbl-member, .lbl-joint")
+      : null;
+    if (to) return;
+    hideHoverTip();
+  });
+}
+
 // Render 看門狗 — 量測單次 render 耗時;超過閾值 → 自動觸發 fitToView() 回復整圖顯示
 //   觸發場景:zoom 太深 / 頁面元素極多 / 巨大 SVG → SVG 主執行緒阻塞、畫面卡死
 //   策略:render 是同步的,等它跑完才能量測。一旦量到「上一次太慢」就排個 setTimeout 0 做 fitToView。
@@ -43,6 +182,7 @@ function _getRenderTimeoutMs() {
 function _renderImpl() {
   // clear
   while (svg.firstChild) svg.removeChild(svg.firstChild);
+  _setupLabelsDelegation();    // 第一次 render 時 wire 起來;之後 idempotent
   updateSelectToolsVisibility && updateSelectToolsVisibility();
   // 平面座標指示器:確保任何 page / plane 變動都會同步(防止 refreshPageCoordSection 沒被叫到的路徑漏更新)
   if (typeof refreshAxisIndicator === "function") refreshAxisIndicator();
@@ -1172,69 +1312,13 @@ function _renderImpl() {
     const isSelLab = state.selection.members.has(m.id);
     const div = document.createElement("div");
     div.className = "lbl lbl-member";
+    div.dataset.mid = String(m.id);
     div.textContent = String(displayMemberId(m));
     div.style.left = toScreenX(lab.cx) + "px";
     div.style.top = toScreenY(lab.cy) + "px";
     div.style.fontSize = lblFontPx + "px";
     div.style.color = isSelLab ? "#ffe066" : "#1976ff";
-    div.addEventListener("click", (ev) => {
-      console.log("[lbl-M] clicked m.id=", m.id, "tool=", state.tool);
-      ev.stopPropagation();
-      if (cKeyDown) {
-        const a = jointById(m.j1), b = jointById(m.j2);
-        if (!a || !b) return;
-        pushUndo();
-        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-        const nj = { id: allocJointId(), x: mid.x, y: mid.y };
-        const p = getPage();
-        p.joints.push(nj);
-        p.members = p.members.filter(x => x !== m);
-        p.members.push({ id: allocMemberId(), j1: m.j1, j2: nj.id });
-        p.members.push({ id: allocMemberId(), j1: nj.id, j2: m.j2 });
-        render(); refreshLists();
-        return;
-      }
-      if (state.splitMode) return;
-      if (state.moveMode.active) {
-        const w = screenToWorld(ev.clientX, ev.clientY);
-        const sn = snap(w);
-        handleMoveModeClick(sn.x, sn.y);
-        return;
-      }
-      if (state.tool === "line") {
-        const tgt = svg.querySelector(`line.member[data-mid="${m.id}"]`);
-        if (tgt) tgt.dispatchEvent(new MouseEvent("click", {
-          bubbles: false, cancelable: true,
-          clientX: ev.clientX, clientY: ev.clientY,
-          shiftKey: ev.shiftKey, ctrlKey: ev.ctrlKey,
-        }));
-        return;
-      }
-      if (state.tool !== "select") setTool("select");
-      if (subtractiveSelect(ev)) {
-        state.selection.members.delete(m.id);
-      } else {
-        if (state.selectFilter === "joints") return;
-        if (!_memberPassesDirFilter(m)) return;
-        if (!additiveSelect(ev)) clearSelection();
-        state.selection.members.add(m.id);
-      }
-      console.log("[lbl-M] selected:", [...state.selection.members]);
-      render(); refreshLists();
-    });
-    div.addEventListener("dblclick", (ev) => {
-      ev.stopPropagation();
-      if (state.splitMode) return;
-      splitMemberAt(m.id, ev.clientX, ev.clientY);
-    });
-    div.addEventListener("contextmenu", (ev) => {
-      ev.preventDefault(); ev.stopPropagation();
-      const hasSel = state.selection.joints.size + state.selection.members.size > 0;
-      showCtxMenu(ev.clientX, ev.clientY, hasSel ? null : { type: "member", id: m.id });
-    });
-    div.addEventListener("mouseenter", (ev) => showHoverTip(fmtMemberInfo(m), ev));
-    div.addEventListener("mousemove",  (ev) => moveHoverTip(ev));
-    div.addEventListener("mouseleave", () => hideHoverTip());
+    // 事件已委派到 labelsLayer(見 _setupLabelsDelegation)
     labelsLayer.appendChild(div);
   }
   if (_showJointLbl) for (const j of p.joints) {
@@ -1245,6 +1329,7 @@ function _renderImpl() {
     const isLinkedJ = !isSelJ && _linkedJointIds.has(j.id);
     const div = document.createElement("div");
     div.className = "lbl lbl-joint" + (isLinkedJ ? " linked" : "");
+    div.dataset.jid = String(j.id);
     div.textContent = String(displayJointId(j));
     div.style.left = toScreenX(lab.cx) + "px";
     div.style.top = toScreenY(lab.cy) + "px";
@@ -1252,48 +1337,7 @@ function _renderImpl() {
     // 編號與節點圖示同色:選取 / linked 都用同一個 #a855f7,linked 額外加 italic 區分
     div.style.color = (isSelJ || isLinkedJ) ? "#a855f7" : (j.isAnchor ? "#ff8c00" : "#ff2424");
     if (isLinkedJ) { div.style.fontStyle = "italic"; }
-    div.addEventListener("click", (ev) => {
-      console.log("[lbl-J] clicked j.id=", j.id, "tool=", state.tool);
-      ev.stopPropagation();
-      if (tryConsumePendingGlobalPair(j)) return;
-      if (state.splitMode) return;
-      if (state.moveMode.active) { handleMoveModeClick(j.x, j.y); return; }
-      if (state.tool === "line") {
-        if (!state.pendingLineStart) state.pendingLineStart = j.id;
-        else {
-          if (state.pendingLineStart !== j.id) {
-            pushUndo();
-            addMemberInteractive(state.pendingLineStart, j.id);
-          }
-          state.pendingLineStart = j.id;
-        }
-        render(); refreshLists();
-        return;
-      }
-      if (state.tool !== "select") setTool("select");
-      if (subtractiveSelect(ev)) {
-        state.selection.joints.delete(j.id);
-        if (state.selection.joints.size === 0 && state.selection.members.size === 0) {
-          state.selection.sourceFileId = null;
-          state.selection.sourcePageIdx = null;
-        }
-      } else {
-        if (state.selectFilter === "members") return;
-        if (!additiveSelect(ev)) clearSelection();
-        state.selection.joints.add(j.id);
-        _markSelectionSourceIfEmpty();
-      }
-      console.log("[lbl-J] selected:", [...state.selection.joints]);
-      render(); refreshLists();
-    });
-    div.addEventListener("contextmenu", (ev) => {
-      ev.preventDefault(); ev.stopPropagation();
-      const hasSel = state.selection.joints.size + state.selection.members.size > 0;
-      showCtxMenu(ev.clientX, ev.clientY, hasSel ? null : { type: "joint", id: j.id });
-    });
-    div.addEventListener("mouseenter", (ev) => showHoverTip(fmtJointInfo(j), ev));
-    div.addEventListener("mousemove",  (ev) => moveHoverTip(ev));
-    div.addEventListener("mouseleave", () => hideHoverTip());
+    // 事件已委派到 labelsLayer(見 _setupLabelsDelegation)
     labelsLayer.appendChild(div);
   }
   // (切面標籤已在 early-return 之前獨立繪製過 — 即使「標示 隱藏」也會顯示)
