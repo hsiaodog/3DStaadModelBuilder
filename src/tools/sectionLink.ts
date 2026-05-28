@@ -20,6 +20,7 @@ import {
   findGlobalJointById, setProjectDirty, _t,
   setTool, clearSelection, exitSplitMode, clearAllBgSelection,
   activatePageWithBusy, escapeHtml,
+  allocJointId, allocMemberId,
 } from "../legacy";
 import { joint2DToWorld3D, world3DToJoint2D } from "../core/projection";
 
@@ -1734,7 +1735,7 @@ export async function _populateSectionLinkJointsForFile(F, opts) {
         let target = findExistingJoint(Fpage, f2d.x, f2d.y);
         if (!target) {
           if (!doJoints) continue;   // members 模式 → 不建節點;沒既有 joint 就略過此 source joint
-          target = { id: nextJointId++, x: f2d.x, y: f2d.y };
+          target = { id: allocJointId(), x: f2d.x, y: f2d.y };
           Fpage.joints.push(target);
           _registerJoint(target);
           stats.jointsAdded++;
@@ -1762,7 +1763,7 @@ export async function _populateSectionLinkJointsForFile(F, opts) {
           const mk = _memberKeyOf(t1, t2);
           if (_memberKeys.has(mk)) continue;
           if (!Array.isArray(Fpage.members)) Fpage.members = [];
-          Fpage.members.push({ id: nextMemberId++, j1: t1, j2: t2 });
+          Fpage.members.push({ id: allocMemberId(), j1: t1, j2: t2 });
           _memberKeys.add(mk);
           stats.membersAdded++;
         }

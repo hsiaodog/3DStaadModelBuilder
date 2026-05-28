@@ -16,6 +16,7 @@ import {
   ensureJointAt, syncJointAcrossViews,
   unbindJointFromGlobal, snapToBgVertex,
   activatePageWithBusy,
+  allocJointId, allocMemberId, allocFileId, allocGlobalJointId, allocGlobalMemberId,
 } from "../legacy";
 import { invalidateRankCache } from "../core/rankCache";
 
@@ -99,7 +100,7 @@ export function extendSelectedMembersToIntersect(bothEnds) {
       const jId = t.m[t.endKey];
       const shared = p.members.some(mm => mm !== t.m && (mm.j1 === jId || mm.j2 === jId));
       if (shared) {
-        const nj = { id: nextJointId++, x: t.x, y: t.y };
+        const nj = { id: allocJointId(), x: t.x, y: t.y };
         p.joints.push(nj);
         t.m[t.endKey] = nj.id;
       } else {
@@ -201,9 +202,9 @@ export function extendJointAxisToIntersect(axis, bothSides) {
       chosen = chosen.filter(Boolean);
     }
     for (const c of chosen) {
-      const nj = { id: nextJointId++, x: c.x, y: c.y };
+      const nj = { id: allocJointId(), x: c.x, y: c.y };
       p.joints.push(nj);
-      p.members.push({ id: nextMemberId++, j1: j.id, j2: nj.id });
+      p.members.push({ id: allocMemberId(), j1: j.id, j2: nj.id });
       added++;
     }
   }
@@ -259,7 +260,7 @@ export function duplicateJointOnAxis(axis) {
       // 該交點位置已有節點 → 複用(T 形拆段連到既有點)
       let nj = p.joints.find(jj => Math.hypot(jj.x - px, jj.y - py) < eps);
       if (!nj) {
-        nj = { id: nextJointId++, x: px, y: py };
+        nj = { id: allocJointId(), x: px, y: py };
         p.joints.push(nj);
         added++;
       }
@@ -269,8 +270,8 @@ export function duplicateJointOnAxis(axis) {
       const baseProps = { ...m };
       delete baseProps.id; delete baseProps.j1; delete baseProps.j2;
       p.members.splice(idx, 1);
-      p.members.push({ ...baseProps, id: nextMemberId++, j1: m.j1, j2: nj.id });
-      p.members.push({ ...baseProps, id: nextMemberId++, j1: nj.id, j2: m.j2 });
+      p.members.push({ ...baseProps, id: allocMemberId(), j1: m.j1, j2: nj.id });
+      p.members.push({ ...baseProps, id: allocMemberId(), j1: nj.id, j2: m.j2 });
       splitCount++;
     }
   }
@@ -296,11 +297,11 @@ export function splitSelectedAtMidpoint() {
     const a = jointById(m.j1), b = jointById(m.j2);
     if (!a || !b) continue;
     const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
-    const nj = { id: nextJointId++, x: cx, y: cy };
+    const nj = { id: allocJointId(), x: cx, y: cy };
     p.joints.push(nj);
     p.members = p.members.filter(x => x !== m);
-    p.members.push({ id: nextMemberId++, j1: m.j1, j2: nj.id });
-    p.members.push({ id: nextMemberId++, j1: nj.id, j2: m.j2 });
+    p.members.push({ id: allocMemberId(), j1: m.j1, j2: nj.id });
+    p.members.push({ id: allocMemberId(), j1: nj.id, j2: m.j2 });
   }
   clearSelection();
   render(); refreshLists();
@@ -322,11 +323,11 @@ export function splitMemberAt(memberId, clientX, clientY) {
   if (t < minMargin || t > 1 - minMargin) return;
   pushUndo();
   const px = a.x + t * dx, py = a.y + t * dy;
-  const j = { id: nextJointId++, x: px, y: py };
+  const j = { id: allocJointId(), x: px, y: py };
   p.joints.push(j);
   p.members = p.members.filter(x => x !== m);
-  p.members.push({ id: nextMemberId++, j1: m.j1, j2: j.id });
-  p.members.push({ id: nextMemberId++, j1: j.id, j2: m.j2 });
+  p.members.push({ id: allocMemberId(), j1: m.j1, j2: j.id });
+  p.members.push({ id: allocMemberId(), j1: j.id, j2: m.j2 });
   render(); refreshLists();
 }
 
@@ -337,7 +338,7 @@ export function addMember(j1, j2, targetPage) {
   const exists = p.members.some(m =>
     (m.j1 === j1 && m.j2 === j2) || (m.j1 === j2 && m.j2 === j1));
   if (exists) return;
-  p.members.push({ id: nextMemberId++, j1, j2 });
+  p.members.push({ id: allocMemberId(), j1, j2 });
 }
 
 // 跨頁同步桿件(P3):
@@ -446,7 +447,7 @@ export function _deleteSelectionCore() {
             p.members = p.members.filter(m => m !== m1 && m !== m2);
             const exists = p.members.some(m =>
               (m.j1 === aId && m.j2 === bId) || (m.j1 === bId && m.j2 === aId));
-            if (!exists) p.members.push({ id: nextMemberId++, j1: aId, j2: bId });
+            if (!exists) p.members.push({ id: allocMemberId(), j1: aId, j2: bId });
             merged = true;
           }
         }
@@ -625,8 +626,8 @@ export function splitMembersAtCollinearJoints() {
         p.members.splice(i, 1);
         const existsA = p.members.some(mm => (mm.j1 === a.id && mm.j2 === j.id) || (mm.j1 === j.id && mm.j2 === a.id));
         const existsB = p.members.some(mm => (mm.j1 === j.id && mm.j2 === b.id) || (mm.j1 === b.id && mm.j2 === j.id));
-        if (!existsA) p.members.push({ id: nextMemberId++, j1: a.id, j2: j.id });
-        if (!existsB) p.members.push({ id: nextMemberId++, j1: j.id, j2: b.id });
+        if (!existsA) p.members.push({ id: allocMemberId(), j1: a.id, j2: j.id });
+        if (!existsB) p.members.push({ id: allocMemberId(), j1: j.id, j2: b.id });
         changed = true;
         break outer;
       }
@@ -667,14 +668,14 @@ export function processIntersectionsForSelection() {
         // split m1
         const i1 = p.members.indexOf(m1);
         if (i1 !== -1) p.members.splice(i1, 1);
-        const m1a = { id: nextMemberId++, j1: a.id, j2: nj.id };
-        const m1b = { id: nextMemberId++, j1: nj.id, j2: b.id };
+        const m1a = { id: allocMemberId(), j1: a.id, j2: nj.id };
+        const m1b = { id: allocMemberId(), j1: nj.id, j2: b.id };
         p.members.push(m1a, m1b);
         // split m2
         const i2 = p.members.indexOf(m2);
         if (i2 !== -1) p.members.splice(i2, 1);
-        const m2a = { id: nextMemberId++, j1: c.id, j2: nj.id };
-        const m2b = { id: nextMemberId++, j1: nj.id, j2: d.id };
+        const m2a = { id: allocMemberId(), j1: c.id, j2: nj.id };
+        const m2b = { id: allocMemberId(), j1: nj.id, j2: d.id };
         p.members.push(m2a, m2b);
         selIds.delete(m1.id); selIds.delete(m2.id);
         selIds.add(m1a.id); selIds.add(m1b.id);
@@ -714,13 +715,13 @@ export function processIntersections() {
         const nj = ensureJointAt(inter);
         // split m1
         p.members.splice(i, 1);
-        p.members.push({ id: nextMemberId++, j1: a.id, j2: nj.id });
-        p.members.push({ id: nextMemberId++, j1: nj.id, j2: b.id });
+        p.members.push({ id: allocMemberId(), j1: a.id, j2: nj.id });
+        p.members.push({ id: allocMemberId(), j1: nj.id, j2: b.id });
         // remove m2 (its index might have shifted because we removed i first)
         const k2 = p.members.indexOf(m2);
         if (k2 !== -1) p.members.splice(k2, 1);
-        p.members.push({ id: nextMemberId++, j1: c.id, j2: nj.id });
-        p.members.push({ id: nextMemberId++, j1: nj.id, j2: d.id });
+        p.members.push({ id: allocMemberId(), j1: c.id, j2: nj.id });
+        p.members.push({ id: allocMemberId(), j1: nj.id, j2: d.id });
         changed = true;
         break outer;
       }
@@ -821,8 +822,8 @@ export function _consolidateInPlace() {
         p.members.splice(i, 1);
         const exA = p.members.some(mm => (mm.j1 === a.id && mm.j2 === j.id) || (mm.j1 === j.id && mm.j2 === a.id));
         const exB = p.members.some(mm => (mm.j1 === j.id && mm.j2 === b.id) || (mm.j1 === b.id && mm.j2 === j.id));
-        if (!exA) { p.members.push({ id: nextMemberId++, j1: a.id, j2: j.id }); splitM++; }
-        if (!exB) { p.members.push({ id: nextMemberId++, j1: j.id, j2: b.id }); splitM++; }
+        if (!exA) { p.members.push({ id: allocMemberId(), j1: a.id, j2: j.id }); splitM++; }
+        if (!exB) { p.members.push({ id: allocMemberId(), j1: j.id, j2: b.id }); splitM++; }
         changed = true;
         break outer;
       }
