@@ -158,8 +158,8 @@ export function setNextGlobalJointId(v: number) { nextGlobalJointId = v; }
 export function setNextGlobalMemberId(v: number) { nextGlobalMemberId = v; }
 
 // ---------- 復原 / 重做 ----------
-const undoStack = [];
-const redoStack = [];
+export const undoStack: any[] = [];
+export const redoStack: any[] = [];
 // MAX_UNDO 移到 src/constants.ts(Phase 2)
 // Phase 7a:snapshot / applySnap 已搬到 src/state/snapshot.ts
 import { snapshot, applySnap } from "./state/snapshot";
@@ -437,7 +437,7 @@ function findCompatiblePages(world, opts) {
 // 結構:[{ x1, y1, x2, y2 }]
 // 呼叫時機:activatePage 完成後;cache 跟著 page 走,即使切到其他頁也保留(供其他頁的 P2 snap 用)
 //   不重要 / 太短的線會被過濾
-function cacheActivePageBgSegs() {
+export function cacheActivePageBgSegs() {
   const file = getActiveFile();
   const page = getPage();
   if (!file || !page || page._orphan) return;
@@ -1357,64 +1357,22 @@ export {
 // ---------- 左側欄檔案清單 ----------
 // 檔案類型標籤(DXF / PDF / IMG / DXF-S / PDF-S / IMG-S / —)
 //   拆分(split / 衍生)檔:沿用來源檔的類型 + "-S" 後綴
-function fileTypeLabel(f) {
-  if (!f) return "";
-  // 沿著 sourceFileId 鏈往上找到根來源檔
-  let cur = f, isSplit = false, guard = 0;
-  while (cur && cur.sourceFileId && guard < 16) {
-    isSplit = true;
-    const next = state.files.find(x => x.id === cur.sourceFileId);
-    if (!next || next === cur) break;
-    cur = next;
-    guard++;
-  }
-  let base;
-  if (cur.type === "application/dxf") base = "DXF";
-  else if (cur.type === "application/pdf" || cur.pdf) base = "PDF";
-  else if (cur.type && String(cur.type).startsWith("image/")) base = "IMG";
-  else base = "—";
-  return isSplit ? base + "-S" : base;
-}
-// 檔案平面標記:讀第 1 頁的 plane / page.z,給檔案清單上的 badge 用
-//   單頁:回傳該頁的 plane(XY/XZ/YZ);若是 XZ 且有 page.z 就附上 @標高
-//   多頁且 plane 不一致:回傳 "Multi"
-//   未設 plane:回傳 "—"
-// 回傳 { plane: { text, title, cls }, axis: { text, title } | null }
-//   plane:平面標籤(XY / XZ / YZ / Multi / —)
-//   axis:第三軸數值標籤(若有 firstPg.z),沒有就回 null
-function filePlaneLabel(f) {
-  const empty = { plane: { text: "—", title: "未設定平面", cls: "plane-none" }, axis: null };
-  if (!f || !f.pages) return empty;
-  const keys = Object.keys(f.pages);
-  if (!keys.length) return empty;
-  const planes = new Set();
-  let firstPg = null;
-  for (const k of keys) {
-    const pg = f.pages[k];
-    if (!pg) continue;
-    if (!firstPg) firstPg = pg;
-    if (pg.plane) planes.add(pg.plane);
-  }
-  if (!planes.size) return empty;
-  if (planes.size > 1) {
-    return { plane: { text: "Multi", title: `多頁不同平面:${[...planes].join(", ")}`, cls: "plane-multi" }, axis: null };
-  }
-  const plane = [...planes][0];
-  const cls = "plane-" + plane.toLowerCase();
-  const axisName = plane === "XZ" ? "Y" : plane === "YZ" ? "X" : "Z";
-  let title = `${plane} 平面`;
-  let axis = null;
-  if (firstPg && firstPg.z != null && isFinite(firstPg.z)) {
-    if (plane === "XZ")      title += `(Y 軸標高 = ${firstPg.z})`;
-    else if (plane === "XY") title += `(Z 深度 = ${firstPg.z})`;
-    else if (plane === "YZ") title += `(X 位置 = ${firstPg.z})`;
-    axis = { text: String(firstPg.z), title: `第三軸 ${axisName} = ${firstPg.z}` };
-  }
-  return { plane: { text: plane, title, cls }, axis };
-}
-
-// 座標 / 長度顯示精度:預設 DXF=2 位、其他=0 位;
-// 使用者可在左欄「顯示設定 → 座標小數位數」覆寫(state.coordDecimals,0~6)
+// ---------- 左側欄檔案清單 ----------
+// fileTypeLabel / filePlaneLabel / refreshFileList / showFileCtxMenu /
+// deleteSelectedFiles / refreshPageSelector 全搬到 src/ui/fileList.ts
+// (fmtCoord / fmtWorld3D 留在 legacy.ts — 用途遠超檔案清單,屬通用 formatter)
+import {
+  fileTypeLabel, filePlaneLabel,
+  refreshFileList,
+  showFileCtxMenu, deleteSelectedFiles,
+  refreshPageSelector,
+} from "./ui/fileList";
+export {
+  fileTypeLabel, filePlaneLabel,
+  refreshFileList,
+  showFileCtxMenu, deleteSelectedFiles,
+  refreshPageSelector,
+};
 export function fmtCoord(v) {
   if (v == null || !isFinite(v)) return "?";
   let n = state.coordDecimals;
@@ -1439,272 +1397,6 @@ export function fmtWorld3D(v: number): string {
   let s = v.toFixed(Math.min(6, Math.max(0, n)));
   if (/^-0(\.0+)?$/.test(s)) s = s.slice(1);
   return s;
-}
-
-export function refreshFileList() {
-  const c = $("fileList");
-  if (!c) return;
-  c.innerHTML = "";
-  if (!state.files.length) {
-    c.innerHTML = `<div style="color:#9aa0a6;font-size:11px;padding:6px">${(typeof _t==="function"&&_t("list.noFiles"))||"尚未載入任何檔案"}</div>`;
-    return;
-  }
-  // 排序規則:Y 軸標高由大到小(僅 XZ 平面有效,其他無 Y 標高的檔放後面),其次依名稱
-  //   - 取每個 file 第 1 頁的 page.z 當代表(平面圖 XZ 的本頁 Y 標高)
-  //   - 若 file 有任何 XZ 頁面 → 用該頁 z;否則 z = -Infinity 排到後面
-  //   - z 相同(或皆無)→ 用 localeCompare(numeric)
-  const fileElev = (f) => {
-    if (!f.pages) return -Infinity;
-    let best = -Infinity;
-    for (const k of Object.keys(f.pages)) {
-      const pg = f.pages[k];
-      if (pg && pg.plane === "XZ" && pg.z != null && isFinite(pg.z)) {
-        if (pg.z > best) best = pg.z;
-      }
-    }
-    return best;
-  };
-  const sorted = [...state.files].sort((a, b) => {
-    const za = fileElev(a), zb = fileElev(b);
-    if (za !== zb) return zb - za;     // Y 大的在前
-    // 名稱倒序(Z..A、numeric 9..1)— 跟切面對話框 / 切面 section 清單一致
-    return String(b.name).localeCompare(String(a.name), undefined, { numeric: true, sensitivity: "base" });
-  });
-  // 渲染完成後把「可見順序」記到每個 file 上,以便 Shift 範圍選取使用
-  sorted.forEach((f, idx) => { f._listIdx = idx; });
-  for (const f of sorted) {
-    const div = document.createElement("div");
-    div.className = "file-item";
-    if (state.activeFileId === f.id) div.classList.add("active");
-    if (state.selection.fileIds.has(f.id)) div.classList.add("sel");
-    div.title = f.name;          // 完整檔名 native tooltip
-    const pg = (f.pages && f.pages[0]) || null;
-    const show = state.fileListShow || { type: true, plane: true, stats: true };
-    const nameSpan = document.createElement("span");
-    nameSpan.className = "file-name";
-    const isOriginFile = (state.globalOriginFileId === f.id);
-    nameSpan.textContent = (isOriginFile ? "★ " : "") + f.name;
-    if (isOriginFile) {
-      nameSpan.style.color = "#ffd23f";
-      nameSpan.title = `全局原點檔案:本檔的 planeOrigin + pageZ 即為世界 (0,0,0)\n${f.name}`;
-    }
-    if (show.type !== false) {
-      const typeLbl = fileTypeLabel(f);
-      const typeSpan = document.createElement("span");
-      typeSpan.className = "file-type " + typeLbl.toLowerCase();
-      typeSpan.textContent = typeLbl;
-      div.appendChild(typeSpan);
-    }
-    div.appendChild(nameSpan);
-    if (show.plane !== false) {
-      const lbl = filePlaneLabel(f);
-      const planeSpan = document.createElement("span");
-      planeSpan.className = "file-plane";
-      planeSpan.textContent = lbl.plane.text;
-      planeSpan.title = lbl.plane.title;
-      if (lbl.plane.cls) planeSpan.classList.add(lbl.plane.cls);
-      div.appendChild(planeSpan);
-      if (lbl.axis) {
-        const axisSpan = document.createElement("span");
-        axisSpan.className = "file-plane file-axis";
-        axisSpan.textContent = lbl.axis.text;
-        axisSpan.title = lbl.axis.title;
-        if (lbl.plane.cls) axisSpan.classList.add(lbl.plane.cls);
-        div.appendChild(axisSpan);
-      }
-      // 主關聯 badge:檔案 sectionLinks 內有非 autoProp 的 entry 才顯示。
-      //   設計信念:「主關聯」一律掛在 sectionLinks 上(autoProp 是衍生),
-      //   所以跨平面衍生的目標頁不會誤標(它們本身的 sectionLinks 不含這些衍生)。
-      const hasPrimary = Array.isArray(f.sectionLinks) && f.sectionLinks.some(e => !e.autoProp);
-      if (hasPrimary) {
-        const primCount = f.sectionLinks.filter(e => !e.autoProp).length;
-        const primSpan = document.createElement("span");
-        primSpan.className = "file-plane file-primary";
-        primSpan.textContent = "主";
-        primSpan.title = `本頁有 ${primCount} 條主關聯切面`;
-        div.appendChild(primSpan);
-      }
-    }
-    if (show.stats !== false) {
-      const stats = pg ? `${pg.joints.length}節 ${pg.members.length}桿` : "—";
-      const statsSpan = document.createElement("span");
-      statsSpan.className = "file-stats";
-      statsSpan.textContent = stats;
-      div.appendChild(statsSpan);
-    }
-    div.onclick = (e) => {
-      const ctrl  = e.ctrlKey || e.metaKey;
-      const shift = e.shiftKey;
-      if (shift && state.selection.fileAnchor != null) {
-        // Shift:anchor → 本次點擊的可見索引區間全選
-        const anchor = state.files.find(ff => ff.id === state.selection.fileAnchor);
-        const a = anchor ? anchor._listIdx : f._listIdx;
-        const b = f._listIdx;
-        const lo = Math.min(a, b), hi = Math.max(a, b);
-        state.selection.fileIds.clear();
-        for (const ff of sorted) {
-          if (ff._listIdx >= lo && ff._listIdx <= hi) state.selection.fileIds.add(ff.id);
-        }
-        refreshFileList();
-      } else if (ctrl) {
-        // Ctrl / Cmd:切換單一項目
-        if (state.selection.fileIds.has(f.id)) state.selection.fileIds.delete(f.id);
-        else state.selection.fileIds.add(f.id);
-        state.selection.fileAnchor = f.id;
-        refreshFileList();
-      } else {
-        // 一般點擊:單選,並切到該檔頁面
-        state.selection.fileIds.clear();
-        state.selection.fileIds.add(f.id);
-        state.selection.fileAnchor = f.id;
-        activatePageWithBusy(f.id, 0);
-      }
-    };
-    div.oncontextmenu = (e) => {
-      e.preventDefault(); e.stopPropagation();
-      if (!state.selection.fileIds.has(f.id)) {
-        state.selection.fileIds.clear();
-        state.selection.fileIds.add(f.id);
-        state.selection.fileAnchor = f.id;
-      }
-      showFileCtxMenu(e.clientX, e.clientY);
-      refreshFileList();
-    };
-    c.appendChild(div);
-  }
-}
-
-function showFileCtxMenu(x, y) {
-  if (!state.selection.fileIds.size) return;
-  ctxState.pending = {
-    fileIds: new Set(state.selection.fileIds),
-    joints: new Set(), members: new Set(), orphans: new Set(),
-  };
-  $("ctxRename").style.display = (ctxState.pending.fileIds.size === 1) ? "block" : "none";
-  $("ctxDuplicate") && ($("ctxDuplicate").style.display = (ctxState.pending.fileIds.size === 1) ? "block" : "none");
-  $("ctxOpenTab") && ($("ctxOpenTab").style.display = "block");
-  $("ctxDelete").style.display = "block";
-  $("ctxFilterGroup").style.display = "none";
-  $("ctxBgSplit").style.display = "none";
-  $("ctxBgScaleRuler") && ($("ctxBgScaleRuler").style.display = "none");
-  $("ctxBgToMember").style.display = "none";
-  $("ctxBgToDashed") && ($("ctxBgToDashed").style.display = "none");
-  $("ctxHead").textContent = `已選取 ${ctxState.pending.fileIds.size} 個檔案`;
-  const list = $("ctxList");
-  list.innerHTML = "";
-  for (const fid of ctxState.pending.fileIds) {
-    const f = state.files.find(ff => ff.id === fid);
-    if (!f) continue;
-    const d = document.createElement("div");
-    d.className = "ctx-list-item";
-    d.title = f.name;
-    d.textContent = f.name;
-    list.appendChild(d);
-  }
-  const m = $("ctxMenu");
-  m.style.display = "flex";
-  m.style.left = "0px"; m.style.top = "0px";
-  const w = m.offsetWidth, h = m.offsetHeight;
-  m.style.left = Math.min(x, window.innerWidth - w - 4) + "px";
-  m.style.top  = Math.min(y, window.innerHeight - h - 4) + "px";
-}
-
-function deleteSelectedFiles() {
-  if (!state.selection.fileIds.size) return;
-  // 一律跳出確認訊息:列出即將刪除的檔案名稱
-  const ids = new Set(state.selection.fileIds);
-  const names = state.files.filter(f => ids.has(f.id)).map(f => f.name);
-  const msg = names.length === 1
-    ? `確定刪除檔案「${names[0]}」?\n此動作會一併移除其所有標線、比例尺、原點等資料。`
-    : `確定刪除以下 ${names.length} 個檔案?\n此動作會一併移除其所有標線、比例尺、原點等資料。\n\n${names.map(n => "• " + n).join("\n")}`;
-  if (!confirm(msg)) return;
-  pushUndo();
-  // 在移除之前:若有其他檔案以 sourceFileId 指向即將被刪的檔案,先把底圖資料搬移給仍存活的依賴檔,
-  // 並修正其他依賴檔的 sourceFileId 指向新主,避免原圖被刪後衍生檔變空白。
-  for (const deletingId of ids) {
-    const src = state.files.find(f => f.id === deletingId);
-    if (!src) continue;
-    const dependents = state.files.filter(f =>
-      !ids.has(f.id) && (f.sourceFileId === deletingId || f.sourceFileId === src.sourceFileId && f.id !== deletingId)
-    );
-    if (!dependents.length) continue;
-    // 選一個存活的依賴檔接手(優先挑本來就缺 own 快取的;否則選第一個)
-    const heir = dependents.find(f => !f.pdf && !f.image && !f.cachedBgSvg && !f.cachedBgImg) || dependents[0];
-    if (src.pdf && !heir.pdf) { heir.pdf = src.pdf; heir.pdfPage = heir.pdfPage || src.pdfPage; }
-    if (src.image && !heir.image) {
-      heir.image = src.image;
-      heir.imageWidth  = heir.imageWidth  || src.imageWidth;
-      heir.imageHeight = heir.imageHeight || src.imageHeight;
-    }
-    if (src.cachedBgSvg && !heir.cachedBgSvg) heir.cachedBgSvg = src.cachedBgSvg;
-    if (src.cachedBgImg && !heir.cachedBgImg) heir.cachedBgImg = src.cachedBgImg;
-    if (src.cachedBgWidth  && !heir.cachedBgWidth)  heir.cachedBgWidth  = src.cachedBgWidth;
-    if (src.cachedBgHeight && !heir.cachedBgHeight) heir.cachedBgHeight = src.cachedBgHeight;
-    if (src.detectedStrokeWidth && !heir.detectedStrokeWidth) heir.detectedStrokeWidth = src.detectedStrokeWidth;
-    heir.sourceFileId = null;   // 它現在是自己的主檔
-    // 其他依賴檔全部改指向 heir
-    for (const d of dependents) if (d !== heir && d.sourceFileId === deletingId) d.sourceFileId = heir.id;
-    console.log(`[刪除] ${src.name} 的底圖資料轉移給 ${heir.name}(${dependents.length - 1} 個其他依賴檔改指向)`);
-  }
-  // 清掉其他檔的 primary section link 中,指向「即將被刪」這幾個檔的 targetFileIds —
-  //   不清掉的話會留下指向已不存在 file id 的 dangling reference,
-  //   切面 section list 會出現「→ ?」、衍生計算也會撞到 missing target 而靜默濾掉。
-  const slCleanup = [];
-  for (const f of state.files) {
-    if (ids.has(f.id)) continue;          // 自己也要被刪 → 反正整檔會丟,不用清 sectionLinks
-    if (!Array.isArray(f.sectionLinks) || !f.sectionLinks.length) continue;
-    const keep = [];
-    for (const e of f.sectionLinks) {
-      if (e.autoProp || !Array.isArray(e.targetFileIds)) { keep.push(e); continue; }
-      const before = e.targetFileIds.slice();
-      const after = before.filter(t => !ids.has(t));
-      if (after.length === before.length) { keep.push(e); continue; }
-      const dropped = before.filter(t => ids.has(t));
-      if (after.length === 0) {
-        slCleanup.push({ host: f.name, entryId: e.id, action: "remove-entry", droppedTargets: dropped });
-      } else {
-        e.targetFileIds = after;
-        slCleanup.push({ host: f.name, entryId: e.id, action: "trim-targets", droppedTargets: dropped, remaining: after.slice() });
-        keep.push(e);
-      }
-    }
-    if (keep.length !== f.sectionLinks.length) f.sectionLinks = keep;
-  }
-  if (slCleanup.length) console.log("[刪除] 清理其他檔的主關聯 targetFileIds:", slCleanup);
-  state.files = state.files.filter(f => !ids.has(f.id));
-  state.selection.fileIds.clear();
-  if (!state.files.find(f => f.id === state.activeFileId)) {
-    const next = state.files[0];
-    if (next) { activatePage(next.id, 0); return; }
-    state.activeFileId = null; state.pageIdx = 0;
-    initBlank();
-  }
-  refreshFileList(); refreshPageSelector();
-  if (typeof refreshTabBar === "function") refreshTabBar();
-  render(); refreshLists();
-}
-
-export function refreshPageSelector() {
-  const sel = $("pageSelector");
-  if (!sel) return;
-  sel.innerHTML = "";
-  for (const f of state.files) {
-    for (let i = 0; i < f.pageCount; i++) {
-      const opt = document.createElement("option");
-      opt.value = `${f.id}/${i}`;
-      const pg = (f.pages && f.pages[i]) || null;
-      const stats = pg ? ` (${pg.joints.length}節 ${pg.members.length}桿)` : "";
-      opt.textContent = `${f.name}${f.pdf ? ` · 第${i + 1}頁` : ""}${stats}`;
-      if (state.activeFileId === f.id && state.pageIdx === i) opt.selected = true;
-      sel.appendChild(opt);
-    }
-  }
-  if (!sel.children.length) {
-    const opt = document.createElement("option");
-    opt.textContent = (typeof _t === "function" && _t("rb.pageNotLoaded")) || "尚未載入";
-    opt.disabled = true;
-    sel.appendChild(opt);
-  }
 }
 
 // ---------- pan/zoom ----------
@@ -3062,7 +2754,7 @@ function _appendUserBgLineDom(bgSvgEl, p1World, p2World, idx, dasharray) {
   return ln;
 }
 
-function addBgLineWorld(file, p1World, p2World, opts) {
+export function addBgLineWorld(file, p1World, p2World, opts) {
   const bgSvgEl = document.getElementById("bgSvg");
   if (!bgSvgEl) return null;
   let maxIdx = -1;
@@ -3088,7 +2780,7 @@ function addBgLineWorld(file, p1World, p2World, opts) {
 
 // 把 file.userBgLines(權威資料)同步到 bgSvg DOM:先移除既有的 [data-bg-user="1"] 線,
 //   再依資料逐條重建。專供 undo / redo 使用。
-function syncUserBgLinesToDom(file) {
+export function syncUserBgLinesToDom(file) {
   if (!file) return;
   const bgSvgEl = document.getElementById("bgSvg");
   if (!bgSvgEl) return;
@@ -3108,7 +2800,7 @@ function syncUserBgLinesToDom(file) {
 }
 
 // 畫直線 / 畫虛線 / 複製線 / 中分線 / 等分線 相關按鈕的 active 視覺狀態
-function _refreshBgDrawButtonStates() {
+export function _refreshBgDrawButtonStates() {
   const isDashed = !!(state.bgDrawLine && state.bgDrawLine.active && state.bgDrawLine.dasharray);
   const isSolid  = !!(state.bgDrawLine && state.bgDrawLine.active && !state.bgDrawLine.dasharray);
   const dl = $("bgEditDrawLine");
@@ -3123,285 +2815,28 @@ function _refreshBgDrawButtonStates() {
   if (eq) eq.classList.toggle("active", !!(state.bgEqui && state.bgEqui.active));
 }
 
-// ---------- 畫直線 / 畫虛線 ----------
-//   兩者共用 state.bgDrawLine 狀態與 commit 流程,差別只在 dasharray:
-//   實線 → null;虛線 → 預設樣式 "8 4"(跟「轉虛線」共用)。
-function startBgDrawLine(opts) {
-  if (state.tool !== "selectBg") setTool("selectBg");
-  const dashed = !!(opts && opts.dashed);
-  state.bgDrawLine = { active: true, p1: null, dasharray: dashed ? "8 4" : null };
-  state.bgBisector = null;
-  state.bgEqui = null;
-  state.bgCopyLine = null;
-  _refreshBgDrawButtonStates();
-  $("hud").textContent = dashed
-    ? "畫虛線:點選第一個點(自動吸 bg 端點 / 交點。Alt = 也吸線中段。Esc 取消)"
-    : "畫直線:點選第一個點(自動吸 bg 端點 / 交點。Alt = 也吸線中段。Esc 取消)";
-  render();
-}
-export function exitBgDrawLine(msg) {
-  if (!state.bgDrawLine) return;
-  state.bgDrawLine = null;
-  _refreshBgDrawButtonStates();
-  if (msg != null) $("hud").textContent = msg;
-  render();
-}
-function commitBgDrawLineSecond(world) {
-  const file = getActiveFile();
-  if (!file || !state.bgDrawLine || !state.bgDrawLine.p1) return;
-  const p1 = state.bgDrawLine.p1;
-  const dasharray = state.bgDrawLine.dasharray || null;
-  pushUndo();
-  addBgLineWorld(file, p1, world, dasharray ? { dasharray } : undefined);
-  state.bgDrawLine = null;
-  _refreshBgDrawButtonStates();
-  $("hud").textContent = dasharray ? "已加入 bg 虛線" : "已加入 bg 直線";
-  render();
-}
-$("bgEditDrawLine") && ($("bgEditDrawLine").onclick = () => startBgDrawLine());
-$("bgEditDrawDashed") && ($("bgEditDrawDashed").onclick = () => startBgDrawLine({ dashed: true }));
-
-// ---------- 複製線(實線 / 虛線都支援) ----------
-//   流程:
-//     a) 進入時若已有選取的 bg 線 → 直接抓成 sources,進入「點基準點」
-//     b) 進入時無選取 → 進入「選 source」,使用者點任一條 bg 線當來源後再進「點基準點」
-//     c) 基準點設好後,每次點擊 = 放置一份新線(基準點不變,連續複製)
-//   Esc 或切換到其他工具就退出。
-function _captureSourceFromElement(elx) {
-  if (!elx) return null;
-  const L = bgSingleLineWorldEnds(elx);
-  if (!L) return null;
-  let dash = elx.getAttribute && elx.getAttribute("stroke-dasharray");
-  if (!dash) {
-    const sty = elx.getAttribute && elx.getAttribute("style");
-    const m = sty && sty.match(/stroke-dasharray\s*:\s*([^;]+)/i);
-    if (m) dash = m[1].trim();
-  }
-  return { p1: { x: L.p1.x, y: L.p1.y }, p2: { x: L.p2.x, y: L.p2.y }, dasharray: dash || null };
-}
-function startBgCopyLine() {
-  if (state.tool !== "selectBg") setTool("selectBg");
-  const file = getActiveFile();
-  state.bgDrawLine = null;
-  state.bgBisector = null;
-  state.bgEqui = null;
-  // 若已有選取 → 抓成 sources;否則 sources=[](用 pickingSource 旗標等使用者點線)
-  const sources = [];
-  if (file && file.selectedBgPaths && file.selectedBgPaths.size) {
-    const bgSvgEl = document.getElementById("bgSvg");
-    for (const idx of file.selectedBgPaths) {
-      const elx = bgSvgEl && bgSvgEl.querySelector(`[data-bg-idx="${CSS.escape(String(idx))}"]`);
-      const src = _captureSourceFromElement(elx);
-      if (src) sources.push(src);
-    }
-    // 已轉成 sources,清掉視覺選取:複製線進行中不該有「選取狀態」殘留干擾
-    clearAllBgSelection && clearAllBgSelection(file);
-  }
-  state.bgCopyLine = { active: true, sources, base: null };
-  _refreshBgDrawButtonStates();
-  if (sources.length) {
-    $("hud").textContent = `複製線:選了 ${sources.length} 條 → 點基準點(自動吸 bg 端點 / 交點)`;
-  } else {
-    $("hud").textContent = `複製線:點一條要複製的 bg 線(實線 / 虛線都可)`;
-  }
-  render();
-}
-export function exitBgCopyLine(msg) {
-  if (!state.bgCopyLine) return;
-  state.bgCopyLine = null;
-  _refreshBgDrawButtonStates();
-  if (msg != null) $("hud").textContent = msg;
-  render();
-}
-function commitBgCopyLineDest(world) {
-  const file = getActiveFile();
-  const cl = state.bgCopyLine;
-  if (!file || !cl || !cl.active || !cl.base || !cl.sources.length) return;
-  const dx = world.x - cl.base.x, dy = world.y - cl.base.y;
-  pushUndo();
-  let n = 0;
-  for (const src of cl.sources) {
-    const p1 = { x: src.p1.x + dx, y: src.p1.y + dy };
-    const p2 = { x: src.p2.x + dx, y: src.p2.y + dy };
-    addBgLineWorld(file, p1, p2, src.dasharray ? { dasharray: src.dasharray } : undefined);
-    n++;
-  }
-  $("hud").textContent = `複製線:放置 ${n} 條(再點下一處,Esc 結束)`;
-  render();
-}
-$("bgEditCopyLine") && ($("bgEditCopyLine").onclick = () => startBgCopyLine());
-
-// ---------- 中分線 ----------
-function startBgBisector() {
-  const file = getActiveFile();
-  if (!file || !file.selectedBgPaths || file.selectedBgPaths.size < 1) {
-    alert("請先選 1 條 bg 線"); return;
-  }
-  const lines = _selectedBgLinesAsWorld(file);
-  if (lines.length < 1) { alert("選取的不是單一直線(可先「切成直線」)"); return; }
-  const L = lines[0];
-  const dx = L.p2.x - L.p1.x, dy = L.p2.y - L.p1.y;
-  const len = Math.hypot(dx, dy);
-  if (len < 1e-6) { alert("選取的線段太短"); return; }
-  const mid = { x: (L.p1.x + L.p2.x) / 2, y: (L.p1.y + L.p2.y) / 2 };
-  const nx = -dy / len, ny = dx / len;
-  state.bgBisector = { active: true, mid, nx, ny, halfLen: len / 2 };
-  state.bgDrawLine = null;
-  state.bgEqui = null;
-  _refreshBgDrawButtonStates();
-  $("hud").textContent = "中分線:移動滑鼠決定半長,點擊確認 / Esc 取消";
-  render();
-}
-export function exitBgBisector(msg) {
-  if (!state.bgBisector) return;
-  state.bgBisector = null;
-  _refreshBgDrawButtonStates();
-  if (msg != null) $("hud").textContent = msg;
-  render();
-}
-function updateBgBisectorPreview(clientX, clientY) {
-  const b = state.bgBisector; if (!b) return;
-  const w = screenToWorld(clientX, clientY);
-  // 投影 (w - mid) 到法向量 (nx, ny);取絕對值為半長
-  const dx = w.x - b.mid.x, dy = w.y - b.mid.y;
-  const t = dx * b.nx + dy * b.ny;
-  b.halfLen = Math.max(1, Math.abs(t));
-  render();
-}
-function commitBgBisector() {
-  const file = getActiveFile();
-  const b = state.bgBisector; if (!file || !b) return;
-  const p1 = { x: b.mid.x - b.nx * b.halfLen, y: b.mid.y - b.ny * b.halfLen };
-  const p2 = { x: b.mid.x + b.nx * b.halfLen, y: b.mid.y + b.ny * b.halfLen };
-  pushUndo();
-  addBgLineWorld(file, p1, p2);
-  state.bgBisector = null;
-  _refreshBgDrawButtonStates();
-  $("hud").textContent = `已加入中分線(半長 ${b.halfLen.toFixed(0)})`;
-  render();
-}
-$("bgEditBisector") && ($("bgEditBisector").onclick = () => startBgBisector());
-
-// ---------- 等分線(兩條近似平行 bg 線之間的等距平行線)----------
-function startBgEqui() {
-  const file = getActiveFile();
-  const lines = _selectedBgLinesAsWorld(file);
-  if (lines.length < 2) { alert("請選 2 條以上 bg 線(系統自動找平行對)"); return; }
-  // 共線視為同一條(允許重疊 / 同條線多次選到)→ 各 group 取代表
-  const groups = groupCollinearLines(lines);
-  if (groups.length < 2) { alert("選取的線都共線(同一條),需選 2 條不同位置的平行線"); return; }
-  const reps = groups.map(g => lines[g[0]]);
-  // 在所有獨立線兩兩中,找第一對平行(夾角 ≤ 3°,sin ≤ 0.05)的
-  let L1 = null, L2 = null, sinTheta = 0;
-  outer:
-  for (let i = 0; i < reps.length; i++) {
-    for (let j = i + 1; j < reps.length; j++) {
-      const v1 = { x: reps[i].p2.x - reps[i].p1.x, y: reps[i].p2.y - reps[i].p1.y };
-      const v2 = { x: reps[j].p2.x - reps[j].p1.x, y: reps[j].p2.y - reps[j].p1.y };
-      const len1 = Math.hypot(v1.x, v1.y), len2 = Math.hypot(v2.x, v2.y);
-      if (len1 < 1e-6 || len2 < 1e-6) continue;
-      const s = Math.abs((v1.x * v2.y - v1.y * v2.x) / (len1 * len2));
-      if (s <= 0.05) {
-        L1 = reps[i]; L2 = reps[j]; sinTheta = s;
-        break outer;
-      }
-    }
-  }
-  if (!L1) {
-    // 找不到嚴格平行 → 提示使用者
-    alert(`選取的 ${reps.length} 條獨立線中找不到平行對(夾角都 > 3°),無法畫等分線`);
-    return;
-  }
-  // 同向化(若 v2 反向就翻)
-  const v1 = { x: L1.p2.x - L1.p1.x, y: L1.p2.y - L1.p1.y };
-  const v2 = { x: L2.p2.x - L2.p1.x, y: L2.p2.y - L2.p1.y };
-  const len1 = Math.hypot(v1.x, v1.y), len2 = Math.hypot(v2.x, v2.y);
-  const dot = v1.x * v2.x + v1.y * v2.y;
-  const v2s = dot >= 0 ? v2 : { x: -v2.x, y: -v2.y };
-  const ux1 = v1.x / len1, uy1 = v1.y / len1;
-  const ux2 = v2s.x / len2, uy2 = v2s.y / len2;
-  let dx = (ux1 + ux2) / 2, dy = (uy1 + uy2) / 2;
-  const dl = Math.hypot(dx, dy);
-  if (dl < 1e-6) { alert("方向計算失敗"); return; }
-  dx /= dl; dy /= dl;
-  const m1 = { x: (L1.p1.x + L1.p2.x) / 2, y: (L1.p1.y + L1.p2.y) / 2 };
-  const m2 = { x: (L2.p1.x + L2.p2.x) / 2, y: (L2.p1.y + L2.p2.y) / 2 };
-  const center = { x: (m1.x + m2.x) / 2, y: (m1.y + m2.y) / 2 };
-  const halfLen = (len1 + len2) / 4;
-  state.bgEqui = { active: true, center, dx, dy, halfLen };
-  state.bgDrawLine = null;
-  state.bgBisector = null;
-  _refreshBgDrawButtonStates();
-  const msg = (reps.length > 2)
-    ? `等分線:從 ${reps.length} 條獨立線中找到平行對 — 移動滑鼠決定總長,點擊確認 / Esc 取消`
-    : "等分線:移動滑鼠決定總長(對稱拉長),點擊確認 / Esc 取消";
-  $("hud").textContent = msg;
-  render();
-}
-export function exitBgEqui(msg) {
-  if (!state.bgEqui) return;
-  state.bgEqui = null;
-  _refreshBgDrawButtonStates();
-  if (msg != null) $("hud").textContent = msg;
-  render();
-}
-function updateBgEquiPreview(clientX, clientY) {
-  const e = state.bgEqui; if (!e) return;
-  const w = screenToWorld(clientX, clientY);
-  // 投影 (w - center) 到方向 (dx, dy);取絕對值為半長
-  const t = (w.x - e.center.x) * e.dx + (w.y - e.center.y) * e.dy;
-  e.halfLen = Math.max(1, Math.abs(t));
-  render();
-}
-function commitBgEqui() {
-  const file = getActiveFile();
-  const e = state.bgEqui; if (!file || !e) return;
-  const p1 = { x: e.center.x - e.dx * e.halfLen, y: e.center.y - e.dy * e.halfLen };
-  const p2 = { x: e.center.x + e.dx * e.halfLen, y: e.center.y + e.dy * e.halfLen };
-  pushUndo();
-  // 等分線視為中心線:用 CENTER pattern 虛線(stroke-dasharray)
-  addBgLineWorld(file, p1, p2, { dasharray: "12 4 4 4" });
-  state.bgEqui = null;
-  _refreshBgDrawButtonStates();
-  $("hud").textContent = `已加入等分線(半長 ${e.halfLen.toFixed(0)},虛線樣式)`;
-  render();
-}
-$("bgEditEquidist") && ($("bgEditEquidist").onclick = () => startBgEqui());
-
-// 轉虛線:對所有選取的 bg 線切換 stroke-dasharray
-//   元素已有 dasharray → 移除(轉成實線)
-//   元素無 dasharray → 套用預設 "8 4"(轉成虛線)
-//   不影響選取狀態,只改線型
-function bgToggleDashedOnSelection() {
-  const file = getActiveFile();
-  if (!file || !file.selectedBgPaths || file.selectedBgPaths.size === 0) return;
-  const bgSvgEl = document.getElementById("bgSvg");
-  if (!bgSvgEl) return;
-  pushUndo();
-  let toDashed = 0, toSolid = 0;
-  for (const idx of file.selectedBgPaths) {
-    const el = bgSvgEl.querySelector(`[data-bg-idx="${CSS.escape(String(idx))}"]`);
-    if (!el) continue;
-    if (el.hasAttribute("stroke-dasharray")) {
-      el.removeAttribute("stroke-dasharray");
-      toSolid++;
-    } else {
-      el.setAttribute("stroke-dasharray", "8 4");
-      toDashed++;
-    }
-  }
-  // 同步 cachedBgSvg
-  try { file.cachedBgSvg = new XMLSerializer().serializeToString(bgSvgEl); } catch (_) {}
-  $("hud").textContent = `轉虛線:${toDashed} 條變虛線、${toSolid} 條變實線`;
-  render();
-}
-$("bgEditToDashed") && ($("bgEditToDashed").onclick = () => bgToggleDashedOnSelection());
-
-// 比例尺沿線移動 — 點擊式互動:
-//   1) 按按鈕 → 進入 drag 模式,記下原本 p1/p2(用於 Esc 還原)
-//   2) 滑鼠 mouse-move → 即時把游標投影到比例尺的「參考線方向」軸上,sr.p1/p2 同步平移
-//   3) 點擊畫布 → 確認當前位置(sr.p1/p2 已經就位),退出模式
-//   4) Esc → 還原到 backup,退出模式
+// ---------- 畫直線 / 畫虛線 / 複製線 / 中分線 / 等分線 / 切換虛線 ----------
+// 12 個 bg 繪圖函式 + 6 個 button onclick wiring 全搬到 src/tools/bgDrawTools.ts
+import {
+  startBgDrawLine, commitBgDrawLineSecond,
+  _captureSourceFromElement, startBgCopyLine, commitBgCopyLineDest,
+  startBgBisector, updateBgBisectorPreview, commitBgBisector,
+  startBgEqui, updateBgEquiPreview, commitBgEqui,
+  bgToggleDashedOnSelection,
+  exitBgDrawLine, exitBgCopyLine, exitBgBisector, exitBgEqui,
+  wireBgDrawTools,
+} from "./tools/bgDrawTools";
+wireBgDrawTools();
+export {
+  startBgDrawLine, commitBgDrawLineSecond,
+  _captureSourceFromElement, startBgCopyLine, commitBgCopyLineDest,
+  startBgBisector, updateBgBisectorPreview, commitBgBisector,
+  startBgEqui, updateBgEquiPreview, commitBgEqui,
+  bgToggleDashedOnSelection,
+  // 4 個 exit* — 之前已從 legacy export(measure.ts / sectionLink.ts 等 import 用),
+  // 搬到 bgDrawTools.ts 後仍需從 legacy.ts re-export 維持下游 import 兼容
+  exitBgDrawLine, exitBgCopyLine, exitBgBisector, exitBgEqui,
+};
 function startScaleRulerDrag() {
   const file = getActiveFile();
   if (!file || !file.scaleRuler) { alert("尚未建立比例尺。"); return; }
@@ -3475,41 +2910,10 @@ $("bgEditSplit")     && ($("bgEditSplit").onclick    = () => withBusy("拆分為
 $("bgEditToMember")  && ($("bgEditToMember").onclick = () => withBusy("轉為桿件中…", bgPathsToMembers));
 $("bgEditDel")       && ($("bgEditDel").onclick      = () => withBusy("刪除中…", deleteSelectedBgPaths));
 // ---------- 選取工具浮動面板 ----------
-// 依目前選取狀態切換編輯按鈕的顯示
-export function updateSelectToolsVisibility() {
-  const hasMembers = state.selection.members && state.selection.members.size > 0;
-  const hasJoints  = state.selection.joints  && state.selection.joints.size  > 0;
-  const showLine  = hasMembers ? "" : "none";
-  const showJoint = hasJoints  ? "" : "none";
-  // 桿件編輯:選取裡有桿件才顯示
-  if ($("selToolsExtend"))     $("selToolsExtend").style.display     = showLine;
-  if ($("selToolsExtendBoth")) $("selToolsExtendBoth").style.display = showLine;
-  // 點編輯(延桿系列):選取裡有節點才顯示;只選線時隱藏
-  if ($("selToolsJExtH"))      $("selToolsJExtH").style.display      = showJoint;
-  if ($("selToolsJExtV"))      $("selToolsJExtV").style.display      = showJoint;
-  if ($("selToolsJExtHBoth"))  $("selToolsJExtHBoth").style.display  = showJoint;
-  if ($("selToolsJExtVBoth"))  $("selToolsJExtVBoth").style.display  = showJoint;
-  // 節點水平/垂直複製:選取裡有節點才顯示
-  if ($("selToolsDupJointH"))  $("selToolsDupJointH").style.display  = showJoint;
-  if ($("selToolsDupJointV"))  $("selToolsDupJointV").style.display  = showJoint;
-  // 點點連結:至少要兩個節點才有意義
-  const jointCount = state.selection.joints ? state.selection.joints.size : 0;
-  const showConnect = jointCount >= 2 ? "" : "none";
-  if ($("selToolsJConnectH"))  $("selToolsJConnectH").style.display  = showConnect;
-  if ($("selToolsJConnectV"))  $("selToolsJConnectV").style.display  = showConnect;
-  if ($("selToolsJConnectD"))  $("selToolsJConnectD").style.display  = showConnect;
-  // 兩點合一:剛好 2 個節點才顯示
-  const showMerge = jointCount === 2 ? "" : "none";
-  if ($("selToolsJMerge"))     $("selToolsJMerge").style.display     = showMerge;
-  // 標示距離(選取模式):至少選 1 個桿件才顯示
-  const memberCount = state.selection.members ? state.selection.members.size : 0;
-  if ($("selToolsMeasure"))    $("selToolsMeasure").style.display    = memberCount >= 1 ? "" : "none";
-  // 切交點(選取):≥ 2 個桿件才有意義
-  if ($("selToolsIntersectSel")) $("selToolsIntersectSel").style.display = memberCount >= 2 ? "" : "none";
-}
-
-// selToolsSelectAll / selToolsSelectJoints / selToolsSelectMembers / _updateSelToolsFilterBtns
-// _classifyMemberDir / _memberPassesDirFilter / _toggleDirFilter 已搬到 tools/selectTools.ts
+// updateSelectToolsVisibility / selToolsExtendAlong + 14 個按鈕 onclick + 面板 click 冒泡阻擋
+// 搬到 src/ui/selectToolsPanel.ts;wireSelectToolsPanel() 由本檔延後 call。
+// 同時保留 selToolsSelectAll / selToolsSelectJoints / selToolsSelectMembers / direction filter 等
+// 從 tools/selectTools.ts 的 re-export(下游 ui/menubar / dialogs/... 仍可從 legacy.ts import)
 import {
   selToolsSelectAll,
   selToolsSelectJoints,
@@ -3528,93 +2932,16 @@ export {
   _memberPassesDirFilter,
   _toggleDirFilter,
 };
-// axis: "horizontal" = 同 y(水平對齊);"vertical" = 同 x(垂直對齊)
-// kind:  "all"     = 從節點+桿件取參考座標,並同時擴展節點+桿件
-//        "joints"  = 只從「選取中的節點」取 y/x,擴展節點(沒選節點 → 不動)
-//        "members" = 只從「選取中的桿件」取 y/x,擴展桿件(沒選桿件 → 不動)
-// axis:        "horizontal" (同 Y) | "vertical" (同 X)
-// kind:        "all" | "joints" | "members"
-// orientation: undefined (任何方向) | "horizontal" | "vertical" | "diagonal"
-//   只在 kind 含 members 時對 member 套用 orientation 過濾
-function selToolsExtendAlong(axis, kind, orientation) {
-  const p = getPage(); if (!p) return;
-  const round = (n) => Math.round(n * 100) / 100;
-  const eps = 0.5;
-  const matchesOrient = (m) => {
-    if (!orientation) return true;
-    const a = jointById(m.j1), b = jointById(m.j2);
-    if (!a || !b) return false;
-    const dx = Math.abs(a.x - b.x), dy = Math.abs(a.y - b.y);
-    if (orientation === "horizontal") return dy < eps && dx >= eps;
-    if (orientation === "vertical")   return dx < eps && dy >= eps;
-    if (orientation === "orthogonal") return dy < eps || dx < eps;        // 水平 ∪ 垂直
-    if (orientation === "diagonal")   return dx >= eps && dy >= eps;
-    return true;
-  };
-  // 取桿件「中點 + 端點對端點長度(在另一軸上)」當 key
-  //   axis=horizontal:key = midY|dy(同列 + 端點垂直距離一致)
-  //   axis=vertical  :key = midX|dx(同欄 + 端點水平距離一致)
-  // 這個條件對水平/垂直桿件來說自然成立(dy=0 或 dx=0),對斜桿件起到「形狀一致」的過濾
-  const memberKey = (m) => {
-    const a = jointById(m.j1), b = jointById(m.j2);
-    if (!a || !b) return null;
-    const mid = round(axis === "horizontal" ? (a.y + b.y) / 2 : (a.x + b.x) / 2);
-    const span = round(axis === "horizontal" ? Math.abs(a.y - b.y) : Math.abs(a.x - b.x));
-    return `${mid}|${span}`;
-  };
-  const jointCoords = new Set();
-  const memberKeys = new Set();
-  if (kind === "all" || kind === "joints") {
-    for (const id of state.selection.joints) {
-      const j = jointById(id); if (!j) continue;
-      jointCoords.add(round(axis === "horizontal" ? j.y : j.x));
-    }
-  }
-  if (kind === "all" || kind === "members") {
-    for (const id of state.selection.members) {
-      const m = p.members.find(mm => mm.id === id);
-      if (!m) continue;
-      if (!matchesOrient(m)) continue;
-      const k = memberKey(m);
-      if (k) memberKeys.add(k);
-    }
-  }
-  if (jointCoords.size === 0 && memberKeys.size === 0) return;
-  if (kind === "all" || kind === "joints") {
-    for (const j of p.joints) {
-      const v = round(axis === "horizontal" ? j.y : j.x);
-      if (jointCoords.has(v)) state.selection.joints.add(j.id);
-    }
-  }
-  if (kind === "all" || kind === "members") {
-    for (const m of p.members) {
-      if (!matchesOrient(m)) continue;
-      const k = memberKey(m);
-      if (k && memberKeys.has(k)) state.selection.members.add(m.id);
-    }
-  }
-  render(); refreshLists();
-}
-$("selToolsAll")      && ($("selToolsAll").onclick      = selToolsSelectAll);
-$("selToolsJoints")   && ($("selToolsJoints").onclick   = selToolsSelectJoints);
-$("selToolsDirV")     && ($("selToolsDirV").onclick     = () => _toggleDirFilter("vertical"));
-$("selToolsDirH")     && ($("selToolsDirH").onclick     = () => _toggleDirFilter("horizontal"));
-$("selToolsDirO")     && ($("selToolsDirO").onclick     = () => _toggleDirFilter("orthogonal"));
-$("selToolsDirD")     && ($("selToolsDirD").onclick     = () => _toggleDirFilter("diagonal"));
-_updateSelToolsFilterBtns();   // 初始化 active 狀態
-$("selToolsMembers")  && ($("selToolsMembers").onclick  = selToolsSelectMembers);
-$("selToolsRepeatHJ") && ($("selToolsRepeatHJ").onclick = () => selToolsExtendAlong("horizontal", "joints"));
-$("selToolsRepeatVJ") && ($("selToolsRepeatVJ").onclick = () => selToolsExtendAlong("vertical",   "joints"));
-$("selToolsRepeatOH") && ($("selToolsRepeatOH").onclick = () => selToolsExtendAlong("horizontal", "members", "orthogonal"));
-$("selToolsRepeatOV") && ($("selToolsRepeatOV").onclick = () => selToolsExtendAlong("vertical",   "members", "orthogonal"));
-$("selToolsRepeatDH") && ($("selToolsRepeatDH").onclick = () => selToolsExtendAlong("horizontal", "members", "diagonal"));
-$("selToolsRepeatDV") && ($("selToolsRepeatDV").onclick = () => selToolsExtendAlong("vertical",   "members", "diagonal"));
-// 阻止選取面板點擊冒泡到畫布
-["selectTools"].forEach(id => {
-  const el = $(id); if (!el) return;
-  ["click","mousedown","mouseup","dblclick","wheel"].forEach(ev =>
-    el.addEventListener(ev, (e) => e.stopPropagation()));
-});
+import {
+  updateSelectToolsVisibility,
+  selToolsExtendAlong,
+  wireSelectToolsPanel,
+} from "./ui/selectToolsPanel";
+wireSelectToolsPanel();
+export {
+  updateSelectToolsVisibility,
+  selToolsExtendAlong,
+};
 
 $("bgEditSelSquares")   && ($("bgEditSelSquares").onclick   = () => toggleShapeMarqueeMode("square"));
 $("bgEditSelRects")     && ($("bgEditSelRects").onclick     = () => toggleShapeMarqueeMode("rect"));
@@ -4532,7 +3859,7 @@ export function _projectPointOnLine(p, a, b) {
   const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
   return { x: a.x + t * dx, y: a.y + t * dy };
 }
-function bgSingleLineWorldEnds(el) {
+export function bgSingleLineWorldEnds(el) {
   const segs = svgElementToSegments(el);
   if (segs.length !== 1) return null;
   const seg = segs[0];
@@ -4565,7 +3892,7 @@ function linesAreCollinear(a, b, eps) {
   return dist < eps;
 }
 // 把線段陣列依「共線」分群,回傳 group 陣列(每個 group = 共線索引的陣列)
-function groupCollinearLines(lines, eps) {
+export function groupCollinearLines(lines, eps) {
   eps = eps || 0.5;
   const groups = [];
   for (let i = 0; i < lines.length; i++) {
@@ -7332,7 +6659,7 @@ function getOrCreateJointOnPage(page, x, y, radius) {
   return j;
 }
 
-function ensureJointAt(p) {
+export function ensureJointAt(p) {
   if (p.joint) return p.joint;
   // also re-search to merge with any existing joint within snap radius
   const radius = state.snapPx / state.zoom;
@@ -7349,7 +6676,7 @@ function ensureJointAt(p) {
 //   全部綁到同一個新 globalJoint(若 joint 已綁過則沿用)。
 //   相容性檢查:目標頁的 page.z 要 ≈ world 的「out-of-plane 軸」(否則該 page 是不同的 slice,跳過)。
 //   缺少必要設定(plane / ratio / origin)的頁面也會被 world3DToJoint2D 自然 skip。
-function syncJointAcrossViews(joint) {
+export function syncJointAcrossViews(joint) {
   const af = getActiveFile();
   const ap = getPage();
   if (!af || !ap) return;
@@ -7405,274 +6732,8 @@ function syncJointAcrossViews(joint) {
   $("hud").textContent = msg;
 }
 
-// ---------- 移動指令(M)----------
-// 對每條選取桿件,把端點延伸到「沿桿件方向最近的非共端點桿件」的交點
-// bothEnds: true → 兩端都延伸;false(預設)→ 只延伸距離較近的那一端
-// 端點被其他桿件共用 → 新建 joint 不動原 joint
-function extendSelectedMembersToIntersect(bothEnds) {
-  const p = getPage(); if (!p) return;
-  if (state.selection.members.size === 0) {
-    alert("請先選取至少一條桿件");
-    return;
-  }
-  pushUndo();
-  const eps = 1e-3;
-  let moved = 0;
-  const targets = [];   // { member, endKey: "j1"|"j2", x, y }
-  for (const mid of state.selection.members) {
-    const m = p.members.find(mm => mm.id === mid);
-    if (!m) continue;
-    const a = jointById(m.j1), b = jointById(m.j2);
-    if (!a || !b) continue;
-    const dx = b.x - a.x, dy = b.y - a.y;
-    const lenSq = dx * dx + dy * dy;
-    if (lenSq < eps) continue;
-    let bestA = null, bestB = null;
-    // 候選 1:其他桿件的延伸交點(原本邏輯)
-    for (const o of p.members) {
-      if (o.id === m.id) continue;
-      if (o.j1 === m.j1 || o.j1 === m.j2 || o.j2 === m.j1 || o.j2 === m.j2) continue;
-      const c = jointById(o.j1), d = jointById(o.j2);
-      if (!c || !d) continue;
-      const denom = (b.x - a.x) * (d.y - c.y) - (b.y - a.y) * (d.x - c.x);
-      if (Math.abs(denom) < eps) continue;
-      const t = ((c.x - a.x) * (d.y - c.y) - (c.y - a.y) * (d.x - c.x)) / denom;
-      const s = ((c.x - a.x) * (b.y - a.y) - (c.y - a.y) * (b.x - a.x)) / denom;
-      if (s < -eps || s > 1 + eps) continue;
-      const px = a.x + t * (b.x - a.x);
-      const py = a.y + t * (b.y - a.y);
-      if (t < -eps) {
-        if (bestA === null || (-t) < (-bestA.t)) bestA = { t, x: px, y: py };
-      } else if (t > 1 + eps) {
-        if (bestB === null || (t - 1) < (bestB.t - 1)) bestB = { t, x: px, y: py };
-      }
-    }
-    // 候選 2:孤立節點(或任何 joint)落在沿線方向上 — 用該 joint 當延伸目標
-    //   tol 0.5 world units;計算 J 到 a-b 線的垂直距離 + 沿線參數 t
-    const jTol = 0.5;
-    const dxAB = b.x - a.x, dyAB = b.y - a.y;
-    for (const j of p.joints) {
-      if (j.id === m.j1 || j.id === m.j2) continue;
-      const t = ((j.x - a.x) * dxAB + (j.y - a.y) * dyAB) / lenSq;
-      const px = a.x + t * dxAB, py = a.y + t * dyAB;
-      const perp = Math.hypot(j.x - px, j.y - py);
-      if (perp > jTol) continue;            // 不在線上
-      if (t < -eps) {
-        if (bestA === null || (-t) < (-bestA.t)) bestA = { t, x: j.x, y: j.y, jointId: j.id };
-      } else if (t > 1 + eps) {
-        if (bestB === null || (t - 1) < (bestB.t - 1)) bestB = { t, x: j.x, y: j.y, jointId: j.id };
-      }
-    }
-    // 方向阻擋:若延伸該端的方向上已有共線同向桿件,跳過該端
-    const aBlocked = bestA ? jointHasCollinearMemberInDirection(a, a.x - b.x, a.y - b.y) : true;
-    const bBlocked = bestB ? jointHasCollinearMemberInDirection(b, b.x - a.x, b.y - a.y) : true;
-    if (bothEnds) {
-      if (bestA && !aBlocked) targets.push({ m, endKey: "j1", x: bestA.x, y: bestA.y, jointId: bestA.jointId });
-      if (bestB && !bBlocked) targets.push({ m, endKey: "j2", x: bestB.x, y: bestB.y, jointId: bestB.jointId });
-    } else {
-      // 只挑距離較近的一端(|t| 最小或 t-1 最小);被阻擋的端視為不可延伸
-      const dA = (bestA && !aBlocked) ? -bestA.t : Infinity;
-      const dB = (bestB && !bBlocked) ? (bestB.t - 1) : Infinity;
-      if (bestA && !aBlocked && dA <= dB)  targets.push({ m, endKey: "j1", x: bestA.x, y: bestA.y, jointId: bestA.jointId });
-      else if (bestB && !bBlocked)         targets.push({ m, endKey: "j2", x: bestB.x, y: bestB.y, jointId: bestB.jointId });
-    }
-  }
-  // 統一套用:目標若為既有 joint → 直接重指端點到該 joint;否則建新 joint(共用) / 移動原 joint
-  const formerEndpoints = new Set();    // 因為延伸到既有 joint 而被「換掉」的原端點 id
-  for (const t of targets) {
-    if (t.jointId != null) {
-      // 延伸到既有 joint:把 member 端點重指過去;紀錄被換掉的原端點 id 以便事後清理
-      const oldId = t.m[t.endKey];
-      t.m[t.endKey] = t.jointId;
-      if (oldId !== t.jointId) formerEndpoints.add(oldId);
-    } else {
-      const jId = t.m[t.endKey];
-      const shared = p.members.some(mm => mm !== t.m && (mm.j1 === jId || mm.j2 === jId));
-      if (shared) {
-        const nj = { id: nextJointId++, x: t.x, y: t.y };
-        p.joints.push(nj);
-        t.m[t.endKey] = nj.id;
-      } else {
-        const j = jointById(jId);
-        if (j) { j.x = t.x; j.y = t.y; }
-      }
-    }
-    moved++;
-  }
-  // 清掉「原端點變孤立」的 joint(只清因延伸而換掉、且現在沒被任何 member 引用的)
-  let removedOrphans = 0;
-  if (formerEndpoints.size) {
-    const used = new Set();
-    for (const m of p.members) { used.add(m.j1); used.add(m.j2); }
-    const toRemove = p.joints.filter(j => formerEndpoints.has(j.id) && !used.has(j.id));
-    for (const j of toRemove) {
-      if (j.globalId != null && typeof unbindJointFromGlobal === "function") unbindJointFromGlobal(j);
-    }
-    const removedSet = new Set(toRemove.map(j => j.id));
-    p.joints = p.joints.filter(j => !removedSet.has(j.id));
-    removedOrphans = toRemove.length;
-  }
-  if (moved === 0) {
-    alert("沒有可延伸的端點 — 找不到沿線方向的交叉桿件,或延伸方向已有桿件");
-    return;
-  }
-  // 確保延伸建立的線不重複/重疊:合併同位節點、去重、共線拆段
-  const cr = _consolidateInPlace();
-  console.log(`[延伸至交點] 延伸 ${moved} 個端點;移除原端點 ${removedOrphans};整理 合併 ${cr.mergedJ} / 去重 ${cr.droppedM} / 拆段 ${cr.splitM}`);
-  render(); refreshLists();
-}
-
-// 從選取節點沿軸向延伸,在最近的桿件交點建新 joint + 新桿件
-// axis: "h" = 水平(沿 X);"v" = 垂直(沿 Y)
-// bothSides: false → 只挑兩側最近的一邊;true → 兩邊各建一條
-function extendJointAxisToIntersect(axis, bothSides) {
-  const p = getPage(); if (!p) return;
-  if (state.selection.joints.size === 0) {
-    alert("請先選取至少一個節點");
-    return;
-  }
-  pushUndo();
-  const eps = 1e-3;
-  let added = 0;
-  for (const jid of [...state.selection.joints]) {
-    const j = jointById(jid);
-    if (!j) continue;
-    let bestNeg = null, bestPos = null;   // 沿 axis 軸:Neg = 較小座標方向、Pos = 較大座標方向
-    for (const m of p.members) {
-      if (m.j1 === jid || m.j2 === jid) continue;     // 跳過與此節點相連的桿件
-      const a = jointById(m.j1), b = jointById(m.j2);
-      if (!a || !b) continue;
-      let px, py;
-      if (axis === "h") {
-        // 水平射線 y = j.y → 與 ab 交點
-        const dy = b.y - a.y;
-        if (Math.abs(dy) < eps) continue;             // 平行(目標也是水平)→ 跳過
-        const t = (j.y - a.y) / dy;
-        if (t < -eps || t > 1 + eps) continue;        // 不在 ab 線段內
-        px = a.x + t * (b.x - a.x);
-        py = j.y;
-        const delta = px - j.x;
-        if (Math.abs(delta) < eps) continue;          // 重合
-        if (delta < 0) { if (bestNeg === null || px > bestNeg.x) bestNeg = { x: px, y: py, m }; }
-        else           { if (bestPos === null || px < bestPos.x) bestPos = { x: px, y: py, m }; }
-      } else {
-        // 垂直射線 x = j.x → 與 ab 交點
-        const dx = b.x - a.x;
-        if (Math.abs(dx) < eps) continue;             // 平行(目標也是垂直)→ 跳過
-        const t = (j.x - a.x) / dx;
-        if (t < -eps || t > 1 + eps) continue;
-        px = j.x;
-        py = a.y + t * (b.y - a.y);
-        const delta = py - j.y;
-        if (Math.abs(delta) < eps) continue;
-        if (delta < 0) { if (bestNeg === null || py > bestNeg.y) bestNeg = { x: px, y: py, m }; }
-        else           { if (bestPos === null || py < bestPos.y) bestPos = { x: px, y: py, m }; }
-      }
-    }
-    // 方向阻擋:若該方向已有共線同向桿件,跳過該側(避免重疊)
-    const negDir = axis === "h" ? [-1, 0] : [0, -1];
-    const posDir = axis === "h" ? [ 1, 0] : [0,  1];
-    const negBlocked = jointHasCollinearMemberInDirection(j, negDir[0], negDir[1]);
-    const posBlocked = jointHasCollinearMemberInDirection(j, posDir[0], posDir[1]);
-    if (negBlocked) bestNeg = null;
-    if (posBlocked) bestPos = null;
-
-    let chosen = [];
-    if (bothSides) {
-      if (bestNeg) chosen.push(bestNeg);
-      if (bestPos) chosen.push(bestPos);
-    } else {
-      // 兩側都有 → 挑距離較近的;只一側 → 挑那一側
-      if (bestNeg && bestPos) {
-        const dN = axis === "h" ? Math.abs(bestNeg.x - j.x) : Math.abs(bestNeg.y - j.y);
-        const dP = axis === "h" ? Math.abs(bestPos.x - j.x) : Math.abs(bestPos.y - j.y);
-        chosen.push(dN < dP ? bestNeg : bestPos);
-      } else chosen.push(bestNeg || bestPos);
-      chosen = chosen.filter(Boolean);
-    }
-    for (const c of chosen) {
-      const nj = { id: nextJointId++, x: c.x, y: c.y };
-      p.joints.push(nj);
-      p.members.push({ id: nextMemberId++, j1: j.id, j2: nj.id });
-      added++;
-    }
-  }
-  if (added === 0) {
-    alert("沒有可延伸的目標 — 找不到該方向上的桿件,或該方向已有桿件");
-    return;
-  }
-  // 整理:合併同位節點、去重桿件、把節點落在桿件中段者 T 形拆段
-  const cr = _consolidateInPlace();
-  console.log(`[節點延伸] axis=${axis} bothSides=${bothSides} 新增 ${added};整理 合併 ${cr.mergedJ} / 去重 ${cr.droppedM} / 拆段 ${cr.splitM}`);
-  render(); refreshLists();
-}
-
-// 節點水平 / 垂直複製:沿選取節點的水平(或垂直)線投射,在每條相交桿件上新增節點並 T 形拆段
-//   與 extendJointAxisToIntersect 不同:這裡「不」從選取節點拉新桿件,
-//   只是在「該射線碰到的每條現有桿件上」插入節點並把該桿件拆成兩段(類似沿線自動切交點)
-function duplicateJointOnAxis(axis) {
-  const p = getPage(); if (!p) return;
-  if (state.selection.joints.size === 0) {
-    alert("請先選取至少一個節點");
-    return;
-  }
-  pushUndo();
-  const eps = 1e-3;
-  let added = 0, splitCount = 0;
-  const selJids = [...state.selection.joints];
-  for (const jid of selJids) {
-    const j = jointById(jid);
-    if (!j) continue;
-    const rayCoord = (axis === "h") ? j.y : j.x;
-    // 快照:此輪 ray 把 m 拆成兩段後,新段不會在同 y / 同 x 線上再次被掃到(無意義),
-    // 所以快照一份在 ray 開始時就好,避免無限遞迴或重複切割
-    const snapshot = p.members.slice();
-    for (const m of snapshot) {
-      // 與選取節點相連的桿件 → 該節點已是端點,不用再加
-      if (m.j1 === jid || m.j2 === jid) continue;
-      const a = jointById(m.j1), b = jointById(m.j2);
-      if (!a || !b) continue;
-      let t;
-      if (axis === "h") {
-        const dy = b.y - a.y;
-        if (Math.abs(dy) < eps) continue;      // 水平桿件與水平射線平行,跳過
-        t = (rayCoord - a.y) / dy;
-      } else {
-        const dx = b.x - a.x;
-        if (Math.abs(dx) < eps) continue;      // 垂直桿件與垂直射線平行,跳過
-        t = (rayCoord - a.x) / dx;
-      }
-      // 只處理「嚴格在線段內部」的交點;端點在射線上 → 已是節點,不處理
-      if (t < eps || t > 1 - eps) continue;
-      const px = a.x + t * (b.x - a.x);
-      const py = a.y + t * (b.y - a.y);
-      // 該交點位置已有節點 → 複用(T 形拆段連到既有點)
-      let nj = p.joints.find(jj => Math.hypot(jj.x - px, jj.y - py) < eps);
-      if (!nj) {
-        nj = { id: nextJointId++, x: px, y: py };
-        p.joints.push(nj);
-        added++;
-      }
-      // 把 m 從 members 移除,改成兩段短桿件(保留 m 原有的 capacity / constraint 等屬性)
-      const idx = p.members.indexOf(m);
-      if (idx < 0) continue;
-      const baseProps = { ...m };
-      delete baseProps.id; delete baseProps.j1; delete baseProps.j2;
-      p.members.splice(idx, 1);
-      p.members.push({ ...baseProps, id: nextMemberId++, j1: m.j1, j2: nj.id });
-      p.members.push({ ...baseProps, id: nextMemberId++, j1: nj.id, j2: m.j2 });
-      splitCount++;
-    }
-  }
-  if (added === 0 && splitCount === 0) {
-    alert(axis === "h" ? "水平線上沒有可新增節點的桿件" : "垂直線上沒有可新增節點的桿件");
-    return;
-  }
-  console.log(`[節點${axis === "h" ? "水平" : "垂直"}複製] 新增節點 ${added}・拆段 ${splitCount}`);
-  render(); refreshLists();
-}
-
-// 移動指令 (M) — startMoveMode / exitMoveMode / moveModeTarget / commitMove / showCmdInput / etc.
+// ---------- 移動指令(M) ----------
+// startMoveMode / exitMoveMode / moveModeTarget / commitMove / showCmdInput / etc.
 //   實作搬到 src/tools/moveCmd.ts。legacy.ts 內 cmdInputField 的 Enter handler 仍用 handleCmdInputCommit。
 export {
   startMoveMode,
@@ -7691,629 +6752,8 @@ import {
   handleCmdInputCommit,
 } from "./tools/moveCmd";
 
-// 將所有選取的桿件在中點插入節點(切成兩段)
-function splitSelectedAtMidpoint() {
-  const p = getPage();
-  if (!p || p._orphan) return;
-  if (state.selection.members.size === 0) return;
-  pushUndo();
-  const ids = [...state.selection.members];
-  for (const mid of ids) {
-    const m = p.members.find(x => x.id === mid);
-    if (!m) continue;
-    const a = jointById(m.j1), b = jointById(m.j2);
-    if (!a || !b) continue;
-    const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
-    const nj = { id: nextJointId++, x: cx, y: cy };
-    p.joints.push(nj);
-    p.members = p.members.filter(x => x !== m);
-    p.members.push({ id: nextMemberId++, j1: m.j1, j2: nj.id });
-    p.members.push({ id: nextMemberId++, j1: nj.id, j2: m.j2 });
-  }
-  clearSelection();
-  render(); refreshLists();
-}
-
-// 在指定線段(memberId)上、最靠近 (clientX,clientY) 的位置插入新節點,並把該線段切成兩段
-export function splitMemberAt(memberId, clientX, clientY) {
-  const p = getPage();
-  const m = p.members.find(x => x.id === memberId);
-  if (!m) return;
-  const a = jointById(m.j1), b = jointById(m.j2);
-  if (!a || !b) return;
-  const w = screenToWorld(clientX, clientY);
-  const dx = b.x - a.x, dy = b.y - a.y;
-  const len2 = dx * dx + dy * dy;
-  if (len2 === 0) return;
-  let t = ((w.x - a.x) * dx + (w.y - a.y) * dy) / len2;
-  const minMargin = (state.snapPx / state.zoom) / Math.sqrt(len2);
-  if (t < minMargin || t > 1 - minMargin) return;
-  pushUndo();
-  const px = a.x + t * dx, py = a.y + t * dy;
-  const j = { id: nextJointId++, x: px, y: py };
-  p.joints.push(j);
-  p.members = p.members.filter(x => x !== m);
-  p.members.push({ id: nextMemberId++, j1: m.j1, j2: j.id });
-  p.members.push({ id: nextMemberId++, j1: j.id, j2: m.j2 });
-  render(); refreshLists();
-}
-
-function addMember(j1, j2, targetPage) {
-  const p = targetPage || getPage();
-  if (!p) return;
-  if (!Array.isArray(p.members)) p.members = [];
-  const exists = p.members.some(m =>
-    (m.j1 === j1 && m.j2 === j2) || (m.j1 === j2 && m.j2 === j1));
-  if (exists) return;
-  p.members.push({ id: nextMemberId++, j1, j2 });
-}
-
-// 跨頁同步桿件(P3):
-//   給當前頁兩個 view-joint(剛新增桿件 A—B 的兩端),掃所有其他頁:
-//     - 兩端的 globalJoint 都在該頁有 view-binding → 在該頁建對應桿件
-//     - 缺一端 → 略過該頁
-//   若兩端尚未綁定 globalJoint,呼叫端會先用 syncJointAcrossViews 把它們 promote 過去
-//   回 { created, pages }
-function syncMemberAcrossViews(j1Local, j2Local) {
-  const af = getActiveFile();
-  if (!af) return { created: 0, pages: 0 };
-  if (!j1Local || !j2Local) return { created: 0, pages: 0 };
-  const g1 = j1Local.globalId, g2 = j2Local.globalId;
-  if (g1 == null || g2 == null || g1 === g2) return { created: 0, pages: 0 };
-  let created = 0, scannedPages = 0;
-  for (const f of state.files) {
-    if (!f.pages) continue;
-    for (const k of Object.keys(f.pages)) {
-      const pg = f.pages[k];
-      if (!pg || pg._orphan) continue;
-      if (f.id === af.id && +k === state.pageIdx) continue;   // 略過當前頁
-      const t1 = (pg.joints || []).find(jj => jj.globalId === g1);
-      const t2 = (pg.joints || []).find(jj => jj.globalId === g2);
-      if (!t1 || !t2) continue;
-      scannedPages++;
-      const exists = (pg.members || []).some(m =>
-        (m.j1 === t1.id && m.j2 === t2.id) || (m.j1 === t2.id && m.j2 === t1.id));
-      if (exists) continue;
-      addMember(t1.id, t2.id, pg);
-      created++;
-    }
-  }
-  return { created, pages: scannedPages };
-}
-
-// 在「桿件」工具下完成第二端點時呼叫:本頁建桿件 + (若 crossViewSync 開啟)跨頁建對應桿件
-//   兩端若尚未有 globalJoint,先 syncJointAcrossViews(promote + 跨頁建節點),再 syncMemberAcrossViews
-export function addMemberInteractive(j1id, j2id) {
-  addMember(j1id, j2id);
-  if (!state.crossViewSync) return;
-  const p = getPage();
-  if (!p) return;
-  const j1 = (p.joints || []).find(jj => jj.id === j1id);
-  const j2 = (p.joints || []).find(jj => jj.id === j2id);
-  if (!j1 || !j2) return;
-  // Auto-promote 端點 → 各自 promote 為 globalJoint 並把對應節點建到其他頁
-  if (j1.globalId == null) syncJointAcrossViews(j1);
-  if (j2.globalId == null) syncJointAcrossViews(j2);
-  const r = syncMemberAcrossViews(j1, j2);
-  if (r.pages > 0 || r.created > 0) {
-    $("hud").textContent = `跨頁同步桿件:在 ${r.pages} 個頁面比對,新建 ${r.created} 條桿件`;
-  }
-}
-
-function deleteSelection() {
-  if (state.selection.joints.size + state.selection.members.size === 0) return;
-  // 大模型 + 跨頁共點刪除可能要掃所有 file/page,給 pending message 避免使用者以為卡死
-  //   先快速估算:若選取的 joint 有 globalId,且總頁面數 > 10 → 顯示 busy
-  const totalPages = state.files.reduce((s, f) => s + Object.keys(f.pages || {}).length, 0);
-  const hasGlobalSelected = state.selection.joints.size > 0 &&
-    [...state.selection.joints].some(jid => {
-      const p0 = getPage();
-      const j = p0 && p0.joints.find(x => x.id === jid);
-      return j && j.globalId != null;
-    });
-  if (hasGlobalSelected && totalPages > 10 && typeof withBusy === "function") {
-    // 用 withBusy 包,讓 spinner / 取消鈕跑起來
-    return withBusy(`刪除選取(跨 ${totalPages} 頁掃描共點)…`, () => _deleteSelectionCore());
-  }
-  return _deleteSelectionCore();
-}
-function _deleteSelectionCore() {
-  pushUndo();
-  const p = getPage();
-  // 記下被刪桿件的端點,稍後檢查是否變孤立
-  const checkOrphan = new Set();
-  if (state.selection.members.size) {
-    for (const m of p.members) {
-      if (state.selection.members.has(m.id)) {
-        checkOrphan.add(m.j1); checkOrphan.add(m.j2);
-      }
-    }
-    p.members = p.members.filter(m => !state.selection.members.has(m.id));
-  }
-  // 處理選取的節點:若節點剛好是「桿件中間的點」(degree == 2 且大致共線)→ 合併成一條
-  //   degree == 2 但不共線(如 L 形轉角)→ 保留舊行為(連同兩條桿件一併刪除)
-  //   tolerance:相對於桿件長度的 1% 或絕對 1.0 世界單位,取較大者
-  //              這個值能容忍 processIntersections / 校準 累積的數值漂移,但仍能擋掉真正轉角
-  if (state.selection.joints.size) {
-    for (const jid of state.selection.joints) {
-      const conn = p.members.filter(m => m.j1 === jid || m.j2 === jid);
-      let merged = false;
-      if (conn.length === 2) {
-        const [m1, m2] = conn;
-        const otherOf = (mem) => mem.j1 === jid ? mem.j2 : mem.j1;
-        const aId = otherOf(m1), bId = otherOf(m2);
-        const a = jointById(aId), b = jointById(bId), c = jointById(jid);
-        if (a && b && c && aId !== bId) {
-          const dx = b.x - a.x, dy = b.y - a.y;
-          const len = Math.hypot(dx, dy);
-          const cross = Math.abs(dx * (c.y - a.y) - dy * (c.x - a.x));
-          const distToLine = len > 0 ? cross / len : Infinity;
-          const tol = Math.max(1.0, len * 0.01);
-          const t = ((c.x - a.x) * dx + (c.y - a.y) * dy) / (len * len || 1);
-          if (distToLine <= tol && t > 0 && t < 1) {
-            p.members = p.members.filter(m => m !== m1 && m !== m2);
-            const exists = p.members.some(m =>
-              (m.j1 === aId && m.j2 === bId) || (m.j1 === bId && m.j2 === aId));
-            if (!exists) p.members.push({ id: nextMemberId++, j1: aId, j2: bId });
-            merged = true;
-          }
-        }
-      }
-      if (!merged) {
-        // 不共線 / 連 0、1 或 3+ 條 → 連同所有相連桿件一併移除
-        p.members = p.members.filter(m => m.j1 !== jid && m.j2 !== jid);
-      }
-    }
-    // 收集被刪 joint 的 globalId(有綁定的才需要跨頁刪)
-    const deletedGids = new Set();
-    for (const j of p.joints) {
-      if (state.selection.joints.has(j.id) && j.globalId != null) deletedGids.add(j.globalId);
-    }
-    p.joints = p.joints.filter(j => !state.selection.joints.has(j.id));
-    // 跨頁刪除「共點」joint:不再對每頁掃 joints,改成先一次性建 globalId → 受影響頁面索引
-    //   優點:
-    //     1. 沒受影響的頁面完全不會被 touch(filter members / joints 都不跑)
-    //     2. globalJoint 清理可直接用索引推算「剩餘 binding」,不需再掃一遍 state
-    if (deletedGids.size) {
-      // ── 步驟 A:建 gid → [{pg, jid}] 索引(排除當前頁 p,因為它已處理)──
-      const gidIndex = new Map();    // gid → [{pg, jid}]
-      const stillBoundOther = new Set();   // 其他頁仍綁著的 gid(不在 deletedGids 內)
-      for (const f of state.files) {
-        for (const pg of Object.values(f.pages || {})) {
-          if (!pg || pg._orphan || pg === p) continue;
-          for (const j of (pg.joints || [])) {
-            if (j.globalId == null) continue;
-            if (deletedGids.has(j.globalId)) {
-              let arr = gidIndex.get(j.globalId);
-              if (!arr) { arr = []; gidIndex.set(j.globalId, arr); }
-              arr.push({ pg, jid: j.id });
-            } else {
-              stillBoundOther.add(j.globalId);
-            }
-          }
-        }
-      }
-      // ── 步驟 B:依索引收集每頁要刪的 joint id ──
-      const pageRemove = new Map();   // pg → Set(jids)
-      for (const arr of gidIndex.values()) {
-        for (const b of arr) {
-          let s = pageRemove.get(b.pg);
-          if (!s) { s = new Set(); pageRemove.set(b.pg, s); }
-          s.add(b.jid);
-        }
-      }
-      // ── 步驟 C:只 filter 受影響的頁面 ──
-      let crossPages = 0, crossJoints = 0, crossMembers = 0;
-      for (const [pg, removeJids] of pageRemove) {
-        const beforeJ = pg.joints.length, beforeM = (pg.members || []).length;
-        pg.members = (pg.members || []).filter(m => !removeJids.has(m.j1) && !removeJids.has(m.j2));
-        pg.joints = pg.joints.filter(j => !removeJids.has(j.id));
-        crossPages++;
-        crossJoints += beforeJ - pg.joints.length;
-        crossMembers += beforeM - pg.members.length;
-      }
-      if (crossPages) {
-        console.log(`[共點刪除] 跨頁刪除 ${crossPages} 頁・節點 ${crossJoints}・桿件 ${crossMembers}・globalId ${deletedGids.size} 個(O(受影響頁面),不再掃整個 state)`);
-        $("hud").textContent = `已刪除節點(連同其他平面 ${crossPages} 頁的 ${crossJoints} 個共點)`;
-      }
-      // ── 步驟 D:清掉孤兒 globalJoint。
-      //   不變式:每頁 1 gid 最多 1 個 joint binding(bindJointToGlobal 強制)→
-      //     deletedGids 對應的 globalJoint,在其他頁的 binding 都被步驟 C 刪光、
-      //     當前頁的 binding 也被前面 p.joints.filter 刪光 → 一律可刪。
-      //   防禦性:還是檢查當前頁殘留 binding(以防不變式被外部破壞)
-      const stillBoundInP = new Set();
-      for (const j of p.joints) if (j.globalId != null) stillBoundInP.add(j.globalId);
-      if (Array.isArray(state.globalJoints)) {
-        const before = state.globalJoints.length;
-        state.globalJoints = state.globalJoints.filter(g => {
-          if (!deletedGids.has(g.id)) return true;
-          // gid 在 deletedGids:當前頁 / 其他頁都不該有 binding 了 — 雙重檢查
-          return stillBoundInP.has(g.id) || stillBoundOther.has(g.id);
-        });
-        const removedGj = before - state.globalJoints.length;
-        if (removedGj) console.log(`[共點刪除] 清掉沒有 binding 的 globalJoint ${removedGj} 個`);
-      }
-    }
-  }
-  // 移除孤立節點(來自被刪桿件的端點)
-  if (checkOrphan.size) {
-    const used = new Set();
-    for (const m of p.members) { used.add(m.j1); used.add(m.j2); }
-    p.joints = p.joints.filter(j => !checkOrphan.has(j.id) || used.has(j.id));
-  }
-  if (typeof invalidateRankCache === "function") invalidateRankCache();
-  clearSelection();
-  render(); refreshLists();
-}
-
-export function clearSelection() {
-  state.selection.joints.clear();
-  state.selection.members.clear();
-  state.selection.fileIds.clear();
-  state.selection.fileAnchor = null;
-  state.selection.sourceFileId = null;
-  state.selection.sourcePageIdx = null;
-}
-// 防誤刪 guard:當 selection 不在當前 page 時,阻擋 mutation 操作。
-//   R-01 修補:state.selection.joints 存 raw j.id,relayoutNumberingAll 後跨頁 j.id 可能撞號,
-//   在 source page 之外按 delete 會誤刪同 id 但不同物理點的 joint。視覺已用 _selOnSrc 隔離,
-//   操作層用這支 guard 擋住。
-//   回傳 true = 可繼續;false = 已被使用者選擇取消或切換頁面,呼叫端應直接 return。
-export function _assertSelectionOnActivePage(opName) {
-  // 沒選任何東西 → 不擋(不影響無 selection 場景)
-  if (state.selection.joints.size === 0 && state.selection.members.size === 0) return true;
-  // 沒記 source(舊資料 / 沒被 mark 過)→ 不擋(legacy 行為)
-  if (state.selection.sourceFileId == null || state.selection.sourcePageIdx == null) return true;
-  const onSrc = (state.selection.sourceFileId === state.activeFileId
-              && state.selection.sourcePageIdx === (state.pageIdx || 0));
-  if (onSrc) return true;
-  // 不在 source page → 詢問使用者怎麼做
-  const srcFile = state.files.find(f => f.id === state.selection.sourceFileId);
-  const srcName = srcFile ? `${srcFile.name}#${state.selection.sourcePageIdx + 1}` : `file ${state.selection.sourceFileId}, page ${state.selection.sourcePageIdx + 1}`;
-  const opt = confirm(
-    `⚠ 操作「${opName || "目前動作"}」會作用在選取的 joint / member,\n` +
-    `但當前選取是在「${srcName}」建立的,目前頁不是 source。\n\n` +
-    `直接執行可能誤刪 / 誤動 j.id 巧合相同的不同物理點(relayoutNumberingAll 後 j.id 跨頁會撞號)。\n\n` +
-    `點【確定】切回 source page 並執行操作。\n` +
-    `點【取消】放棄此次操作(selection 仍保留)。`
-  );
-  if (opt) {
-    if (typeof activatePageWithBusy === "function") {
-      activatePageWithBusy(state.selection.sourceFileId, state.selection.sourcePageIdx);
-    }
-  }
-  return false;
-}
-// 標記 selection 的「來源頁」— 只在 selection 從空變非空、或來源還沒設時設定;
-//   避免使用者連續勾選跨頁時 source 跳來跳去(理論上不會發生,因為跨頁勾選會經過切頁)
-export function _markSelectionSourceIfEmpty() {
-  if (state.selection.sourceFileId == null) {
-    state.selection.sourceFileId = state.activeFileId;
-    state.selection.sourcePageIdx = state.pageIdx || 0;
-  }
-}
-
-// 多選判定:按住 Shift 或開啟多選持續模式(Shift+S 切換)時,點選為追加
-export function additiveSelect(e) {
-  return !!(e && e.shiftKey) || !!state.multiSelectSticky;
-}
-// 反選判定:按住 Ctrl(或 Mac 的 Cmd / Meta)時,點選為從選取中移除
-export function subtractiveSelect(e) {
-  return !!(e && (e.ctrlKey || e.metaKey));
-}
-
-// Process intersections: for every pair of members, if they cross (not at endpoints),
-// split both at the intersection joint.
-// 把「節點落在某桿件中段」的情況拆桿:
-// 例如桿件 (0,0)-(10,0) 與節點 (3,0) 共線且夾在中間 → 拆成 (0,0)-(3,0) + (3,0)-(10,0)
-// 處理線重疊但端點不重疊的情況(例如 bg 上有兩條重疊但不同長度的線轉桿件)
-function splitMembersAtCollinearJoints() {
-  const p = getPage();
-  if (!p) return;
-  const eps = 1e-3;
-  let changed = true, guard = 0;
-  while (changed && guard++ < 200) {
-    changed = false;
-    outer:
-    for (let i = 0; i < p.members.length; i++) {
-      const m = p.members[i];
-      const a = jointById(m.j1), b = jointById(m.j2);
-      if (!a || !b) continue;
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const lenSq = dx * dx + dy * dy;
-      if (lenSq < eps) continue;
-      const len = Math.sqrt(lenSq);
-      for (const j of p.joints) {
-        if (j.id === a.id || j.id === b.id) continue;
-        const cross = Math.abs((j.x - a.x) * dy - (j.y - a.y) * dx);
-        if (cross / len > eps) continue;          // 不共線
-        const t = ((j.x - a.x) * dx + (j.y - a.y) * dy) / lenSq;
-        if (t < eps || t > 1 - eps) continue;     // 不在內部
-        // 在 j 點拆桿
-        p.members.splice(i, 1);
-        const existsA = p.members.some(mm => (mm.j1 === a.id && mm.j2 === j.id) || (mm.j1 === j.id && mm.j2 === a.id));
-        const existsB = p.members.some(mm => (mm.j1 === j.id && mm.j2 === b.id) || (mm.j1 === b.id && mm.j2 === j.id));
-        if (!existsA) p.members.push({ id: nextMemberId++, j1: a.id, j2: j.id });
-        if (!existsB) p.members.push({ id: nextMemberId++, j1: j.id, j2: b.id });
-        changed = true;
-        break outer;
-      }
-    }
-  }
-}
-
-// 切交點(選取版):只對 state.selection.members 內的桿件兩兩求交,在交點處建節點 + 拆段
-//   - 拆段後新桿件自動加入選取(保持視覺一致,連續操作不需重選)
-//   - 跟全頁版一樣會跑 splitMembersAtCollinearJoints 處理 T 形(但僅限拆完還在選取裡的桿件)
-function processIntersectionsForSelection() {
-  const p = getPage();
-  const sel = state.selection.members;
-  if (!sel || sel.size < 2) {
-    alert("請先選取至少 2 條桿件再執行切交點(選取)");
-    return;
-  }
-  pushUndo();
-  let selIds = new Set(sel);
-  let intersections = 0;
-  let changed = true, guard = 0;
-  while (changed && guard++ < 500) {
-    changed = false;
-    const selMembers = p.members.filter(m => selIds.has(m.id));
-    outer:
-    for (let i = 0; i < selMembers.length; i++) {
-      for (let k = i + 1; k < selMembers.length; k++) {
-        const m1 = selMembers[i], m2 = selMembers[k];
-        const a = jointById(m1.j1), b = jointById(m1.j2);
-        const c = jointById(m2.j1), d = jointById(m2.j2);
-        if (!a || !b || !c || !d) continue;
-        const inter = segIntersect(a, b, c, d);
-        if (!inter) continue;
-        const eps = 1e-3;
-        const isEnd = (j) => Math.hypot(j.x - inter.x, j.y - inter.y) < eps;
-        if (isEnd(a) || isEnd(b) || isEnd(c) || isEnd(d)) continue;
-        const nj = ensureJointAt(inter);
-        // split m1
-        const i1 = p.members.indexOf(m1);
-        if (i1 !== -1) p.members.splice(i1, 1);
-        const m1a = { id: nextMemberId++, j1: a.id, j2: nj.id };
-        const m1b = { id: nextMemberId++, j1: nj.id, j2: b.id };
-        p.members.push(m1a, m1b);
-        // split m2
-        const i2 = p.members.indexOf(m2);
-        if (i2 !== -1) p.members.splice(i2, 1);
-        const m2a = { id: nextMemberId++, j1: c.id, j2: nj.id };
-        const m2b = { id: nextMemberId++, j1: nj.id, j2: d.id };
-        p.members.push(m2a, m2b);
-        selIds.delete(m1.id); selIds.delete(m2.id);
-        selIds.add(m1a.id); selIds.add(m1b.id);
-        selIds.add(m2a.id); selIds.add(m2b.id);
-        intersections++;
-        changed = true;
-        break outer;
-      }
-    }
-  }
-  state.selection.members = selIds;
-  // T 形:節點(新建的交點 + 既有節點)落在還在選取的桿件中段 → 拆段
-  //   全頁版 splitMembersAtCollinearJoints 會處理整頁;這裡僅針對選取桿件,但用全頁掃也合理(節點少時)
-  if (typeof splitMembersAtCollinearJoints === "function") splitMembersAtCollinearJoints();
-  console.log(`[切交點(選取)] 加 ${intersections} 個交點・選取桿件數 ${state.selection.members.size}`);
-  $("hud").textContent = `切交點(選取):新增 ${intersections} 個交點(選取保持為拆段後 ${state.selection.members.size} 條)`;
-  render(); refreshLists();
-}
-function processIntersections() {
-  pushUndo();
-  const p = getPage();
-  let changed = true, guard = 0;
-  while (changed && guard++ < 50) {
-    changed = false;
-    outer:
-    for (let i = 0; i < p.members.length; i++) {
-      for (let k = i + 1; k < p.members.length; k++) {
-        const m1 = p.members[i], m2 = p.members[k];
-        const a = jointById(m1.j1), b = jointById(m1.j2);
-        const c = jointById(m2.j1), d = jointById(m2.j2);
-        const inter = segIntersect(a, b, c, d);
-        if (!inter) continue;
-        // skip if intersection is an existing endpoint
-        const eps = 1e-3;
-        const isEnd = (j) => Math.hypot(j.x - inter.x, j.y - inter.y) < eps;
-        if (isEnd(a) || isEnd(b) || isEnd(c) || isEnd(d)) continue;
-        const nj = ensureJointAt(inter);
-        // split m1
-        p.members.splice(i, 1);
-        p.members.push({ id: nextMemberId++, j1: a.id, j2: nj.id });
-        p.members.push({ id: nextMemberId++, j1: nj.id, j2: b.id });
-        // remove m2 (its index might have shifted because we removed i first)
-        const k2 = p.members.indexOf(m2);
-        if (k2 !== -1) p.members.splice(k2, 1);
-        p.members.push({ id: nextMemberId++, j1: c.id, j2: nj.id });
-        p.members.push({ id: nextMemberId++, j1: nj.id, j2: d.id });
-        changed = true;
-        break outer;
-      }
-    }
-  }
-  // T 形:某條桿件的端點落在另一條桿件中段(共線且夾在兩端之間)→ 拆桿
-  splitMembersAtCollinearJoints();
-  render(); refreshLists();
-}
-
-function segIntersect(p1, p2, p3, p4) {
-  const x1=p1.x,y1=p1.y,x2=p2.x,y2=p2.y,x3=p3.x,y3=p3.y,x4=p4.x,y4=p4.y;
-  const denom = (x1-x2)*(y3-y4) - (y1-y2)*(x3-x4);
-  if (Math.abs(denom) < 1e-9) return null;
-  const t = ((x1-x3)*(y3-y4) - (y1-y3)*(x3-x4)) / denom;
-  const u = -((x1-x2)*(y1-y3) - (y1-y2)*(x1-x3)) / denom;
-  const eps = 1e-6;
-  if (t < eps || t > 1-eps || u < eps || u > 1-eps) return null;
-  return { x: x1 + t*(x2-x1), y: y1 + t*(y2-y1) };
-}
-// 無線段邊界版:回傳「兩條無限延伸直線」的交點 + 各自的 t / u 參數。
-// 平行(denom 太小)回傳 null。caller 自己決定接受多少延伸範圍。
-function lineLineIntersect(p1, p2, p3, p4) {
-  const x1=p1.x,y1=p1.y,x2=p2.x,y2=p2.y,x3=p3.x,y3=p3.y,x4=p4.x,y4=p4.y;
-  const denom = (x1-x2)*(y3-y4) - (y1-y2)*(x3-x4);
-  if (Math.abs(denom) < 1e-9) return null;
-  const t = ((x1-x3)*(y3-y4) - (y1-y3)*(x3-x4)) / denom;
-  const u = -((x1-x2)*(y1-y3) - (y1-y2)*(x1-x3)) / denom;
-  return { x: x1 + t*(x2-x1), y: y1 + t*(y2-y1), t, u };
-}
-
-// 整理(in-place):確保節點不重複位置、桿件不重複,並把共線重疊或內部含節點的桿件拆段
-//   不會 pushUndo / render / refreshLists,可由其他操作呼叫以共用清理邏輯
-//   1) 合併同位置節點(緊容差 epsJ);把所有桿件端點重新指向倖存節點
-//   2) 移除零長 / 重複桿件
-//   3) 對每條桿件:若有第三節點落在其內部且共線(緊容差 epsC),於該節點處拆段
-//      → 共線重疊的桿件會自動分解到共同端點上
-//   4) 拆段後再次去重(共線重疊段在拆完後會與另一條桿件對到同一對端點)
-export function _consolidateInPlace() {
-  const p = getPage();
-  if (!p || p._orphan) return { mergedJ: 0, droppedM: 0, splitM: 0 };
-  const epsJ = 0.5;        // 節點同位容差(世界座標 / 像素)
-  const epsC = 0.5;        // 共線判定的垂直容差
-  let mergedJ = 0, droppedM = 0, splitM = 0;
-
-  // Pass 1:合併同位置節點
-  const remap = new Map();
-  const kept  = [];
-  for (const j of p.joints) {
-    let merged = null;
-    for (const k of kept) {
-      if (Math.hypot(k.x - j.x, k.y - j.y) < epsJ) { merged = k; break; }
-    }
-    if (merged) { remap.set(j.id, merged.id); mergedJ++; }
-    else        { kept.push(j); remap.set(j.id, j.id); }
-  }
-  p.joints = kept;
-  for (const m of p.members) {
-    m.j1 = remap.get(m.j1) ?? m.j1;
-    m.j2 = remap.get(m.j2) ?? m.j2;
-  }
-
-  // Pass 2:零長 / 重複桿件
-  const dedupKey = (m) => m.j1 < m.j2 ? `${m.j1}-${m.j2}` : `${m.j2}-${m.j1}`;
-  {
-    const seen = new Set();
-    p.members = p.members.filter(m => {
-      if (m.j1 === m.j2) { droppedM++; return false; }
-      const k = dedupKey(m);
-      if (seen.has(k)) { droppedM++; return false; }
-      seen.add(k); return true;
-    });
-  }
-
-  // Pass 3:在共線內部節點處拆段;迭代到穩定
-  let changed = true, guard = 0;
-  while (changed && guard++ < 500) {
-    changed = false;
-    outer:
-    for (let i = 0; i < p.members.length; i++) {
-      const m = p.members[i];
-      const a = jointById(m.j1), b = jointById(m.j2);
-      if (!a || !b) continue;
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const lenSq = dx * dx + dy * dy;
-      if (lenSq < epsJ * epsJ) continue;
-      const len = Math.sqrt(lenSq);
-      for (const j of p.joints) {
-        if (j.id === a.id || j.id === b.id) continue;
-        // 垂直距離(共線)
-        const cross = Math.abs((j.x - a.x) * dy - (j.y - a.y) * dx);
-        if (cross / len > epsC) continue;
-        // 投影參數,需在 (0, 1) 內(避免端點)
-        const t = ((j.x - a.x) * dx + (j.y - a.y) * dy) / lenSq;
-        const tEdge = epsJ / len;
-        if (t < tEdge || t > 1 - tEdge) continue;
-        // 拆段
-        p.members.splice(i, 1);
-        const exA = p.members.some(mm => (mm.j1 === a.id && mm.j2 === j.id) || (mm.j1 === j.id && mm.j2 === a.id));
-        const exB = p.members.some(mm => (mm.j1 === j.id && mm.j2 === b.id) || (mm.j1 === b.id && mm.j2 === j.id));
-        if (!exA) { p.members.push({ id: nextMemberId++, j1: a.id, j2: j.id }); splitM++; }
-        if (!exB) { p.members.push({ id: nextMemberId++, j1: j.id, j2: b.id }); splitM++; }
-        changed = true;
-        break outer;
-      }
-    }
-  }
-
-  // Pass 4:再次去重(共線重疊拆完後會出現相同端點對)
-  {
-    const seen = new Set();
-    p.members = p.members.filter(m => {
-      if (m.j1 === m.j2) { droppedM++; return false; }
-      const k = dedupKey(m);
-      if (seen.has(k)) { droppedM++; return false; }
-      seen.add(k); return true;
-    });
-  }
-
-  // Pass 5:把節點吸到底圖線端點 / 交點(若 bgSnapTolerance > 0)
-  //   依賴 page._bgSegsCache(activatePage 後填入)+ snapToBgVertex helper(返回端點 / 兩段交點)
-  //   只在偏差 < tol 時移動;移動後可能 Pass 1 同位置合併沒抓到的節點變同位,但因為這已是最後一步,不再二次合併
-  let snappedJ = 0;
-  const bgTol = Math.max(0, Number(state.bgSnapTolerance) || 0);
-  if (bgTol > 0 && Array.isArray(p._bgSegsCache) && p._bgSegsCache.length && typeof snapToBgVertex === "function") {
-    for (const j of p.joints) {
-      const hit = snapToBgVertex({ x: j.x, y: j.y }, { radius: bgTol });
-      if (!hit) continue;
-      const d = Math.hypot(hit.x - j.x, hit.y - j.y);
-      if (d > 0 && d <= bgTol) {
-        j.x = hit.x; j.y = hit.y;
-        snappedJ++;
-      }
-    }
-  }
-
-  // 清掉已不存在的選取
-  state.selection.joints  = new Set([...state.selection.joints ].filter(id => p.joints .some(j => j.id === id)));
-  state.selection.members = new Set([...state.selection.members].filter(id => p.members.some(m => m.id === id)));
-
-  return { mergedJ, droppedM, splitM, snappedJ };
-}
-
-// 是否從節點 j 已經有「在 (dx,dy) 方向」的桿件:用來阻擋會造成重疊的延伸
-//   - 共線(垂直距離 ≈ 0)
-//   - 同向(向量點積 > 0)
-function jointHasCollinearMemberInDirection(j, dx, dy) {
-  const p = getPage();
-  if (!p || p._orphan) return false;
-  const eps = 1e-3;
-  const len = Math.hypot(dx, dy);
-  if (len < eps) return false;
-  const ux = dx / len, uy = dy / len;
-  for (const m of p.members) {
-    let other = null;
-    if      (m.j1 === j.id) other = jointById(m.j2);
-    else if (m.j2 === j.id) other = jointById(m.j1);
-    if (!other) continue;
-    const vx = other.x - j.x, vy = other.y - j.y;
-    const vlen = Math.hypot(vx, vy);
-    if (vlen < eps) continue;
-    const cross = Math.abs(vx * uy - vy * ux);     // 共線判定:垂直距離
-    if (cross > 0.5) continue;                      // 與 epsC 一致(0.5 px / world unit)
-    const dot = vx * ux + vy * uy;                  // 同向判定
-    if (dot > eps) return true;
-  }
-  return false;
-}
-
-function consolidateGeometry() {
-  const p = getPage();
-  if (!p || p._orphan) { alert("尚未載入底圖頁面"); return; }
-  pushUndo();
-  const r = _consolidateInPlace();
-  console.log(`[整理] 合併節點 ${r.mergedJ} ・ 移除桿件 ${r.droppedM} ・ 新拆桿件 ${r.splitM}`);
-  render(); refreshLists();
-}
-
-// 重排編號:依「列」(同 x 群組)分組,同列內由下而上(畫面 y 由大到小)從 base 起每節點 +1。
-//   下一列的起始 = 上一列最大編號「進位到下一個百位」 + 1
-//   例:列 1 含 4 個節點 → 1..4;列 2 從 101 開始 → 101..N;若列 2 結束於 235,列 3 從 301 開始
-//   桿件依端點順序連續從 1 起重編。
-//
-// Relayout 全套(節點 / 桿件編號 — 6 個 function 共 ~1080 行)實作搬到 src/core/relayout.ts。
-//   re-export 維持 legacy.ts 內部其他 handler 與 ui/busy 整合不受影響。
+// ---------- Relayout 編號 ----------
+// _relayoutPageCore + 4-stage 桿件編號 ~1080 行搬到 src/core/relayout.ts
 export {
   _relayoutPageCore,
   _nextMemberZeroBoundary,
@@ -8327,299 +6767,58 @@ import {
   relayoutMembersNumbering,
 } from "./core/relayout";
 
-// ========== 跨頁桿件去重 / 融合 ==========
-// 同一條物理桿件在 3D 中只應有一個 ID。此區兩個 helper 負責維持這個 invariant:
-//   1) dedupSamePageMembers   —— 同頁 {j1,j2} 完全相同(不論方向) / 零長度桿件 → 保留第一條,其餘刪除
-//   2) unifyCrossPageMemberIds —— 同 globalMemberId 的所有 page-local 副本,把 m.id 全部統一到最小值
-// 不動節點、不拆共線重疊 —— 那些由「整理所有頁面」(consolidateAllPagesWithConfirm)處理。
-
-// 單頁內重複桿件(同一對 joint)→ 刪掉其餘,只留第一條
-//   也順手清掉零長度桿件(j1 === j2)
-//   不呼叫 pushUndo —— 由 caller 負責
-export function dedupSamePageMembers() {
-  let pagesTouched = 0, dupRemoved = 0, zeroLen = 0;
-  for (const f of state.files || []) {
-    for (const pg of Object.values(f.pages || {})) {
-      if (!pg || pg._orphan || !Array.isArray(pg.members)) continue;
-      const seen = new Set();
-      const kept = [];
-      for (const m of pg.members) {
-        if (m.j1 === m.j2) { zeroLen++; continue; }
-        const k = m.j1 < m.j2 ? `${m.j1}-${m.j2}` : `${m.j2}-${m.j1}`;
-        if (seen.has(k)) { dupRemoved++; continue; }
-        seen.add(k);
-        kept.push(m);
-      }
-      if (kept.length !== pg.members.length) {
-        pg.members = kept;
-        pagesTouched++;
-      }
-    }
-  }
-  // 清掉已失效的 active-page 選取
-  const ap = (typeof getPage === "function") ? getPage() : null;
-  if (ap && !ap._orphan) {
-    state.selection.members = new Set([...state.selection.members].filter(id => ap.members.some(m => m.id === id)));
-  }
-  return { pagesTouched, dupRemoved, zeroLen };
-}
-
-// 跨頁同物理桿件 ID 統一:
-//   對每個 state.globalMembers[gm],收集所有 m.globalMemberId === gm.id 的 page-local members
-//   取最小的 m.id 當 canonical,把該 gm 下所有副本的 m.id 改成 canonical
-//   碰撞保護:若目標頁上已有 *不同* member 佔用 canonical,該條保留原 id,記入 conflicts
-//   前提:同頁已無重複桿件(dedupSamePageMembers 已跑過)—— 否則同頁會產生 duplicate id
-//   呼叫時機:全局重編完成後,或獨立觸發
-export function unifyCrossPageMemberIds() {
-  if (!Array.isArray(state.globalMembers)) state.globalMembers = [];
-  // 收集 gmId → [{ pg, m }]
-  const gmToRefs = new Map();
-  for (const f of state.files || []) {
-    for (const pg of Object.values(f.pages || {})) {
-      if (!pg || pg._orphan || !Array.isArray(pg.members)) continue;
-      for (const m of pg.members) {
-        if (m.globalMemberId == null) continue;
-        let arr = gmToRefs.get(m.globalMemberId);
-        if (!arr) { arr = []; gmToRefs.set(m.globalMemberId, arr); }
-        arr.push({ pg, m });
-      }
-    }
-  }
-  let gmsUnified = 0, rewritten = 0, conflicts = 0;
-  for (const refs of gmToRefs.values()) {
-    if (refs.length < 2) continue;
-    // canonical = 同 gm 副本中最小的「正號」m.id;跳過 sentinel/leftover 的負數
-    //   避免在 relayoutMembersNumberingAll 中途呼叫時,sentinel(-1, -2, ...)被當成 canonical
-    //   把全部 ref 改成負號 → 後續 leftover 修補又再覆寫一次,白做工且短暫狀態錯亂
-    let canonical = Infinity;
-    for (const r of refs) {
-      if (Number.isFinite(r.m.id) && r.m.id > 0 && r.m.id < canonical) canonical = r.m.id;
-    }
-    if (!Number.isFinite(canonical) || canonical <= 0) continue;
-    let touched = 0;
-    for (const r of refs) {
-      if (r.m.id === canonical) continue;
-      const clash = r.pg.members.find(mm => mm !== r.m && mm.id === canonical);
-      if (clash) {
-        // 同頁已有別的 member 佔用 canonical — 保守跳過(通常是 single-page relayout 導致的跨頁 id 重疊)
-        conflicts++;
-        continue;
-      }
-      r.m.id = canonical;
-      rewritten++;
-      touched++;
-    }
-    if (touched) gmsUnified++;
-  }
-  // 排序各頁 members + 同步 nextMemberId
-  let maxId = 0;
-  for (const f of state.files || []) {
-    for (const pg of Object.values(f.pages || {})) {
-      if (!pg || pg._orphan || !Array.isArray(pg.members)) continue;
-      pg.members.sort((a, b) => a.id - b.id);
-      for (const m of pg.members) if (m.id > maxId) maxId = m.id;
-    }
-  }
-  if (maxId + 1 > nextMemberId) nextMemberId = maxId + 1;
-  return { gmsUnified, rewritten, conflicts };
-}
-
-// ---------- render ----------
+// ---------- 節點 / 桿件編輯操作 + selection helpers ----------
+// (原「移動指令(M)」section,內容其實是 extend/duplicate/split/add/delete/intersect/dedup
+//  + selection helpers,~1015 行)搬到 src/tools/jointMemberEdit.ts
+import {
+  extendSelectedMembersToIntersect, extendJointAxisToIntersect,
+  duplicateJointOnAxis,
+  splitSelectedAtMidpoint, splitMemberAt,
+  addMember, syncMemberAcrossViews, addMemberInteractive,
+  deleteSelection, _deleteSelectionCore,
+  clearSelection, _assertSelectionOnActivePage, _markSelectionSourceIfEmpty,
+  additiveSelect, subtractiveSelect,
+  splitMembersAtCollinearJoints,
+  processIntersectionsForSelection, processIntersections,
+  segIntersect, lineLineIntersect,
+  _consolidateInPlace, jointHasCollinearMemberInDirection,
+  consolidateGeometry,
+  dedupSamePageMembers, unifyCrossPageMemberIds,
+} from "./tools/jointMemberEdit";
+export {
+  extendSelectedMembersToIntersect, extendJointAxisToIntersect,
+  duplicateJointOnAxis,
+  splitSelectedAtMidpoint, splitMemberAt,
+  addMember, syncMemberAcrossViews, addMemberInteractive,
+  deleteSelection, _deleteSelectionCore,
+  clearSelection, _assertSelectionOnActivePage, _markSelectionSourceIfEmpty,
+  additiveSelect, subtractiveSelect,
+  splitMembersAtCollinearJoints,
+  processIntersectionsForSelection, processIntersections,
+  segIntersect, lineLineIntersect,
+  _consolidateInPlace, jointHasCollinearMemberInDirection,
+  consolidateGeometry,
+  dedupSamePageMembers, unifyCrossPageMemberIds,
+};
 // ---------- 自動對齊:偵測底圖最長水平/垂直線並旋轉 ----------
-function extractSvgSegments(svgEl) {
-  const segs = [];
-  const paths = svgEl.querySelectorAll("path");
-  for (const p of paths) {
-    const stroke = p.getAttribute("stroke") || p.style.stroke || "";
-    if (!stroke || stroke === "none") continue;
-    const d = p.getAttribute("d") || "";
-    const tokens = d.match(/[a-zA-Z]|-?\d*\.?\d+(?:e[+-]?\d+)?/g) || [];
-    let cur = null, start = null;
-    let i = 0;
-    while (i < tokens.length) {
-      const t = tokens[i];
-      const num = (k) => parseFloat(tokens[k]);
-      if (t === "M" || t === "m") {
-        if (i + 2 < tokens.length) {
-          const next = (t === "M" || !cur)
-            ? { x: num(i + 1), y: num(i + 2) }
-            : { x: cur.x + num(i + 1), y: cur.y + num(i + 2) };
-          cur = next; start = { ...cur };
-          i += 3;
-        } else i++;
-      } else if (t === "L" || t === "l") {
-        if (i + 2 < tokens.length) {
-          const next = (t === "L")
-            ? { x: num(i + 1), y: num(i + 2) }
-            : { x: cur.x + num(i + 1), y: cur.y + num(i + 2) };
-          if (cur) segs.push({ x1: cur.x, y1: cur.y, x2: next.x, y2: next.y });
-          cur = next;
-          i += 3;
-        } else i++;
-      } else if (t === "H" || t === "h") {
-        if (i + 1 < tokens.length) {
-          const next = { x: t === "H" ? num(i + 1) : cur.x + num(i + 1), y: cur.y };
-          if (cur) segs.push({ x1: cur.x, y1: cur.y, x2: next.x, y2: next.y });
-          cur = next; i += 2;
-        } else i++;
-      } else if (t === "V" || t === "v") {
-        if (i + 1 < tokens.length) {
-          const next = { x: cur.x, y: t === "V" ? num(i + 1) : cur.y + num(i + 1) };
-          if (cur) segs.push({ x1: cur.x, y1: cur.y, x2: next.x, y2: next.y });
-          cur = next; i += 2;
-        } else i++;
-      } else if (t === "Z" || t === "z") {
-        if (cur && start) segs.push({ x1: cur.x, y1: cur.y, x2: start.x, y2: start.y });
-        cur = start ? { ...start } : null;
-        i++;
-      } else if (/[a-zA-Z]/.test(t)) {
-        // 略過 C/S/Q/T/A 等曲線命令的引數
-        i++;
-        while (i < tokens.length && !/[a-zA-Z]/.test(tokens[i])) i++;
-      } else {
-        i++;
-      }
-    }
-  }
-  return segs;
-}
-
-function detectAlignmentAngle() {
-  const bgSvgEl = document.getElementById("bgSvg");
-  if (!bgSvgEl) return null;
-  const segs = extractSvgSegments(bgSvgEl);
-  const tol = 30 * Math.PI / 180;
-  let bestH = null, bestV = null;
-  for (const s of segs) {
-    const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
-    const len = Math.hypot(dx, dy);
-    if (len < 5) continue;
-    let a = Math.atan2(dy, dx);
-    if (a > Math.PI / 2) a -= Math.PI;
-    if (a < -Math.PI / 2) a += Math.PI;
-    if (Math.abs(a) < tol) {
-      if (!bestH || len > bestH.len) bestH = { len, angle: a };
-    }
-    if (Math.abs(Math.abs(a) - Math.PI / 2) < tol) {
-      const correction = a > 0 ? Math.PI / 2 - a : -Math.PI / 2 - a;
-      if (!bestV || len > bestV.len) bestV = { len, angle: a, correction };
-    }
-  }
-  if (!bestH && !bestV) return null;
-  let correction = 0, src = "";
-  if (bestH && bestV) {
-    if (bestH.len >= bestV.len) { correction = -bestH.angle; src = `水平線 ${bestH.len.toFixed(0)}`; }
-    else { correction = bestV.correction; src = `垂直線 ${bestV.len.toFixed(0)}`; }
-  } else if (bestH) { correction = -bestH.angle; src = `水平線 ${bestH.len.toFixed(0)}`; }
-  else { correction = bestV.correction; src = `垂直線 ${bestV.len.toFixed(0)}`; }
-  return { correction, src, bestH, bestV };
-}
-
-function enterManualAlign() {
-  const file = getActiveFile();
-  if (!file) { alert("請先載入檔案。"); return; }
-  state.manualAlign.active = true;
-  state.pendingLineStart = null;            // 進入對齊模式立刻取消畫線中狀態
-  wrap.style.cursor = "move";
-  $("hud").textContent = `手動對齊:拖曳上下左右平移底圖,Esc 完成`;
-  render();
-}
-export function exitManualAlign() {
-  if (!state.manualAlign.active) return;
-  state.manualAlign.active = false;
-  wrap.style.cursor = "none";
-  applyTransform();   // 復原 HUD
-}
-// 順時針旋轉底圖 90°(只在底圖模式可用)
-//   - 底圖透過 file.rotation 累加 -90°(canvas 旋轉是逆時針正,所以順時針 = 負角)
-//   - 同時旋轉本頁所有 joints / scaleRuler 端點 / planeOrigin / clipRect(讓結構跟底圖一起轉)
-//   - 旋轉軸 = bg 中心 (bgWidth/2, bgHeight/2),跟 applyBgRotation 的視覺一致
-//   - clipRect 旋轉後重算 AABB
-function rotateBg90Clockwise() {
-  if (state.tool !== "selectBg") {
-    $("hud").textContent = "旋轉 90°:請先進入底圖模式";
-    return;
-  }
-  const file = getActiveFile();
-  if (!file) { alert("請先載入檔案。"); return; }
-  pushUndo();
-  // bg 中心(同 applyBgRotation 用的旋轉錨點)
-  const cx = state.bgWidth / 2, cy = state.bgHeight / 2;
-  // 順時針 90° → 點繞中心 (cx, cy) 的變換:(x, y) → (cx + (cy - y), cy + (x - cx))
-  //   (在 canvas 座標系 y 向下,順時針旋轉 = 數學上 -90°)
-  const rot = (x, y) => ({ x: cx + (cy - y), y: cy + (x - cx) });
-  // 旋轉本頁 joints(joint 座標跟 bg 在同一座標系)
-  const pg = file.pages && file.pages[state.pageIdx];
-  let nJoints = 0;
-  if (pg && Array.isArray(pg.joints)) {
-    for (const j of pg.joints) {
-      const r = rot(j.x, j.y);
-      j.x = r.x; j.y = r.y;
-      nJoints++;
-    }
-  }
-  // 旋轉 scaleRuler 兩端點
-  if (file.scaleRuler && file.scaleRuler.p1 && file.scaleRuler.p2) {
-    const r1 = rot(file.scaleRuler.p1.x, file.scaleRuler.p1.y);
-    const r2 = rot(file.scaleRuler.p2.x, file.scaleRuler.p2.y);
-    file.scaleRuler.p1 = r1;
-    file.scaleRuler.p2 = r2;
-  }
-  // 旋轉 planeOrigin
-  if (file.planeOrigin) {
-    const r = rot(file.planeOrigin.x, file.planeOrigin.y);
-    file.planeOrigin = r;
-  }
-  // 旋轉 clipRect(轉完重新 AABB)
-  if (file.clipRect) {
-    const cr = file.clipRect;
-    const corners = [
-      rot(cr.x, cr.y),
-      rot(cr.x + cr.w, cr.y),
-      rot(cr.x + cr.w, cr.y + cr.h),
-      rot(cr.x, cr.y + cr.h),
-    ];
-    const xs = corners.map(p => p.x), ys = corners.map(p => p.y);
-    const nx = Math.min(...xs), ny = Math.min(...ys);
-    const nw = Math.max(...xs) - nx, nh = Math.max(...ys) - ny;
-    file.clipRect = { x: nx, y: ny, w: nw, h: nh };
-  }
-  // 旋轉 user 畫的 bg 線
-  if (Array.isArray(file.userBgLines)) {
-    for (const ln of file.userBgLines) {
-      const r1 = rot(ln.x1, ln.y1);
-      const r2 = rot(ln.x2, ln.y2);
-      ln.x1 = r1.x; ln.y1 = r1.y;
-      ln.x2 = r2.x; ln.y2 = r2.y;
-    }
-  }
-  // 旋轉切面標線 p1 / p2(本檔的 sectionLinks)
-  if (Array.isArray(file.sectionLinks)) {
-    for (const sl of file.sectionLinks) {
-      if (sl.p1) { const r = rot(sl.p1.x, sl.p1.y); sl.p1 = r; }
-      if (sl.p2) { const r = rot(sl.p2.x, sl.p2.y); sl.p2 = r; }
-    }
-  }
-  // 底圖視覺旋轉 — file.rotation 累加 +PI/2(CSS rotate 在 y-down 座標系下視覺上是順時針)
-  file.rotation = (file.rotation || 0) + Math.PI / 2;
-  applyBgRotation(file);
-  // 同步 user 畫的 bg 線到 DOM(座標已改,需要重建)
-  if (typeof syncUserBgLinesToDom === "function") syncUserBgLinesToDom(file);
-  // bg cache(P2 跨頁同步用)需要重建,因為線段座標都變了
-  if (pg) pg._bgSegsCache = null;
-  if (typeof cacheActivePageBgSegs === "function") {
-    try { cacheActivePageBgSegs(); } catch (_) {}
-  }
-  if (typeof invalidateRankCache === "function") invalidateRankCache();
-  // 旋轉後 sectionLink 的 p1/p2 雖然跟著轉,但 cutAxis / cutValue 是世界座標投影,
-  //   旋轉後通常會換軸或變號 → 用新的像素 + 原點重新分析,並同步目標檔 page.z
-  const sl = (typeof _resyncSectionLinksForFile === "function") ? _resyncSectionLinksForFile(file) : { slUpdated: 0, tgtZUpdated: 0 };
-  if (typeof _afterCalibrationChanged === "function") _afterCalibrationChanged();
-  else { render(); refreshLists(); }
-  $("hud").textContent = `旋轉 90°(順時針)・${file.name}:${nJoints} 節點${pg && pg.members ? "・" + pg.members.length + " 桿件" : ""} 同步旋轉` +
-    (sl.slUpdated ? `・切面 ${sl.slUpdated} 條重算` : "");
-}
-$("btnRotate90") && ($("btnRotate90").onclick = () => withBusy("旋轉 90°(底圖 + 節點 + 桿件)…", rotateBg90Clockwise));
+// extractSvgSegments / detectAlignmentAngle / enterManualAlign / exitManualAlign /
+// rotateBg90Clockwise 搬到 src/dialogs/autoAlign.ts;btnRotate90 onclick 用 wire 函式延後綁
+import {
+  extractSvgSegments,
+  detectAlignmentAngle,
+  enterManualAlign,
+  exitManualAlign,
+  rotateBg90Clockwise,
+  wireAutoAlignButtons,
+} from "./dialogs/autoAlign";
+wireAutoAlignButtons();
+export {
+  extractSvgSegments,
+  detectAlignmentAngle,
+  enterManualAlign,
+  exitManualAlign,
+  rotateBg90Clockwise,
+};
 
 // 在 vector 層底部繪製鎖點視覺(灰點 / 棋盤格)
 export function drawSnapGrid() {
@@ -9194,85 +7393,24 @@ $("gbindNew").onclick = () => {
 };
 
 // ---------- 三視圖自動配對 對話框 ----------
-let _apCandidates = [];
-function _apFmtMember(m) {
-  return `${m.fileName}#${m.pageIdx + 1} J${m.dispJ}<span style="color:#888">(${m.plane})</span>`;
-}
-function _apFmtCoord(v) { return v == null ? "?" : v.toFixed(0); }
-function openAutoPairDialog() {
-  const apUnit = $("apUnit"); if (apUnit) apUnit.textContent = state.unitName || "mm";
-  $("apList").innerHTML = '<div style="color:#9aa0a6;padding:8px">點「掃描候選」開始</div>';
-  $("apSummary").textContent = "";
-  _apCandidates = [];
-  $("autoPairDialog").style.display = "flex";
-}
-function closeAutoPairDialog() {
-  $("autoPairDialog").style.display = "none";
-  _apCandidates = [];
-}
-function rescanAutoPair() {
-  const tol = parseFloat($("apTol").value) || 0;
-  const includeBound = $("apIncludeBound").checked;
-  _apCandidates = proposeAutoPairings({ tol, includeBound });
-  const list = $("apList");
-  list.innerHTML = "";
-  let triples = 0, pairs = 0;
-  for (const c of _apCandidates) { if (c.type === "triple") triples++; else pairs++; }
-  $("apSummary").textContent = `找到 ${triples} 組三面 / ${pairs} 組雙面候選 — 公差 ${tol} ${state.unitName || "mm"}`;
-  if (_apCandidates.length === 0) {
-    list.innerHTML = '<div style="color:#9aa0a6;padding:8px">無候選 — 試著放寬公差,或確認頁面 plane 與 校準是否設好</div>';
-    return;
-  }
-  _apCandidates.forEach((c, idx) => {
-    const row = document.createElement("div");
-    row.className = "ap-row " + c.type;
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = (c.type === "triple"); // 三面預設勾,雙面預設不勾
-    cb.dataset.idx = idx;
-    const typeLabel = c.type === "triple" ? "三" : "雙";
-    let coordTxt;
-    if (c.type === "triple") {
-      coordTxt = `(${_apFmtCoord(c.world.x)}, ${_apFmtCoord(c.world.y)}, ${_apFmtCoord(c.world.z)}) Δ${c.score.toFixed(1)}`;
-    } else {
-      coordTxt = `${c.sharedAxis.toUpperCase()}=${_apFmtCoord(c.members[0].world[c.sharedAxis])} Δ${c.score.toFixed(1)}`;
-    }
-    const sep = c.type === "triple" ? " + " : " ↔ ";
-    row.appendChild(cb);
-    const typeSpan = document.createElement("span");
-    typeSpan.className = "ap-type"; typeSpan.textContent = typeLabel;
-    row.appendChild(typeSpan);
-    const mem = document.createElement("span");
-    mem.className = "ap-members";
-    mem.innerHTML = c.members.map(_apFmtMember).join(sep);
-    row.appendChild(mem);
-    const co = document.createElement("span");
-    co.className = "ap-coord"; co.textContent = coordTxt;
-    row.appendChild(co);
-    list.appendChild(row);
-  });
-  // 全選 / 全不選工具列
-  const tools = document.createElement("div");
-  tools.style.cssText = "display:flex;gap:8px;padding:6px 8px;border-top:1px solid #444;font-size:11px";
-  const bAll = document.createElement("a");
-  bAll.href = "#"; bAll.textContent = "全選"; bAll.style.color = "#4fc3f7";
-  bAll.onclick = (e) => { e.preventDefault(); list.querySelectorAll("input[type=checkbox]").forEach(c => c.checked = true); };
-  const bNone = document.createElement("a");
-  bNone.href = "#"; bNone.textContent = "全不選"; bNone.style.color = "#4fc3f7";
-  bNone.onclick = (e) => { e.preventDefault(); list.querySelectorAll("input[type=checkbox]").forEach(c => c.checked = false); };
-  const bTri = document.createElement("a");
-  bTri.href = "#"; bTri.textContent = "只勾三面"; bTri.style.color = "#4fc3f7";
-  bTri.onclick = (e) => {
-    e.preventDefault();
-    list.querySelectorAll(".ap-row").forEach(r => {
-      const cb = r.querySelector("input[type=checkbox]");
-      if (cb) cb.checked = r.classList.contains("triple");
-    });
-  };
-  tools.appendChild(bAll); tools.appendChild(bNone); tools.appendChild(bTri);
-  list.appendChild(tools);
-}
-$("autoPairBtn") && ($("autoPairBtn").onclick = openAutoPairDialog);
+// openAutoPairDialog / closeAutoPairDialog / rescanAutoPair + _apCandidates state
+// 搬到 src/dialogs/triViewPair.ts;autoPairBtn onclick 用 wire 函式延後綁
+import {
+  openAutoPairDialog,
+  closeAutoPairDialog,
+  rescanAutoPair,
+  getApCandidates,
+  setApCandidates,
+  wireTriViewPairButtons,
+} from "./dialogs/triViewPair";
+wireTriViewPairButtons();
+export {
+  openAutoPairDialog,
+  closeAutoPairDialog,
+  rescanAutoPair,
+  getApCandidates,
+  setApCandidates,
+};
 
 // Phase 8k:3D 立體預覽 popup 搬到 src/dialogs/preview3d.ts(~1700 行,大宗)
 //   _3dPreviewWindow ref 還留在 legacy:i18n / busy / 主視窗 rebuild hook 都會讀,
@@ -10160,133 +8298,31 @@ export { pickSupportTypeModal } from "./tools/anchor";
 //   本檔不再保留實作。需要的話走檔頂的 re-export 拿。
 
 // ---------- 節點 ID 編碼:XXYYZZ(N=各軸最大位數)----------
-//   軸坐標 rank-based:對所有檔案的所有節點,把世界 X / Y / Z 各自抽出來、以「正交先 → 非正交後」分群並排序、給 rank
-//   Joint 的 displayId = padZero(X_rank, N) + padZero(Y_rank, N) + padZero(Z_rank, N)
-//   正交判定:該 joint 的所有連接桿件中,至少有一條水平 + 至少一條垂直(2D 平面內)→ 正交
-//   只有斜桿件 → 非正交,排到該軸 rank 的最後
-//   Cache 會在 invalidateRankCache 被叫時失效;每次 displayJointId 進來時 lazy 重算
-// _rankCache + invalidateRankCache 移到 src/core/rankCache.ts(Phase 3d)
-function _isJointOrtho(j, page) {
-  if (!page || !Array.isArray(page.members)) return false;
-  const tol = 1e-3;
-  const jointById = new Map((page.joints || []).map(jj => [jj.id, jj]));
-  let hasH = false, hasV = false;
-  for (const m of page.members) {
-    let other = null;
-    if (m.j1 === j.id) other = jointById.get(m.j2);
-    else if (m.j2 === j.id) other = jointById.get(m.j1);
-    if (!other) continue;
-    const dx = other.x - j.x, dy = other.y - j.y;
-    if (Math.abs(dx) < tol && Math.abs(dy) < tol) continue;
-    if (Math.abs(dy) < tol && Math.abs(dx) > tol) hasH = true;
-    if (Math.abs(dx) < tol && Math.abs(dy) > tol) hasV = true;
-    if (hasH && hasV) return true;
-  }
-  return false;
-}
-// 判定 joint 是否「有任何斜撐 member 連接」 — rank cache 用此把 brace 相關座標推到後段
-//   true = 有 ≥1 條 diagonal member(就算同時也有 H/V 也算)→ rank 會被 demote
-//   false = 沒有斜撐(全 axis-aligned,或者完全沒 member)→ 正常 rank
-function _jointHasAnyDiagonal(j, page) {
-  if (!page || !Array.isArray(page.members) || !page.members.length) return false;
-  const tol = 1e-3;
-  const jointById = new Map((page.joints || []).map(jj => [jj.id, jj]));
-  for (const m of page.members) {
-    let other = null;
-    if (m.j1 === j.id) other = jointById.get(m.j2);
-    else if (m.j2 === j.id) other = jointById.get(m.j1);
-    if (!other) continue;
-    const dx = other.x - j.x, dy = other.y - j.y;
-    if (Math.abs(dx) < tol && Math.abs(dy) < tol) continue;
-    // 既不是水平也不是垂直 → 斜向
-    if (Math.abs(dy) >= tol && Math.abs(dx) >= tol) return true;
-  }
-  return false;
-}
-// 取得 joint 連接桿件的「單位方向向量陣列」— 給 perp / collinear 判定共用
-export function _getJointMemberDirs(j, page) {
-  const out = [];
-  if (!page || !Array.isArray(page.members) || !page.members.length) return out;
-  const tol = 1e-3;
-  const jointById = new Map((page.joints || []).map(jj => [jj.id, jj]));
-  for (const m of page.members) {
-    let other = null;
-    if (m.j1 === j.id) other = jointById.get(m.j2);
-    else if (m.j2 === j.id) other = jointById.get(m.j1);
-    if (!other) continue;
-    const dx = other.x - j.x, dy = other.y - j.y;
-    const len = Math.hypot(dx, dy);
-    if (len < tol) continue;
-    out.push({ dx: dx / len, dy: dy / len });
-  }
-  return out;
-}
-// 任一對方向向量垂直?(2D 上,夾角 90° ± 約 3°)
-export function _hasAnyPerpPair(dirs) {
-  for (let i = 0; i < dirs.length; i++) {
-    for (let k = i + 1; k < dirs.length; k++) {
-      const dot = dirs[i].dx * dirs[k].dx + dirs[i].dy * dirs[k].dy;
-      if (Math.abs(dot) < 0.05) return true;
-    }
-  }
-  return false;
-}
-// 所有方向向量是否與第一條共線(平行或反向)— 用來判定「純連續直桿件」(2+ V 共線、無分岔)
-export function _allDirsCollinear(dirs) {
-  if (dirs.length < 2) return false;
-  const d0 = dirs[0];
-  for (let i = 1; i < dirs.length; i++) {
-    const dot = Math.abs(d0.dx * dirs[i].dx + d0.dy * dirs[i].dy);
-    if (Math.abs(dot - 1) > 0.05) return false;   // 不共線(parallel cos = ±1)
-  }
-  return true;
-}
-// 保留舊 API(供其他模組或日後參照)
-function _jointHasPerpendicularPair(j, page) {
-  return _hasAnyPerpPair(_getJointMemberDirs(j, page));
-}
-// 判定 joint 的連結狀況:
-//   "axis"  → 有任何 H 或 V 的 member(平行該頁的水平 / 垂直軸)
-//   "diag"  → 有 member,但全部是斜向(non-axis-aligned)
-//   "empty" → 完全沒有 member
-// rank 排序時,"diag" 的座標會被推到最後;"empty" / "axis" 按數值正常排
-function _jointConnectivityKind(j, page) {
-  if (!page || !Array.isArray(page.members) || !page.members.length) return "empty";
-  const tol = 1e-3;
-  const jointById = new Map((page.joints || []).map(jj => [jj.id, jj]));
-  let hasH = false, hasV = false, hasD = false;
-  for (const m of page.members) {
-    let other = null;
-    if (m.j1 === j.id) other = jointById.get(m.j2);
-    else if (m.j2 === j.id) other = jointById.get(m.j1);
-    if (!other) continue;
-    const dx = other.x - j.x, dy = other.y - j.y;
-    if (Math.abs(dx) < tol && Math.abs(dy) < tol) continue;   // 同位
-    if (Math.abs(dy) < tol && Math.abs(dx) > tol) hasH = true;
-    else if (Math.abs(dx) < tol && Math.abs(dy) > tol) hasV = true;
-    else hasD = true;
-  }
-  if (hasH || hasV) return "axis";
-  if (hasD) return "diag";
-  return "empty";
-}
-// 取得節點「用來算 rank 的世界座標」:
-//   - 若 joint.globalId 對應的 globalJoint 有 x/y/z(三軸都齊全) → 用全局位置(同 globalId 的各檔節點拿到同 rank → 同 display ID)
-//   - 否則用節點本身的世界座標
-// _worldForRank / _axisCap / _ensureRankCache 移到 src/core/rankCache.ts(Phase 3d)
-// _displayIdForJointWith 移到 src/core/displayId.ts(Phase 3d)
-export function displayJointId(j) {
-  return _displayIdForJointWith(getActiveFile(), getPage(), j);
-}
-export function displayMemberId(m) {
-  if (!m) return "?";
-  // 直接用 per-page m.id;不再代換為 globalMember.id
-  //   原因:globalMember.id 是「適配關聯當時的累加序號」,不會跟 rank-based 重編後的 m.id 同步,
-  //   會讓「同一根柱整條 Y 軸應該連續編號 1921,1922,1923」變成 1921,1945,1980。
-  //   跨頁同物理桿件用 m.globalMemberId 仍可內部識別(搜尋 / 對應分析用)。
-  return m.id;
-}
-function pageHasGroupNum(num, exclude) {
+// 7 個 connectivity helper + displayJointId / displayMemberId 整合到 src/core/displayId.ts
+// (跟 _displayIdForJointWith 同檔)
+import {
+  _isJointOrtho,
+  _jointHasAnyDiagonal,
+  _getJointMemberDirs,
+  _hasAnyPerpPair,
+  _allDirsCollinear,
+  _jointHasPerpendicularPair,
+  _jointConnectivityKind,
+  displayJointId,
+  displayMemberId,
+} from "./core/displayId";
+export {
+  _isJointOrtho,
+  _jointHasAnyDiagonal,
+  _getJointMemberDirs,
+  _hasAnyPerpPair,
+  _allDirsCollinear,
+  _jointHasPerpendicularPair,
+  _jointConnectivityKind,
+  displayJointId,
+  displayMemberId,
+};
+export function pageHasGroupNum(num, exclude) {
   for (const file of state.files) {
     for (const [k, pg] of Object.entries(file.pages || {})) {
       if (exclude && pg === exclude) continue;
@@ -10724,68 +8760,20 @@ $("numberPriority") && ($("numberPriority").onchange = (e) => {
 });
 
 // ---------- 平面選取盤(Shift+W) ----------
-function openPlanePicker() {
-  const p = getPage();
-  if (!p || p._orphan) { alert("請先載入並啟用一個頁面。"); return; }
-  state.planePicker.active = true;
-  state.planePicker.sector = null;
-  // 居中於畫布
-  const r = wrap.getBoundingClientRect();
-  state.planePicker.x = r.left + r.width / 2;
-  state.planePicker.y = r.top + r.height / 2;
-  const pp = $("planePicker");
-  pp.style.left = state.planePicker.x + "px";
-  pp.style.top  = state.planePicker.y + "px";
-  pp.style.display = "block";
-}
-function closePlanePicker() {
-  state.planePicker.active = false;
-  $("planePicker").style.display = "none";
-  ["ppXY", "ppYZ", "ppXZ", "ppCancel"].forEach(id => $(id).classList.remove("hot"));
-}
-function planePickerSectorAt(clientX, clientY) {
-  const dx = clientX - state.planePicker.x;
-  const dy = clientY - state.planePicker.y;
-  if (Math.hypot(dx, dy) < 32) return null;     // 在中心圓裡不選
-  const a = Math.atan2(dy, dx);                 // -π..π
-  if (a >= -Math.PI/4 && a < Math.PI/4)        return "YZ";
-  if (a >= Math.PI/4 && a < 3*Math.PI/4)       return "XZ";
-  if (a >= -3*Math.PI/4 && a < -Math.PI/4)     return "XY";
-  return "cancel";
-}
-window.addEventListener("mousemove", (e) => {
-  if (!state.planePicker.active) return;
-  const sec = planePickerSectorAt(e.clientX, e.clientY);
-  if (sec === state.planePicker.sector) return;
-  state.planePicker.sector = sec;
-  const map = { XY: "ppXY", YZ: "ppYZ", XZ: "ppXZ", cancel: "ppCancel" };
-  ["ppXY", "ppYZ", "ppXZ", "ppCancel"].forEach(id => $(id).classList.remove("hot"));
-  if (sec && map[sec]) $(map[sec]).classList.add("hot");
-});
-window.addEventListener("mousedown", (e) => {
-  if (!state.planePicker.active) return;
-  e.preventDefault(); e.stopPropagation();
-  const sec = planePickerSectorAt(e.clientX, e.clientY);
-  closePlanePicker();
-  if (!sec || sec === "cancel") return;
-  const p = getPage();
-  if (!p || p._orphan) return;
-  pushUndo();
-  p.plane = sec;
-  // 提示輸入共有數字
-  const cur = p.groupNum || "";
-  const ans = prompt(`設定 ${sec} 平面的共有數字(1~10000,不可重複):`, cur);
-  if (ans !== null) {
-    const v = parseInt(ans, 10);
-    if (v >= 1 && v <= 10000 && !pageHasGroupNum(v, p)) p.groupNum = v;
-    else if (v) alert("數字不合法或已被使用,共有數字未變更。");
-  }
-  refreshPageCoordSection();
-  inferAllGlobalJoints();
-  render(); refreshLists();
-}, true);
-// 設定平面按鈕已從工具列移除;仍可用 Shift+W 開啟 plane picker(見 keydown 處理)
-$("planePickerBtn") && ($("planePickerBtn").onclick = openPlanePicker);
+// openPlanePicker / closePlanePicker / planePickerSectorAt + window 事件 + planePickerBtn onclick
+// 全部搬到 src/dialogs/planePicker.ts;wirePlanePicker 由本檔延後 call
+import {
+  openPlanePicker,
+  closePlanePicker,
+  planePickerSectorAt,
+  wirePlanePicker,
+} from "./dialogs/planePicker";
+wirePlanePicker();
+export {
+  openPlanePicker,
+  closePlanePicker,
+  planePickerSectorAt,
+};
 
 // 空白底圖訊息:在尚未載入任何檔案時,在背景 canvas 上顯示「請從左側載入…」提示
 //   抽成函式以便語言切換時重畫
@@ -10799,7 +8787,7 @@ export function paintEmptyCanvasMessage() {
 }
 
 // ---------- init ----------
-function initBlank() {
+export function initBlank() {
   const oldSvgBg = document.getElementById("bgSvg");
   if (oldSvgBg) oldSvgBg.remove();
   bg.style.display = "block";
@@ -10821,224 +8809,21 @@ function initBlank() {
 initBlank();
 
 // ---------- 多專案分頁 ----------
-// 設計:projects 陣列每個元素是一份完整的專案 state;活躍中的那份直接存在 state / 全局 nextIds / undoStack。
-//   切換分頁 = snapshot 目前 state 到舊專案 + load 目標專案到 state。
-//   未活躍專案的 pdf / image / cachedBgSvg 物件仍在記憶體(不序列化),切回去可直接 render。
-//   關閉時若有未儲存變更會彈出「儲存 / 丟棄 / 取消」三選一對話框。
-export const projects = [];
-export let activeProjectId = null;
-let nextProjId = 1;
-export let projectDirty = false;    // 活躍專案自上次儲存後是否有變更
-// Phase 8e:跨模組(materialMgr)要寫這個 flag → 必須走 setter,ES module 不能直接寫 let import
-export function setProjectDirty(v: boolean) { projectDirty = !!v; }
-
-function makeEmptyProjectData(name) {
-  return {
-    id: nextProjId++,
-    name: name || "未命名",
-    files: [],
-    globalJoints: [],
-    undoStack: [],
-    redoStack: [],
-    scale: null,
-    unitName: "mm",
-    globalCapacity: 10000,
-    activeFileId: null,
-    pageIdx: 0,
-    openTabs: [],
-    zoom: 1, panX: 0, panY: 0,
-    nextJointId: 1, nextMemberId: 1, nextFileId: 1, nextGlobalJointId: 1,
-    projectFileHandle: null,
-    jobName: name || "",
-    dirty: false,
-  };
-}
-
-function snapshotActiveProjectInto(p) {
-  if (!p) return;
-  // 把當前 zoom/pan 存到所屬 page,讓專案分頁切回來時能還原
-  _saveCurrentTabView();
-  p.files = state.files;
-  p.globalJoints = state.globalJoints;
-  p.materials = Array.isArray(state.materials) ? state.materials : [];
-  p.undoStack = undoStack.slice();
-  p.redoStack = redoStack.slice();
-  p.scale = state.scale;
-  p.unitName = state.unitName;
-  p.globalCapacity = state.globalCapacity;
-  p.activeFileId = state.activeFileId;
-  p.pageIdx = state.pageIdx;
-  p.openTabs = Array.isArray(state.openTabs) ? state.openTabs.map(t => ({ ...t })) : [];
-  p.zoom = state.zoom; p.panX = state.panX; p.panY = state.panY;
-  p.nextJointId = nextJointId;
-  p.nextMemberId = nextMemberId;
-  p.nextFileId = nextFileId;
-  p.nextGlobalJointId = nextGlobalJointId;
-  p.projectFileHandle = state.projectFileHandle || null;
-  p.jobName = ($("jobName") && $("jobName").value) || p.jobName || "";
-  p.dirty = projectDirty;
-}
-
-function loadProjectDataFromP(p) {
-  state.files = p.files || [];
-  // 衍生模型遷移:舊專案檔內的 autoProp 副本不再儲存,載入時直接清掉。
-  //   主關聯仍保留;衍生在 render 時即時推算。
-  let _strippedAutoProp = 0;
-  for (const f of state.files) {
-    if (!Array.isArray(f.sectionLinks)) continue;
-    const before = f.sectionLinks.length;
-    f.sectionLinks = f.sectionLinks.filter(e => !e.autoProp);
-    _strippedAutoProp += (before - f.sectionLinks.length);
-  }
-  if (_strippedAutoProp) console.log(`[載入遷移] 清除 ${_strippedAutoProp} 個舊版 autoProp 副本(衍生模型不需儲存)`);
-  state.globalJoints = p.globalJoints || [];
-  state.materials    = Array.isArray(p.materials) ? p.materials : [];
-  undoStack.length = 0; undoStack.push(...(p.undoStack || []));
-  redoStack.length = 0; redoStack.push(...(p.redoStack || []));
-  state.scale = p.scale ?? null;
-  state.unitName = p.unitName || "mm";
-  state.globalCapacity = p.globalCapacity || 10000;
-  state.activeFileId = p.activeFileId ?? null;
-  state.pageIdx = p.pageIdx || 0;
-  state.openTabs = Array.isArray(p.openTabs) ? p.openTabs.map(t => ({ ...t })) : [];
-  state.zoom = p.zoom || 1; state.panX = p.panX || 0; state.panY = p.panY || 0;
-  // 舊專案 / 沒有 per-page view 的:把 project-level zoom 寫入「上次活躍頁」的 _view,
-  //   讓 activatePage 走完 render+fitToView 後仍能恢復原本視野
-  if (p.activeFileId != null && Number.isFinite(p.zoom)) {
-    const af = (p.files || []).find(f => f.id === p.activeFileId);
-    if (af) {
-      if (!af.pages) af.pages = {};
-      const pidx = p.pageIdx || 0;
-      if (!af.pages[pidx]) af.pages[pidx] = { joints: [], members: [], z: 0 };
-      if (!af.pages[pidx]._view) {
-        af.pages[pidx]._view = { zoom: p.zoom, panX: p.panX || 0, panY: p.panY || 0 };
-      }
-    }
-  }
-  nextJointId = p.nextJointId || 1;
-  nextMemberId = p.nextMemberId || 1;
-  nextFileId = p.nextFileId || 1;
-  nextGlobalJointId = p.nextGlobalJointId || 1;
-  state.projectFileHandle = p.projectFileHandle || null;
-  if ($("jobName")) $("jobName").value = p.jobName || "";
-  projectDirty = !!p.dirty;
-  // 清掉暫態 UI(避免跨分頁洩漏)
-  if (state.selection) { state.selection.joints.clear(); state.selection.members.clear(); state.selection.fileIds.clear(); }
-  state.marquee = null;
-  state.measure = null;
-  state.measurePending = false;
-  state.splitMode = false;
-  state.splitFirstCorner = null;
-  state.pendingLineStart = null;
-}
-
-async function activateProject(id) {
-  if (activeProjectId === id) return;
-  const cur = projects.find(p => p.id === activeProjectId);
-  if (cur) snapshotActiveProjectInto(cur);
-  const next = projects.find(p => p.id === id);
-  if (!next) return;
-  activeProjectId = id;
-  loadProjectDataFromP(next);
-  // 重新渲染:若有活躍檔案就 activatePage,否則 initBlank
-  showBusy(`切換到「${next.name}」…`);
-  await busyTick();
-  try {
-    if (next.activeFileId != null && state.files.some(f => f.id === next.activeFileId)) {
-      await activatePage(next.activeFileId, next.pageIdx || 0);
-    } else {
-      initBlank();
-    }
-  } catch (e) { console.warn("[activateProject]", e); }
-  finally { hideBusy(); }
-  refreshProjectTabs();
-  refreshProjectMenu();
-}
-
-// 顯示用的專案名稱:把規範值 "未命名" 依目前語言翻成 "Untitled" / "未命名"
-function _dispProjName(name) {
-  if (name === "未命名") return (typeof _t === "function" && _t("project.untitled")) || name;
-  return name;
-}
-export function refreshProjectTabs() {
-  const scroll = document.querySelector("#projectTabs .pt-scroll");
-  if (!scroll) return;
-  scroll.innerHTML = "";
-  for (const p of projects) {
-    const tab = document.createElement("div");
-    tab.className = "pt-tab" + (p.id === activeProjectId ? " active" : "");
-    tab.dataset.pid = String(p.id);
-    const dispName = _dispProjName(p.name);
-    const unsaved = (typeof _t === "function" && _t("project.unsaved")) || "(未儲存)";
-    tab.title = dispName + (p.dirty || (p.id === activeProjectId && projectDirty) ? unsaved : "");
-    const dirtyMark = (p.id === activeProjectId ? projectDirty : p.dirty) ? '<span class="pt-dirty">●</span>' : '';
-    tab.innerHTML =
-      `${dirtyMark}<span class="pt-name">${escapeHtml(dispName)}</span><span class="pt-close" title="關閉此分頁">✕</span>`;
-    tab.addEventListener("click", (e) => {
-      if (e.target && e.target.classList.contains("pt-close")) {
-        e.stopPropagation();
-        closeProjectById(p.id);
-        return;
-      }
-      activateProject(p.id);
-    });
-    // 右鍵 → 重新命名(不彈原生瀏覽器選單,直接跳輸入對話框)
-    tab.addEventListener("contextmenu", async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const newName = await promptName("重新命名分頁", `目前名稱:${p.name}`, p.name);
-      if (newName == null || newName === "" || newName === p.name) return;
-      if (projects.some(x => x !== p && x.name === newName)) {
-        alert("此名稱已被其他分頁使用");
-        return;
-      }
-      p.name = newName;
-      p.jobName = newName;
-      const isActive = (p.id === activeProjectId);
-      if (isActive && $("jobName")) $("jobName").value = newName;
-      // 若已經存過檔 → 嘗試把磁碟檔案也一起改名
-      //   Chromium 的 FileSystemFileHandle.move(newName) 可直接改名;
-      //   Safari / Firefox 沒有此 API → 清掉 handle,讓下次「儲存專案」跳 save-as picker(新名已預填在 jobName)
-      const h = isActive ? state.projectFileHandle : p.projectFileHandle;
-      if (h) {
-        const targetFileName = `${newName}.stproj.json`;
-        if (typeof h.move === "function") {
-          try {
-            await h.move(targetFileName);
-            console.log(`[rename] 磁碟檔案已改名 → ${targetFileName}`);
-          } catch (err) {
-            console.warn("[rename] handle.move 失敗,下次儲存會跳 save-as:", err);
-            if (isActive) state.projectFileHandle = null;
-            p.projectFileHandle = null;
-          }
-        } else {
-          console.log("[rename] 瀏覽器無 handle.move API,下次儲存會跳 save-as");
-          if (isActive) state.projectFileHandle = null;
-          p.projectFileHandle = null;
-        }
-      }
-      refreshProjectTabs();
-      refreshProjectMenu();
-    });
-    scroll.appendChild(tab);
-  }
-  // 捲動到 active tab
-  const active = scroll.querySelector(".pt-tab.active");
-  if (active) active.scrollIntoView({ inline: "nearest", block: "nearest" });
-}
-
-export function refreshProjectMenu() {
-  const list = document.getElementById("projectMenuList");
-  if (!list) return;
-  list.innerHTML = "";
-  for (const p of projects) {
-    const entry = document.createElement("div");
-    entry.className = "menu-entry";
-    entry.textContent = (p.id === activeProjectId ? "● " : "   ") + _dispProjName(p.name) + (p.dirty || (p.id === activeProjectId && projectDirty) ? " *" : "");
-    entry.addEventListener("click", () => { activateProject(p.id); });
-    list.appendChild(entry);
-  }
-}
+// projects / activeProjectId / projectDirty + makeEmptyProjectData / snapshotActiveProjectInto /
+// loadProjectDataFromP / activateProject / refreshProjectTabs / refreshProjectMenu
+// 全部搬到 src/state/projectTabs.ts;legacy.ts 內 reassign 改用 setActiveProjectId / setProjectDirty
+import {
+  projects, activeProjectId, projectDirty,
+  setActiveProjectId, setProjectDirty,
+  makeEmptyProjectData, snapshotActiveProjectInto, loadProjectDataFromP,
+  activateProject, refreshProjectTabs, refreshProjectMenu,
+} from "./state/projectTabs";
+export {
+  projects, activeProjectId, projectDirty,
+  setActiveProjectId, setProjectDirty,
+  makeEmptyProjectData, snapshotActiveProjectInto, loadProjectDataFromP,
+  activateProject, refreshProjectTabs, refreshProjectMenu,
+};
 
 export function escapeHtml(s) {
   return String(s == null ? "" : s).replace(/[<>&"']/g, c =>
@@ -11096,7 +8881,7 @@ function promptNumberWithSkip(title, label, defaultValue) {
   });
 }
 
-function promptName(title, label, defaultValue) {
+export function promptName(title, label, defaultValue) {
   return new Promise(resolve => {
     const dlg = document.getElementById("genericDialog");
     const titleEl = document.getElementById("gdTitle");
@@ -11178,14 +8963,14 @@ export async function newProjectPrompt() {
   // 建立新的空白專案
   const p = makeEmptyProjectData(name);
   projects.push(p);
-  activeProjectId = p.id;
+  setActiveProjectId(p.id);
   loadProjectDataFromP(p);
   initBlank();
   refreshProjectTabs();
   refreshProjectMenu();
 }
 
-async function closeProjectById(id) {
+export async function closeProjectById(id) {
   const p = projects.find(x => x.id === id);
   if (!p) return;
   const isActive = (id === activeProjectId);
@@ -11205,14 +8990,14 @@ async function closeProjectById(id) {
   if (idx >= 0) projects.splice(idx, 1);
   if (isActive) {
     // 切到相鄰的分頁;若空了就自動新增一個空白
-    activeProjectId = null;
+    setActiveProjectId(null);
     if (projects.length) {
       const target = projects[Math.min(idx, projects.length - 1)];
       await activateProject(target.id);
     } else {
       const np = makeEmptyProjectData("未命名");
       projects.push(np);
-      activeProjectId = np.id;
+      setActiveProjectId(np.id);
       loadProjectDataFromP(np);
       initBlank();
       refreshProjectTabs();
@@ -11232,7 +9017,7 @@ export async function closeCurrentProject() {
 const _origPushUndo = pushUndo;
 pushUndo = function () {
   const wasDirty = projectDirty;
-  projectDirty = true;
+  setProjectDirty(true);
   if (!wasDirty) refreshProjectTabs();
   return _origPushUndo.apply(this, arguments);
 };
@@ -11258,7 +9043,7 @@ pushUndo = function () {
   p.nextFileId = nextFileId;
   p.nextGlobalJointId = nextGlobalJointId;
   projects.push(p);
-  activeProjectId = p.id;
+  setActiveProjectId(p.id);
   refreshProjectTabs();
   refreshProjectMenu();
 })();

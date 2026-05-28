@@ -6,8 +6,128 @@
 //   demote 純粹靠 per-coord 分群:anchor 座標 rank 1..K 在前,demote-only 在後;
 //   不在 displayId 加 +offset
 
-import { state, _fileHasFullSetup } from "../legacy";
+import { state, _fileHasFullSetup, getActiveFile, getPage } from "../legacy";
 import { _rankCache, _worldForRank, _axisCap, _ensureRankCache } from "./rankCache";
+
+// ===== Joint connectivity classification(rank 算法用)=====
+//   _isJointOrtho:joint 是否有 ≥1 水平 member + ≥1 垂直 member(2D 平面內)
+//   _jointHasAnyDiagonal:是否有任何斜向 member → rank cache 用此把 brace 端點推到後段
+//   _getJointMemberDirs:取出該 joint 所有 member 的「單位方向向量」陣列
+//   _hasAnyPerpPair / _allDirsCollinear:從 dirs 陣列判 perp pair / 全共線
+//   _jointHasPerpendicularPair:_hasAnyPerpPair 的舊 API
+//   _jointConnectivityKind:回傳 "axis" / "diag" / "empty",rank 排序用
+
+export function _isJointOrtho(j, page) {
+  if (!page || !Array.isArray(page.members)) return false;
+  const tol = 1e-3;
+  const jointById = new Map((page.joints || []).map(jj => [jj.id, jj]));
+  let hasH = false, hasV = false;
+  for (const m of page.members) {
+    let other = null;
+    if (m.j1 === j.id) other = jointById.get(m.j2);
+    else if (m.j2 === j.id) other = jointById.get(m.j1);
+    if (!other) continue;
+    const dx = other.x - j.x, dy = other.y - j.y;
+    if (Math.abs(dx) < tol && Math.abs(dy) < tol) continue;
+    if (Math.abs(dy) < tol && Math.abs(dx) > tol) hasH = true;
+    if (Math.abs(dx) < tol && Math.abs(dy) > tol) hasV = true;
+    if (hasH && hasV) return true;
+  }
+  return false;
+}
+
+export function _jointHasAnyDiagonal(j, page) {
+  if (!page || !Array.isArray(page.members) || !page.members.length) return false;
+  const tol = 1e-3;
+  const jointById = new Map((page.joints || []).map(jj => [jj.id, jj]));
+  for (const m of page.members) {
+    let other = null;
+    if (m.j1 === j.id) other = jointById.get(m.j2);
+    else if (m.j2 === j.id) other = jointById.get(m.j1);
+    if (!other) continue;
+    const dx = other.x - j.x, dy = other.y - j.y;
+    if (Math.abs(dx) < tol && Math.abs(dy) < tol) continue;
+    if (Math.abs(dy) >= tol && Math.abs(dx) >= tol) return true;
+  }
+  return false;
+}
+
+export function _getJointMemberDirs(j, page) {
+  const out = [];
+  if (!page || !Array.isArray(page.members) || !page.members.length) return out;
+  const tol = 1e-3;
+  const jointById = new Map((page.joints || []).map(jj => [jj.id, jj]));
+  for (const m of page.members) {
+    let other = null;
+    if (m.j1 === j.id) other = jointById.get(m.j2);
+    else if (m.j2 === j.id) other = jointById.get(m.j1);
+    if (!other) continue;
+    const dx = other.x - j.x, dy = other.y - j.y;
+    const len = Math.hypot(dx, dy);
+    if (len < tol) continue;
+    out.push({ dx: dx / len, dy: dy / len });
+  }
+  return out;
+}
+
+export function _hasAnyPerpPair(dirs) {
+  for (let i = 0; i < dirs.length; i++) {
+    for (let k = i + 1; k < dirs.length; k++) {
+      const dot = dirs[i].dx * dirs[k].dx + dirs[i].dy * dirs[k].dy;
+      if (Math.abs(dot) < 0.05) return true;
+    }
+  }
+  return false;
+}
+
+export function _allDirsCollinear(dirs) {
+  if (dirs.length < 2) return false;
+  const d0 = dirs[0];
+  for (let i = 1; i < dirs.length; i++) {
+    const dot = Math.abs(d0.dx * dirs[i].dx + d0.dy * dirs[i].dy);
+    if (Math.abs(dot - 1) > 0.05) return false;
+  }
+  return true;
+}
+
+export function _jointHasPerpendicularPair(j, page) {
+  return _hasAnyPerpPair(_getJointMemberDirs(j, page));
+}
+
+export function _jointConnectivityKind(j, page) {
+  if (!page || !Array.isArray(page.members) || !page.members.length) return "empty";
+  const tol = 1e-3;
+  const jointById = new Map((page.joints || []).map(jj => [jj.id, jj]));
+  let hasH = false, hasV = false, hasD = false;
+  for (const m of page.members) {
+    let other = null;
+    if (m.j1 === j.id) other = jointById.get(m.j2);
+    else if (m.j2 === j.id) other = jointById.get(m.j1);
+    if (!other) continue;
+    const dx = other.x - j.x, dy = other.y - j.y;
+    if (Math.abs(dx) < tol && Math.abs(dy) < tol) continue;
+    if (Math.abs(dy) < tol && Math.abs(dx) > tol) hasH = true;
+    else if (Math.abs(dx) < tol && Math.abs(dy) > tol) hasV = true;
+    else hasD = true;
+  }
+  if (hasH || hasV) return "axis";
+  if (hasD) return "diag";
+  return "empty";
+}
+
+// ===== displayJointId / displayMemberId — 對外的 display ID API =====
+//   • displayJointId: 走 _displayIdForJointWith,在 rank cache 已暖機時回傳 XX·ZZ·YY 編號
+//   • displayMemberId: 直接回傳 m.id(rank 重編後的值,不再代換為 globalMember.id;
+//     避免「同一根柱應該連續 1921/1922/1923 變成 1921/1945/1980」)
+
+export function displayJointId(j) {
+  return _displayIdForJointWith(getActiveFile(), getPage(), j);
+}
+
+export function displayMemberId(m) {
+  if (!m) return "?";
+  return m.id;
+}
 
 export function _displayIdForJointWith(file: any, page: any, j: any): number | string {
   if (!file || !page || !j) return j ? j.id : "?";
