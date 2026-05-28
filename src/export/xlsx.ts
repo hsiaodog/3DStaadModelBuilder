@@ -18,6 +18,7 @@ import { buildExportContext } from "./shared";
 import { unitToMeter, meterToTarget } from "../utils/units";
 import { xlsxCell as _xlsxCell } from "../utils/ooxml";
 import { getXlsxSettings, cssHexToArgb } from "./xlsxSettings";
+import { saveFileWithPicker } from "../utils/saveFile";
 
 // ============================================================================
 // .xlsx 匯出(無外部 lib;簡易 OOXML + STORE-method ZIP)
@@ -900,19 +901,22 @@ export function exportXlsxFile() {
     { name: "xl/worksheets/sheet1.xml",  data: _strBytes(sheetXml) },
   ];
   const zip = _buildZip(files);
-  const blob = new Blob([zip], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const projectName = ($("jobName") && $("jobName").value.trim()) || "model";
   // 套檔名樣板:{projectName} 會被代換,其他文字原樣保留
   const _baseName = (_xs.filenamePattern || "{projectName}")
     .replace(/\{projectName\}/g, projectName)
     .replace(/[\\\/:*?"<>|]/g, "_")    // 移除作業系統不合法字元
     .trim() || projectName;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = `${_baseName}.xlsx`;
-  document.body.appendChild(a); a.click();
-  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
-  if ($("hud")) $("hud").textContent = `匯出 .xlsx 完成・${joints.length} 節點 / ${members.length} 桿件 / ${_matRowCount} 材料`;
+  const _xlsxMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  saveFileWithPicker({
+    suggestedName: `${_baseName}.xlsx`,
+    types: [{ description: "Excel workbook", accept: { [_xlsxMime]: [".xlsx"] } }],
+    data: zip,
+    mime: _xlsxMime,
+  }).then(r => {
+    if (r.ok && $("hud")) $("hud").textContent = `匯出 .xlsx 完成・${joints.length} 節點 / ${members.length} 桿件 / ${_matRowCount} 材料`;
+    else if (r.cancelled && $("hud")) $("hud").textContent = "已取消 .xlsx 匯出";
+  });
   // 撞號 fallback 集中通知(buildModel 已收集,console 也有 detail)
   setTimeout(() => { try { showBuildModelCollisionsIfAny(".xlsx 匯出"); } catch (_) {} }, 50);
 }

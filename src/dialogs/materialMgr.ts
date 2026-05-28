@@ -96,7 +96,11 @@ export function openMaterialMgrWindow() {
     <div class="footer">
       <span class="stats" id="matStats" data-i18n="mm.statsZero">共 0 筆</span>
       <span style="flex:1"></span>
+      <button id="btnImport" data-i18n="mm.import" title="從 .json 或 .csv 匯入材料預設(會詢問合併或取代)">📥 匯入…</button>
+      <button id="btnExportJson" data-i18n="mm.exportJson" title="把目前材料清單匯出成 JSON 檔(.json)">📤 匯出 JSON</button>
+      <button id="btnExportCsv" data-i18n="mm.exportCsv" title="把目前材料清單匯出成 CSV 檔(.csv;欄位:table,name,note)">📤 匯出 CSV</button>
       <button id="btnClearAll" class="danger" data-i18n="mm.clearAll" title="清空所有材料(僅清除清單;桿件上已套用的 material 字串不會被改動)">清空全部…</button>
+      <input type="file" id="impFile" accept=".json,.csv,application/json,text/csv" style="display:none">
       <span class="info" data-i18n="mm.footerHint">關閉視窗 / Esc 即儲存到專案</span>
     </div>
   `;
@@ -109,6 +113,10 @@ export function openMaterialMgrWindow() {
   const matStats    = body.querySelector("#matStats")   as HTMLElement;
   const emptyHint   = body.querySelector("#emptyHint")  as HTMLElement;
   const btnClearAll = body.querySelector("#btnClearAll")as HTMLButtonElement;
+  const btnImport     = body.querySelector("#btnImport")     as HTMLButtonElement;
+  const btnExportJson = body.querySelector("#btnExportJson") as HTMLButtonElement;
+  const btnExportCsv  = body.querySelector("#btnExportCsv")  as HTMLButtonElement;
+  const impFile       = body.querySelector("#impFile")       as HTMLInputElement;
   let _filterText = "";
   const _refresh = () => {
     const list = Array.isArray(state.materials) ? state.materials : [];
@@ -261,6 +269,196 @@ export function openMaterialMgrWindow() {
     state.materials.length = 0;
     _markDirty();
     _refresh();
+  });
+
+  // ---------- 匯出 ----------
+  const _safeFilename = () => {
+    const stamp = new Date().toISOString().slice(0, 10);
+    return `materials_${stamp}`;
+  };
+  // 走 popup window 自己的 showSaveFilePicker(讓使用者選位置 + 改檔名);
+  // 不支援的瀏覽器 fallback 到 <a download>(下載資料夾)。
+  const _saveWithPicker = async (filename: string, content: string, mime: string, fsaTypes: any[]) => {
+    const w: any = win;
+    if (w.showSaveFilePicker) {
+      try {
+        const handle = await w.showSaveFilePicker({
+          suggestedName: filename,
+          types: fsaTypes,
+        });
+        const writable = await handle.createWritable();
+        await writable.write(new Blob([content], { type: mime }));
+        await writable.close();
+        return true;
+      } catch (e: any) {
+        if (e && e.name === "AbortError") return false;
+        console.warn("[matMgr export] FSA failed, fallback:", e);
+      }
+    }
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = doc.createElement("a");
+    a.href = url; a.download = filename;
+    doc.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+    return true;
+  };
+  // CSV escape:含逗號 / 雙引號 / 換行 → 包雙引號,內部雙引號 → ""
+  const _csvCell = (s: any) => {
+    const v = s == null ? "" : String(s);
+    if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+    return v;
+  };
+  btnExportJson.addEventListener("click", () => {
+    const list = Array.isArray(state.materials) ? state.materials : [];
+    if (!list.length) { win.alert("尚無材料可匯出"); return; }
+    const payload = {
+      format: "staad-materials",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      materials: list.map(m => ({
+        table: (m as any).table || "",
+        name:  (m as any).name  || "",
+        note:  (m as any).note  || "",
+      })),
+    };
+    _saveWithPicker(
+      `${_safeFilename()}.json`,
+      JSON.stringify(payload, null, 2),
+      "application/json",
+      [{ description: "Materials JSON", accept: { "application/json": [".json"] } }],
+    );
+  });
+  btnExportCsv.addEventListener("click", () => {
+    const list = Array.isArray(state.materials) ? state.materials : [];
+    if (!list.length) { win.alert("尚無材料可匯出"); return; }
+    const rows = [["table", "name", "note"]];
+    for (const m of list) {
+      rows.push([(m as any).table || "", (m as any).name || "", (m as any).note || ""]);
+    }
+    // 前置 BOM,避免 Excel 開啟中文字亂碼
+    const csv = "﻿" + rows.map(r => r.map(_csvCell).join(",")).join("\n");
+    _saveWithPicker(
+      `${_safeFilename()}.csv`,
+      csv,
+      "text/csv;charset=utf-8",
+      [{ description: "Materials CSV", accept: { "text/csv": [".csv"] } }],
+    );
+  });
+
+  // ---------- 匯入 ----------
+  // CSV parser:處理引號 / 跳脫雙引號 / 跨欄逗號;空欄保留 ""
+  const _parseCsv = (text: string): string[][] => {
+    const rows: string[][] = [];
+    let row: string[] = [];
+    let cur = "";
+    let inQuotes = false;
+    let i = 0;
+    // 去掉 UTF-8 BOM
+    if (text.charCodeAt(0) === 0xFEFF) i = 1;
+    while (i < text.length) {
+      const c = text[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (text[i + 1] === '"') { cur += '"'; i += 2; continue; }
+          inQuotes = false; i++; continue;
+        }
+        cur += c; i++; continue;
+      }
+      if (c === '"') { inQuotes = true; i++; continue; }
+      if (c === ",") { row.push(cur); cur = ""; i++; continue; }
+      if (c === "\r") { i++; continue; }
+      if (c === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; i++; continue; }
+      cur += c; i++;
+    }
+    if (cur.length || row.length) { row.push(cur); rows.push(row); }
+    return rows.filter(r => r.some(cell => cell.trim() !== ""));
+  };
+  const _parseCsvToMaterials = (text: string) => {
+    const rows = _parseCsv(text);
+    if (!rows.length) return [];
+    // 偵測 header:第一列若包含 "name" 或 "材料" → 視為 header,從第二列開始
+    const head = rows[0].map(s => s.trim().toLowerCase());
+    let startRow = 0;
+    let colTable = 0, colName = 1, colNote = 2;
+    const hasHeader = head.some(h => /^(name|材料|材料名稱)$/i.test(h)) ||
+                      head.some(h => /^(table|表單)$/i.test(h));
+    if (hasHeader) {
+      startRow = 1;
+      const idxTable = head.findIndex(h => /^(table|表單)$/i.test(h));
+      const idxName  = head.findIndex(h => /^(name|材料|材料名稱)$/i.test(h));
+      const idxNote  = head.findIndex(h => /^(note|備註)$/i.test(h));
+      if (idxTable >= 0) colTable = idxTable;
+      if (idxName  >= 0) colName  = idxName;
+      if (idxNote  >= 0) colNote  = idxNote;
+    }
+    const out: { name: string; table: string; note: string }[] = [];
+    for (let r = startRow; r < rows.length; r++) {
+      const cells = rows[r];
+      const name = (cells[colName] || "").trim();
+      if (!name) continue;
+      out.push({
+        table: (cells[colTable] || "").trim(),
+        name,
+        note:  (cells[colNote]  || "").trim(),
+      });
+    }
+    return out;
+  };
+  btnImport.addEventListener("click", () => {
+    impFile.value = "";   // 允許重複選同一檔
+    impFile.click();
+  });
+  impFile.addEventListener("change", () => {
+    const f = impFile.files && impFile.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result || "");
+      let incoming: { name: string; table: string; note: string }[] = [];
+      try {
+        if (/\.csv$/i.test(f.name) || /^[^{[]/.test(text.trim())) {
+          incoming = _parseCsvToMaterials(text);
+        } else {
+          const obj = JSON.parse(text);
+          // 支援兩種輸入:陣列直接是 materials,或 { materials: [...] }
+          const arr = Array.isArray(obj) ? obj : (Array.isArray(obj.materials) ? obj.materials : null);
+          if (!arr) throw new Error("JSON 需是陣列或 { materials: [...] }");
+          incoming = arr.map((m: any) => ({
+            table: String(m.table || "").trim(),
+            name:  String(m.name  || "").trim(),
+            note:  String(m.note  || "").trim(),
+          })).filter((m: any) => m.name);
+        }
+      } catch (e: any) {
+        win.alert(`解析失敗:${(e && e.message) || e}`);
+        return;
+      }
+      if (!incoming.length) { win.alert("檔案內沒有可匯入的材料"); return; }
+      // 模式選擇:合併 / 取代 / 取消
+      const cur = Array.isArray(state.materials) ? state.materials : [];
+      const msg = `檔案:${f.name}\n讀到 ${incoming.length} 筆材料\n目前清單 ${cur.length} 筆\n\n` +
+        `按「確定」= 合併(以「表單 + 材料名稱」為唯一索引,重複的略過)\n` +
+        `按「取消」= 不匯入\n\n` +
+        `若要取代整個清單,請先在「清空全部」清掉再匯入。`;
+      if (!win.confirm(msg)) return;
+      if (!Array.isArray(state.materials)) state.materials = [];
+      const keyOf = (m: any) => (m.table || "").trim().toLowerCase() + "\x00" + (m.name || "").trim().toLowerCase();
+      const existing = new Set(state.materials.map(keyOf));
+      let added = 0, skipped = 0;
+      for (const m of incoming) {
+        const k = keyOf(m);
+        if (existing.has(k)) { skipped++; continue; }
+        existing.add(k);
+        state.materials.push(m);
+        added++;
+      }
+      _markDirty();
+      _refresh();
+      win.alert(`匯入完成\n新增 ${added} 筆\n略過(重複) ${skipped} 筆`);
+    };
+    reader.onerror = () => { win.alert("讀檔失敗"); };
+    reader.readAsText(f, "utf-8");
   });
   win.addEventListener("keydown", (e) => { if (e.key === "Escape") { try { win.close(); } catch (_) {} } });
   // 主視窗關閉時連帶關掉(同 search popup 模式)

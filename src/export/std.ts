@@ -15,15 +15,7 @@ import { state, $ } from "../app/integration";
 import { buildModel, showBuildModelCollisionsIfAny } from "../core/buildModel";
 import { buildExportContext } from "./shared";
 import { unitToMeter, meterToTarget, staadUnitKeyword } from "../utils/units";
-
-// 通用下載 helper(blob → <a download> click → revoke URL)
-function download(name, text) {
-  const blob = new Blob([text], { type: "text/plain" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = name; a.click();
-  URL.revokeObjectURL(url);
-}
+import { saveFileWithPicker } from "../utils/saveFile";
 
 export function exportStdFile() {
   // === 共用邏輯透過 buildExportContext()(Phase 4 dedup;原本同樣 ~120 行在這跟 exportXlsxFile 各一份)
@@ -365,7 +357,19 @@ export function exportStdFile() {
     }
   }
   lines.push("FINISH");
-  download("model.std", lines.join("\n"));
+  // 用 jobName 當預設檔名,讓使用者按「另存」對話框時可以直接看到專案名
+  const _jobName = (($("jobName") as HTMLInputElement)?.value || "model")
+    .replace(/[\\\/:*?"<>|]/g, "_").trim() || "model";
+  const suggestedName = `${_jobName}.std`;
+  saveFileWithPicker({
+    suggestedName,
+    types: [{ description: "STAAD input file", accept: { "text/plain": [".std"] } }],
+    data: lines.join("\n"),
+    mime: "text/plain",
+  }).then(r => {
+    if (r.ok && $("hud")) $("hud").textContent = `匯出 .std 完成・${joints.length} 節點 / ${members.length} 桿件`;
+    else if (r.cancelled && $("hud")) $("hud").textContent = "已取消 .std 匯出";
+  });
   // 撞號 fallback 集中通知(buildModel 已收集,console 也有 detail)
   setTimeout(() => { try { showBuildModelCollisionsIfAny(".std 匯出"); } catch (_) {} }, 50);
 }

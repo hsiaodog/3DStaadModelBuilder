@@ -49,11 +49,17 @@ export function initBlank() {
 }
 // ---------- dirty flag hooks ----------
 // 把「有變更」訊號吸進 projectDirty(僅在 dirty 狀態轉換時重新渲染 tabs,避免高頻刷新)
+// 同時觸發自動備份(debounce 30s)— 不會寫到任何磁碟檔案,只進瀏覽器 IDB。
+import { scheduleBackupSoon, flushBackupNow, clearBackupForActive, checkRecoveryOnStartup } from "../persistence/autoBackup";
 setPushUndoHook(() => {
   const wasDirty = projectDirty;
   setProjectDirty(true);
   if (!wasDirty) refreshProjectTabs();
+  scheduleBackupSoon();
 });
+// beforeunload best-effort flush:同步觸發 IDB put;若瀏覽器允許 unload 完成 promise 就會完成。
+window.addEventListener("beforeunload", () => { flushBackupNow().catch(() => {}); });
+window.addEventListener("pagehide",     () => { flushBackupNow().catch(() => {}); });
 
 // 初始化第一個預設專案 — 包進 export function,由 integration.ts 透過 queueMicrotask 觸發,
 // 避免在 persistence/projectTabs.ts 的 `let nextProjId = 1` 之前被觸發 → TDZ
@@ -106,6 +112,8 @@ export async function _startSaveWithHook(forceAs) {
     cur.projectFileHandle = state.projectFileHandle || null;
     cur.dirty = false;
   }
+  // 磁碟檔已是最新 → 清掉該 project 的自動備份(下次啟動就不會出現復原提示)
+  clearBackupForActive().catch(() => {});
   refreshProjectTabs();
   refreshProjectMenu();
   return r;

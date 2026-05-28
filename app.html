@@ -1,3 +1,9 @@
+<!--
+  app.html — Vite source entry。只有 DOM 骨架,CSS / JS 由 src/main.ts 載入。
+  雙擊這個檔不會跑(找不到 /src/main.ts)— 要跑請用:
+    • npx vite        → dev server (http://localhost:5173)
+    • npx vite build  → 產出 dist/index.html(單檔成品,可雙擊)
+-->
 <!doctype html>
 <html lang="zh-Hant">
 <head>
@@ -86,6 +92,15 @@
         <div class="menu-entry" data-action="bg-repair" data-i18n="tools.bgRepair" title="底圖修復:重新渲染當前頁面的底圖(從 cachedBgSvg / cachedBgImg / pdf / image 重建);用於底圖偶爾突然消失時恢復顯示。節點 / 桿件 / 標線不受影響">底圖修復</div>
         <div class="menu-entry" data-action="cleanup-bad-globaljoints" data-i18n="tools.cleanupBad" title="清除「綁定錯誤」的 globalJoint:掃描所有 globalJoint,偵測綁定的 joint 實際世界座標分歧 > 100 mm 的,移除這些錯誤的 globalJoint + 解除對應 joint.globalId。清完後建議跑「三視圖自動配對」重建。Ctrl+Z 可還原">清除錯誤的 globalJoint 綁定</div>
         <div class="menu-entry" data-action="cleanup-all-globaljoints" data-i18n="tools.cleanupAll" title="清除「所有」globalJoint 與 globalMember 綁定:全部一次清光,包括綁定正確的。等於完全重置全局節點 + 全局桿件。清完後通常立刻跑「三視圖自動配對」重建;若要同時重建桿件綁定,直接跑「適配關聯(精準度)」(它會自動先清後建)。Ctrl+Z 可還原">清除所有 globalJoint 綁定</div>
+      </div>
+    </div>
+    <div class="menu-item" data-menu="help">
+      <span class="menu-title" data-i18n="menu.help">說明</span>
+      <div class="menu-dropdown">
+        <div class="menu-entry" data-action="auto-backup" data-i18n="help.autoBackup" title="自動備份管理:列出 / 復原 / 刪除瀏覽器內的編輯備份(只存在 IndexedDB,不會寫到任何磁碟檔案)">自動備份…</div>
+        <div class="menu-sep"></div>
+        <div class="menu-entry" data-action="check-updates" data-i18n="help.checkUpdates" title="檢查 GitHub 上是否有新版本(每 6 小時自動檢查一次;手動點則強制即時檢查)">檢查更新</div>
+        <div class="menu-entry" data-action="about" data-i18n="help.about" title="關於本工具:版本資訊與 GitHub 連結">關於 STAAD 描圖工具</div>
       </div>
     </div>
     <div class="menu-icon-btn" id="menuBar3DBtn" data-i18n-title="tools.open3D" title="3D 立體預覽:跳出獨立浮動視窗顯示模型在 3D 空間的節點 / 桿件。中鍵拖曳 = 旋轉、滾輪 = 縮放、Shift+中鍵或右鍵 = 平移、Hover 看細節、可切面拼減、視角預設(俯視 / 正面 / 側面 / 等軸)、顯示控制節點 / 桿件 / 標號 / 軸線 / 地網格。可與主畫面同時開啟,不影響主操作" style="font-weight:700;font-size:11px;letter-spacing:0.5px">3D</div>

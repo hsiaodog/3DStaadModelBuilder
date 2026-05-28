@@ -1,12 +1,15 @@
 // @ts-nocheck
-// Phase 1 — legacy code 整段搬進 Vite,還沒拆模組
-// pdf.js setup 已搬到 src/main.ts;這檔只保留主 app code
-// 後續 phase 會把這檔的內容逐步移到 src/core/, src/render/, src/dialogs/ 等
-
-// ============================================================================
-// Phase 2 — 已拆出去的 pure utils / constants(從這檔的 inline 定義移到 src/utils/、
-//   src/constants.ts;legacy.ts 透過 import 取得,呼叫位置不必改)
-// ============================================================================
+// integration.ts — 歷史整合層(原本叫 legacy.ts)
+//
+// 這檔目前 ~4600 行、~100 個 export,是 6 輪重構過程中逐步從單檔 index_legacy.html(已刪)
+// 抽出 src/core/、src/tools/、src/dialogs/、src/ui/、src/persistence/ 之後,
+// 剩下「還沒找到好家」的功能 + 對其他模組的中央 re-export hub。
+//
+// 別在這檔加新功能。新功能該歸哪就放哪(tools / dialogs / ui / persistence …)。
+// 這檔的長期方向是繼續縮小、最後刪掉。要動之前先看「QA_REPORT.md」與「MIGRATION_PLAN.md」(docs/)。
+//
+// pdf.js setup → src/main.ts
+// 各 pure util → src/utils/ + src/constants.ts
 import { MAX_UNDO, ALLOWED_YY } from "../constants";
 import { staadUnitKeyword, unitToMeter, meterToTarget } from "../utils/units";
 import { xlsxCellRef as _xlsxCellRef, xmlEsc as _xmlEsc, xlsxCell as _xlsxCell } from "../utils/ooxml";
@@ -3745,7 +3748,17 @@ $("exportJson").onclick = () => {
     activeFileId: state.activeFileId,
     pageIdx: state.pageIdx,
   };
-  download("model.json", JSON.stringify(data, null, 2));
+  const _jobName = (($("jobName") as HTMLInputElement)?.value || "model")
+    .replace(/[\\\/:*?"<>|]/g, "_").trim() || "model";
+  saveFileWithPicker({
+    suggestedName: `${_jobName}.json`,
+    types: [{ description: "STAAD Tracer JSON", accept: { "application/json": [".json"] } }],
+    data: JSON.stringify(data, null, 2),
+    mime: "application/json",
+  }).then(r => {
+    if (r.ok && $("hud")) $("hud").textContent = "已儲存標線 JSON";
+    else if (r.cancelled && $("hud")) $("hud").textContent = "已取消儲存標線";
+  });
 };
 
 $("importJson").onchange = async (e) => {
@@ -3797,6 +3810,7 @@ $("loadProject") && ($("loadProject").onchange = async (e) => {
 
 // Phase 8d:parseDxf / dxfBbox / dxfToSvg 搬到 src/utils/dxf.ts(純函式,無 DOM / state 依賴)
 import { parseDxf, dxfBbox, dxfToSvg } from "../utils/dxf";
+import { saveFileWithPicker } from "../utils/saveFile";
 export { parseDxf, dxfBbox, dxfToSvg } from "../utils/dxf";
 function download(name, text) {
   const blob = new Blob([text], { type: "text/plain" });
@@ -4517,6 +4531,11 @@ export { initBlank, _applyToolbarMode, _startSaveWithHook } from "./init";
 queueMicrotask(() => {
   try { initBlank(); } catch (e) { console.error("[initBlank]", e); }
   try { _initFirstProject(); } catch (e) { console.error("[_initFirstProject]", e); }
+  // 啟動完成後,在 idle 時檢查 IndexedDB 有沒有殘留的自動備份(代表上次沒乾淨儲存)
+  //   等到 _initFirstProject 完成後再跑,確保 projects 陣列已就緒,使用者按「復原」時能 push 新分頁。
+  setTimeout(() => {
+    import("../persistence/autoBackup").then(m => m.checkRecoveryOnStartup()).catch(() => {});
+  }, 1500);
 });
 
 

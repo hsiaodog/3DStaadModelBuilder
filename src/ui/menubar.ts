@@ -30,6 +30,8 @@ import { open3DPreviewDialog } from "../dialogs/preview3d";
 import { openSearchWindow } from "../dialogs/search";
 import { _getRecentProjects, _openRecentProject, _removeRecentProject } from "../persistence/recentProjects";
 import { _t, _setLanguage } from "../i18n";
+import { showAboutDialog, checkForUpdatesManual, checkForUpdatesAuto } from "./versionCheck";
+import { openAutoBackupDialog } from "../persistence/autoBackup";
 
 // ---------- 頂部主選單列 ----------
 // 開啟專案 → 子選單裡的「最近開啟」清單(IDB 持久化,點即重開)
@@ -189,7 +191,16 @@ async function _refreshRecentProjectMenu() {
     "lang-en":                 () => _setLanguage("en"),
     "cleanup-bad-globaljoints":() => withBusy("清除錯誤 globalJoint 綁定…", () => cleanupBadGlobalJoints({ threshold: 100 })),
     "cleanup-all-globaljoints":() => withBusy("清除全部 globalJoint 綁定…", () => cleanupBadGlobalJoints({ clearAll: true })),
+    "check-updates":           () => checkForUpdatesManual(),
+    "about":                   () => showAboutDialog(),
+    "auto-backup":             () => openAutoBackupDialog(),
   };
+  // 啟動 idle 時自動檢查 GitHub 上是否有新版(快取 6 小時,不會每次刷新都打 API)
+  if ("requestIdleCallback" in window) {
+    (window as any).requestIdleCallback(() => { checkForUpdatesAuto(); }, { timeout: 5000 });
+  } else {
+    setTimeout(() => { checkForUpdatesAuto(); }, 2000);
+  }
 
   // 開啟專案:優先使用 FSA showOpenFilePicker 取得 handle → 後續「儲存專案」可直接覆寫到同一個檔案
   async function openProjectWithPicker() {

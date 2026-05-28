@@ -25,23 +25,28 @@ try {
   );
 }
 
-// 把 worker source 包成 Blob URL,讓 pdf.js 主程式可以 spawn worker(不用外部檔案)
+// pdf.js worker 啟用策略:
+//   • file:// 模式 → 主動關 worker(讓 pdf.js 走 main-thread 同步路徑)。
+//     原因:從 file:// 創出來的 blob URL origin 是 null,瀏覽器會擋 Worker
+//     ("Not allowed to load local resource: blob:null/...")。原本 pdf.js 自己會
+//     fallback,但會先丟一個紅色 console error → 直接跳過試 worker 這步,避免 noise。
+//   • 其他模式(http/https/Tauri/PWA installed) → 用 Blob URL 起 worker,大 PDF parse
+//     不阻塞主執行緒。
 try {
-  const workerBlob = new Blob([pdfWorkerSrc], { type: "application/javascript" });
-  const workerUrl = URL.createObjectURL(workerBlob);
   const w = window as any;
-  if (w.pdfjsLib) {
-    w.pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
-    console.log(
-      "pdf.js v" +
-        (w.pdfjsLib.version || "?") +
-        " 已載入(inline);worker via blob URL"
-    );
-  } else {
+  if (!w.pdfjsLib) {
     console.error("[pdf.js] window.pdfjsLib 仍 undefined — eval 沒生效");
+  } else if (location.protocol === "file:") {
+    w.pdfjsLib.GlobalWorkerOptions.workerSrc = "";   // 明確告訴 pdf.js:不要試 worker
+    console.log("pdf.js v" + (w.pdfjsLib.version || "?") + " 已載入(file://, main-thread fallback)");
+  } else {
+    const workerBlob = new Blob([pdfWorkerSrc], { type: "application/javascript" });
+    const workerUrl = URL.createObjectURL(workerBlob);
+    w.pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+    console.log("pdf.js v" + (w.pdfjsLib.version || "?") + " 已載入(worker via blob URL)");
   }
 } catch (e) {
-  console.error("[pdf.js] worker blob 設定失敗:", e);
+  console.error("[pdf.js] worker 設定失敗:", e);
 }
 
 // 把整合層拉進來執行(@ts-nocheck;之後 phase 會逐步拆模組)
