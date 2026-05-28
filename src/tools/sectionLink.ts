@@ -22,6 +22,7 @@ import {
   activatePageWithBusy, escapeHtml,
   allocJointId, allocMemberId,
 } from "../app/integration";
+import { deleteSelectedFiles } from "../ui/fileList";
 import { joint2DToWorld3D, world3DToJoint2D } from "../core/projection";
 
 // ---------- 切面關聯 ----------

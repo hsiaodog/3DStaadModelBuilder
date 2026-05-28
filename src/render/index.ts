@@ -335,20 +335,31 @@ function _renderImpl() {
     }
 
     // 主圓:始終空心;選取時只把顏色從紅變黃,X 仍可見
-    // 錨點(isAnchor):用倒三角形取代圓圈(類似 STAAD 的 support symbol)
-    //   ★ 選取/linked 時也維持三角形,只換顏色;不改回圓圈
+    // 錨點(isAnchor):依 supportType 換 symbol — PINNED = 正方形、其餘(FIXED) = 倒三角
+    //   ★ 選取/linked 時保持符號,只換顏色;不改回圓圈
     //   stroke=color(選取時走紫色 #a855f7、未選走橘色 #ff8c00);fill 跟 stroke 同調但帶透明度
     const isAnchorMark = !!j.isAnchor;
     const c = isAnchorMark ? (() => {
       const r = jointR * 2.6;            // 加大 1.6 → 2.6
       const x = j.x, y = j.y;
-      const p1x = x, p1y = y - r;            // 頂點朝上
-      const p2x = x - r * 0.866, p2y = y + r * 0.5;   // 左下
-      const p3x = x + r * 0.866, p3y = y + r * 0.5;   // 右下
-      // fill:選取時用紫色半透明、未選時用橘色半透明
       const _anchorFill = (isSel || isLinked)
         ? "rgba(168, 85, 247, 0.35)"   // 選取/linked → 紫色 #a855f7 + 35% alpha
         : "rgba(255, 140, 0, 0.4)";    // 未選 → 橘色
+      if (j.supportType === "PINNED") {
+        // 正方形(置中於 j),邊長 ≈ 三角形外接圓邊長,保留視覺密度一致
+        const s = r * 1.732;             // ≈ √3 r
+        return el("rect", {
+          x: x - s / 2, y: y - s / 2, width: s, height: s,
+          class: "joint anchor-marker" + (isSel ? " selected" : "") + (isLinked ? " linked" : ""),
+          "data-jid": j.id,
+          fill: _anchorFill,
+          stroke: color, "stroke-width": swJoint * 2.0,
+          "stroke-linejoin": "round",
+        });
+      }
+      const p1x = x, p1y = y - r;            // 頂點朝上
+      const p2x = x - r * 0.866, p2y = y + r * 0.5;   // 左下
+      const p3x = x + r * 0.866, p3y = y + r * 0.5;   // 右下
       return el("polygon", {
         points: `${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y}`,
         class: "joint anchor-marker" + (isSel ? " selected" : "") + (isLinked ? " linked" : ""),
@@ -366,6 +377,16 @@ function _renderImpl() {
     });
     c.style.pointerEvents = "all";
     c.addEventListener("click", (e) => {
+      // 底圖繪線/複製線/中分線/等分線 pending 中:不攔截,讓事件冒泡到 wrap 走原本的 commit 流程
+      // (wrap 的 click handler 會用 snap/snapToBgVertex 吸到節點位置,所以結果一致)
+      if ((state.bgDrawLine && state.bgDrawLine.active)
+          || (state.bgCopyLine && state.bgCopyLine.active)
+          || (state.bgBisector && state.bgBisector.active)
+          || (state.bgEqui && state.bgEqui.active)
+          || state.sectionLinkPlacing
+          || state.scaleRulerDrag && state.scaleRulerDrag.active) {
+        return;
+      }
       e.stopPropagation();
       if (tryConsumePendingGlobalPair(j)) return;
       if (state.splitMode) {

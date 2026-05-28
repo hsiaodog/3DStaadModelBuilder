@@ -256,7 +256,7 @@ export function cacheActivePageBgSegs() {
 
 // 全部頁面預先掃描 bg(供 P2 跨頁吸點使用)
 //   會逐頁 activate(因為要 live DOM 算 CTM),完成後切回原頁
-async function prewarmAllPagesBgCache() {
+export async function prewarmAllPagesBgCache() {
   const origFid = state.activeFileId, origPidx = state.pageIdx;
   let scanned = 0;
   for (const f of state.files) {
@@ -500,14 +500,21 @@ export function fmtWorld3D(v: number): string {
 // ---------- pan/zoom + canvas events ----------
 // 全部搬到 src/app/canvasEvents.ts(wheel / mousedown / mousemove / mouseup / keydown / keyup
 // + markInteracting + 範圍放大 finalize)。由 wireCanvasEvents() 延後 call。
-import { wireCanvasEvents, panning, rangeZoomDragStart, rangeZoomSuppressClick,
-         setPanning, setRangeZoomDragStart, setRangeZoomSuppressClick } from "./canvasEvents";
-export { cKeyDown, panning, rangeZoomDragStart, rangeZoomSuppressClick,
-         setPanning, setRangeZoomDragStart, setRangeZoomSuppressClick } from "./canvasEvents";
-import { _setBtnLabel } from "../i18n";
+import { wireCanvasEvents, panning, rangeZoomDragStart, rangeZoomSuppressClick, mouseDownPos,
+         setPanning, setRangeZoomDragStart, setRangeZoomSuppressClick, setMouseDownPos } from "./canvasEvents";
+export { cKeyDown, panning, rangeZoomDragStart, rangeZoomSuppressClick, mouseDownPos,
+         setPanning, setRangeZoomDragStart, setRangeZoomSuppressClick, setMouseDownPos } from "./canvasEvents";
+import { _setBtnLabel, _t } from "../i18n";
+import { _measureDec } from "../tools/measure";
+import { _updateAnchorToggleBtn } from "../tools/anchor";
+import { calibrateAllFilesToCustomOrigin, calibrateAllFilesToGlobalOrigin } from "../tools/calibrate";
+import { handleMoveModeClick } from "../tools/moveCmd";
 // integration.ts 內 cacheActivePageBgSegs / bg svg 處理還在用 svgElementToSegments
 // + attachBgPathHandlers + _ensureBgOrigGroup,這些 helper 都在 toolbar.ts → 顯式 import
-import { svgElementToSegments, attachBgPathHandlers } from "./toolbar";
+import { svgElementToSegments, attachBgPathHandlers,
+         _projectPointOnLine, _selectedBgLinesAsWorld, exitSplitMode,
+         updateCalibrateButton, updatePlaneOriginButton, updateScaleRulerButton,
+         distinctSelectedLineCount, selectAllBgPaths } from "./toolbar";
 wireCanvasEvents();
 
 // ---------- tools ----------
@@ -542,6 +549,8 @@ export function setTool(t) {
     if (typeof applyBgVisibility === "function") applyBgVisibility();
     if ($("bgEditTools")) $("bgEditTools").style.display = (t === "selectBg") ? "flex" : "none";
     if ($("selectTools")) $("selectTools").style.display = (t === "select") ? "flex" : "none";
+    // 旋轉 90° 只在底圖模式下有意義(會連同節點 / 桿件 / 量測 / userBg 線一起旋轉)
+    if ($("btnRotate90")) $("btnRotate90").style.display = (t === "selectBg") ? "" : "none";
     if (typeof applyToolbarBounds === "function") applyToolbarBounds();
     if (t === "selectBg") updateBgEditOpsVisibility && updateBgEditOpsVisibility();
     _setToolFinishVisuals(t);
@@ -2234,7 +2243,7 @@ wrap.addEventListener("click", (e) => {
     const dx = e.clientX - mouseDownPos.x;
     const dy = e.clientY - mouseDownPos.y;
     const moved = Math.hypot(dx, dy) > 4;
-    mouseDownPos = null;
+    setMouseDownPos(null);
     if (moved) return;
   }
   const w = screenToWorld(e.clientX, e.clientY);

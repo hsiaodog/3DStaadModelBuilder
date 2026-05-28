@@ -55,7 +55,7 @@ function markInteracting() {
 export let cKeyDown = false;
 export function setCKeyDown(v: boolean) { cKeyDown = v; }
 
-// 共享 input state — integration.ts(舊 legacy 在 bg svg event delegate)也會讀 panning
+// 共享 input state — integration.ts(舊 legacy 在 bg svg event delegate)也會讀
 //   原本是 wireCanvasEvents() 內部 closure;extract 之後其他模組讀不到 → 改 module-top export let
 export let panning = false;
 export function setPanning(v: boolean) { panning = v; }
@@ -63,6 +63,8 @@ export let rangeZoomDragStart: any = null;
 export function setRangeZoomDragStart(v: any) { rangeZoomDragStart = v; }
 export let rangeZoomSuppressClick = false;
 export function setRangeZoomSuppressClick(v: boolean) { rangeZoomSuppressClick = v; }
+export let mouseDownPos: any = null;
+export function setMouseDownPos(v: any) { mouseDownPos = v; }
 
 // 所有 canvas / window 互動 listener 都包進來,由 legacy.ts 延後 call(避免 TDZ)
 export function wireCanvasEvents() {
@@ -84,7 +86,7 @@ wrap.addEventListener("wheel", (e) => {
 }, { passive: false });
 
 let panStart: any = null;
-let mouseDownPos = null;
+// mouseDownPos lifted to module top (export let) — integration.ts reads cross-module
 let alignDrag = null;     // 手動對齊拖曳:{ startX, startY, startRot, snapshotPushed }
 let dragMove = null;      // 選取後拖曳節點:{ startX, startY, positions:Map, axis, moved }
 // cKeyDown / setCKeyDown 從 module top-level export(下方);在 wire 內透過 setter 寫
@@ -115,7 +117,7 @@ wrap.addEventListener("mousedown", (e) => {
     e.preventDefault(); e.stopPropagation();
     return;
   }
-  if (e.button === 0) mouseDownPos = { x: e.clientX, y: e.clientY };
+  if (e.button === 0) setMouseDownPos({ x: e.clientX, y: e.clientY });
   if (e.button === 1 || (e.button === 0 && state.spaceDown)) {
     setPanning(true); panStart = { x: e.clientX, y: e.clientY, panX: state.panX, panY: state.panY };
     wrap.style.cursor = "grabbing";

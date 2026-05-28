@@ -103,11 +103,15 @@ export function rotateBg90Clockwise() {
   const file = getActiveFile();
   if (!file) { alert("請先載入檔案。"); return; }
   pushUndo();
-  // bg 中心(同 applyBgRotation 用的旋轉錨點)
-  const cx = state.bgWidth / 2, cy = state.bgHeight / 2;
-  // 把每個座標 (x,y) → (cx + cy - y, cy + x - cx)
-  //   = (x_new = cx + (cy - y), y_new = cy + (x - cx))
-  //   等同對 (cx, cy) 順時針旋轉 90°
+  // 旋轉錨點 = 底圖在世界座標下的視覺中心
+  //   applyBgRotation 的 transform 序為 `translate(tx,ty) rotate(angle)`、
+  //   transform-origin 在 bg-local (bgWidth/2, bgHeight/2);因此世界座標的旋轉中心
+  //   = (bgWidth/2 + file.offsetX, bgHeight/2 + file.offsetY)。
+  //   若用 (bgWidth/2, bgHeight/2) 當錨點,manualAlign 後 offsetX/Y ≠ 0 會造成
+  //   節點 / userBgLines / 量測 跟底圖視覺中心不同步。
+  const cx = state.bgWidth / 2 + (file.offsetX || 0);
+  const cy = state.bgHeight / 2 + (file.offsetY || 0);
+  // 對 (cx, cy) 順時針旋轉 90°
   const rot = (p) => ({
     x: cx + (cy - p.y),
     y: cy + (p.x - cx),
@@ -149,19 +153,39 @@ export function rotateBg90Clockwise() {
     file.clipRect.w = Math.max(...xs) - file.clipRect.x;
     file.clipRect.h = Math.max(...ys) - file.clipRect.y;
   }
-  // measurements (每個 page 各自有)
-  for (const k of Object.keys(file.pages || {})) {
-    const p = file.pages[k];
-    if (!p || !Array.isArray(p.measurements)) continue;
-    for (const m of p.measurements) {
+  // 量測線:存在 file.measurements(file-level,不是 per-page)
+  if (Array.isArray(file.measurements)) {
+    for (const m of file.measurements) {
       if (m.p1) m.p1 = rot(m.p1);
       if (m.p2) m.p2 = rot(m.p2);
-      if (m.labelP) m.labelP = rot(m.labelP);
+    }
+  }
+  // 使用者畫的 bg 線(直線 / 虛線 / 複製 / 中分線 / 等分線)
+  //   權威資料存在 file.userBgLines 的 world 座標,要跟著旋轉;
+  //   DOM 會在下方 syncUserBgLinesToDom 從新座標重建
+  if (Array.isArray(file.userBgLines)) {
+    for (const ln of file.userBgLines) {
+      const r1 = rot({ x: ln.x1, y: ln.y1 });
+      const r2 = rot({ x: ln.x2, y: ln.y2 });
+      ln.x1 = r1.x; ln.y1 = r1.y;
+      ln.x2 = r2.x; ln.y2 = r2.y;
+    }
+  }
+  // 切面線(sectionLinks.p1/p2 是 world 座標):同步旋轉,
+  // 之後的 _resyncSectionLinksForFile 會用新座標重新分析 cutAxis / cutValue
+  if (Array.isArray(file.sectionLinks)) {
+    for (const e of file.sectionLinks) {
+      if (e.autoProp) continue;
+      if (e.p1) e.p1 = rot(e.p1);
+      if (e.p2) e.p2 = rot(e.p2);
     }
   }
   // 3. flip:旋轉 90° 後 flipX ↔ flipY 互換,但 page-local 已經轉過,所以不動 flipX/Y
-  // 4. bgRotation:在 file 上累加 90°(applyBgRotation 會吃)
-  file.bgRotation = ((file.bgRotation || 0) + 90) % 360;
+  // 4. file.rotation(applyBgRotation 用的視覺旋轉,單位為弧度)累加 π/2
+  //    必須改的是 file.rotation,不是 file.bgRotation — 後者沒有任何地方讀,改了等於沒改,
+  //    造成只有 joint / 量測 / userBgLines 等資料層旋轉,bg 視覺停在原地。
+  const TWO_PI = Math.PI * 2;
+  file.rotation = ((file.rotation || 0) + Math.PI / 2) % TWO_PI;
   applyBgRotation(file);
   // 5. plane:旋轉 90° → 各 page 的 plane 不變(平面圖還是平面圖)— 不動
   // 6. 平面切換對應 / planeAxes:也不動(plane 維持)

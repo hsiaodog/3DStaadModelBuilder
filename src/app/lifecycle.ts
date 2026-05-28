@@ -13,6 +13,8 @@ import { applyTransform, _restorePageView, _saveCurrentTabView } from "./transfo
 import { inferAllGlobalJoints } from "../core/globalJoints";
 import { invalidateRankCache } from "../core/rankCache";
 import { showBusy, hideBusy, busyTick, setBusyMessage } from "../ui/busy";
+import { showImportDialog } from "../io/bgLoaders";
+import { openSearchWindow } from "../dialogs/search";
 import {
   getActiveFile, getPage,
   applyBgRotation, cacheActivePageBgSegs,

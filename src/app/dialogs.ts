@@ -9,10 +9,11 @@
 
 import { state } from "./state";
 import { $ } from "./dom";
+import { _startSaveWithHook } from "./init";
 import {
   // legacy forward refs
   _t,
-  projects, activeProjectId, setActiveProjectId,
+  projects, activeProjectId, setActiveProjectId, projectDirty,
   makeEmptyProjectData, snapshotActiveProjectInto, loadProjectDataFromP,
   activateProject, refreshProjectTabs, refreshProjectMenu,
   saveProjectFull,

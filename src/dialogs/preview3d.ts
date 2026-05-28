@@ -235,7 +235,7 @@ export function open3DPreviewDialog() {
         _activatePageFromPopup(fid, pidx, target);
       });
     });
-    const closeBtn = infoPanel.querySelector("[data-close=1]");
+    const closeBtn = infoPanel.querySelector("[data-close='1']");
     if (closeBtn) closeBtn.addEventListener("click", (ev) => { ev.stopPropagation(); hideInfoPanel(); });
   }
   function _escHtml(s) {
@@ -510,7 +510,8 @@ export function open3DPreviewDialog() {
     <div style="color:#9bb6e8;font-weight:700;margin-bottom:3px;font-size:11px" data-i18n="p3d.legend">圖例</div>
     <div><span style="color:#ff4444">●</span> <span data-i18n="p3d.legend.singlePage">單頁節點</span></div>
     <div><span style="color:#ffd23f">●</span> <span data-i18n="p3d.legend.crossPage">跨頁綁定節點 (globalJoint 共享)</span></div>
-    <div><span style="color:#ff8c00">▼</span> <span data-i18n="p3d.legend.anchor">錨點 (isAnchor 標記,rank 強制視為交點)</span></div>
+    <div><span style="color:#ff8c00">▼</span> <span data-i18n="p3d.legend.anchorFixed">錨點 FIXED</span></div>
+    <div><span style="color:#ff8c00">■</span> <span data-i18n="p3d.legend.anchorPinned">錨點 PINNED</span></div>
     <div style="margin-top:3px"><span style="color:#7eb6ff">━</span> <span data-i18n="p3d.legend.memY">垂直桿件 (Y 軸,柱)</span></div>
     <div><span style="color:#ff9090">━</span> <span data-i18n="p3d.legend.memX">X 軸桿件 (橫樑)</span></div>
     <div><span style="color:#9aff9a">━</span> <span data-i18n="p3d.legend.memZ">Z 軸桿件 (橫樑)</span></div>
@@ -614,7 +615,14 @@ export function open3DPreviewDialog() {
   function collectData() {
     const nodeMap = new Map();   // key "rx|ry|rz" → { x, y, z, srcCount, samples: [{fileName, jointId, pageIdx, displayId}] }
     const edgeMap = new Map();   // key "k1||k2" → { k1, k2, srcCount }
-    const round = (v) => Math.round(v);
+    // 精準度走 state.measureDecimals,跟「適配關聯(精準度)」一致 —
+    //   否則:同物理點的 joint 因為 round 規則不同,3D 視為兩顆,popup 顯示「(0, *, 0)」
+    //   但畫面上點漂在 x=0/z=0 軸旁邊
+    const md = Math.max(0, Math.min(6, Number.isFinite(state.measureDecimals) ? state.measureDecimals : 0));
+    const round = (v) => {
+      const r = parseFloat(v.toFixed(md));
+      return r === 0 ? 0 : r;
+    };
     const _nodeKey = (w) => `${round(w.x)}|${round(w.y)}|${round(w.z)}`;
     for (const f of state.files) {
       for (const k of Object.keys(f.pages || {})) {
@@ -636,11 +644,16 @@ export function open3DPreviewDialog() {
           const nk = _nodeKey(w);
           let node = nodeMap.get(nk);
           if (!node) {
-            node = { x: w.x, y: w.y, z: w.z, srcCount: 0, samples: [], key: nk, isAnchor: false };
+            // 用 round 後的座標當節點位置,跟 dedup key 同精度(1mm)。
+            // 否則第一個 joint 的次毫米誤差會殘留進 node.x/y/z,造成「資訊面板顯示 0,
+            // 但畫面上點不在 x=0/z=0 軸」的視覺漂移
+            node = { x: round(w.x), y: round(w.y), z: round(w.z), srcCount: 0, samples: [], key: nk, isAnchor: false };
             nodeMap.set(nk, node);
           }
           node.srcCount++;
           if (j.isAnchor) node.isAnchor = true;   // 任一 binding joint 是 anchor → 3D 節點視為 anchor
+          // 任一 sibling 是 PINNED → 3D 視為 PINNED(否則為 FIXED 三角形預設)
+          if (j.isAnchor && j.supportType === "PINNED") node.supportType = "PINNED";
           if (node.samples.length < 8) {
             const dispId = (typeof _displayIdForJointWith === "function") ? _displayIdForJointWith(f, pg, j) : j.id;
             node.samples.push({ fileId: f.id, fileName: f.name, pageIdx: +k, jointId: j.id, displayId: dispId, plane: pg.plane, isAnchor: !!j.isAnchor });
@@ -777,7 +790,7 @@ export function open3DPreviewDialog() {
   }
   // 視角預設
   const vg = mkGp("視角", "p3d.view");
-  vg.appendChild(mkBtn("俯視", "從正上方往下看 XZ 平面 (Y 朝下)", () => { cam.az = 0; cam.el = Math.PI / 2 - 0.001; requestRender(); }, { i18n: "p3d.viewTop" }));
+  vg.appendChild(mkBtn("俯視", "從正上方往下看 XZ 平面 (Y 朝下)", () => { cam.az = 0; cam.el = Math.PI / 2; requestRender(); }, { i18n: "p3d.viewTop" }));
   vg.appendChild(mkBtn("正面", "從 +Z 看 -Z (XY 立面, Y 朝上)", () => { cam.az = 0; cam.el = 0; requestRender(); }, { i18n: "p3d.viewFront" }));
   vg.appendChild(mkBtn("側面", "從 -X 看 +X (YZ 側立面, Y 朝上)", () => { cam.az = Math.PI / 2; cam.el = 0; requestRender(); }, { i18n: "p3d.viewSide" }));
   vg.appendChild(mkBtn("等軸", "iso 視角", () => { cam.az = Math.PI / 5; cam.el = Math.PI / 7; requestRender(); }, { i18n: "p3d.viewIso" }));
@@ -1290,7 +1303,7 @@ export function open3DPreviewDialog() {
     const dx = e.clientX - _interact.sx, dy = e.clientY - _interact.sy;
     if (_interact.type === "rotate") {
       cam.az = _interact.sa - dx * 0.008;
-      cam.el = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, _interact.se + dy * 0.008));
+      cam.el = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, _interact.se + dy * 0.008));
     } else {
       // pan(Y-up):view_right=(cos az,0,-sin az), view_up=(sin az·sin el, cos el, cos az·sin el)
       const ca = Math.cos(cam.az), sa = Math.sin(cam.az), ce = Math.cos(cam.el), se = Math.sin(cam.el);
@@ -1460,20 +1473,28 @@ export function open3DPreviewDialog() {
       for (const pn of projNodes) {
         const r0 = pn.n.srcCount > 1 ? baseR * 1.3 : baseR;
         const isAnchor = !!pn.n.isAnchor;
-        // 錨點:橘色倒三角形(類似 STAAD support symbol)
+        // 錨點:PINNED = 橘色正方形、其餘(FIXED) = 倒三角形(類似 STAAD support symbol)
         // 一般:圓形(srcCount > 1 黃色跨頁綁定 / 單頁紅色)
         if (isAnchor) {
-          const r = r0 * 2.5;   // 三角形加大 1.5 → 2.5
+          const r = r0 * 2.5;   // 加大 1.5 → 2.5
           ctx.fillStyle = "#ff8c00";
           ctx.strokeStyle = "#ffd9a0";
           ctx.lineWidth = Math.max(1, r0 * 0.18);
-          ctx.beginPath();
-          ctx.moveTo(pn.p.x, pn.p.y - r);
-          ctx.lineTo(pn.p.x - r * 0.866, pn.p.y + r * 0.5);
-          ctx.lineTo(pn.p.x + r * 0.866, pn.p.y + r * 0.5);
-          ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
+          if (pn.n.supportType === "PINNED") {
+            const s = r * 1.732;   // ≈ √3 r,跟 2D 端視覺一致
+            ctx.beginPath();
+            ctx.rect(pn.p.x - s / 2, pn.p.y - s / 2, s, s);
+            ctx.fill();
+            ctx.stroke();
+          } else {
+            ctx.beginPath();
+            ctx.moveTo(pn.p.x, pn.p.y - r);
+            ctx.lineTo(pn.p.x - r * 0.866, pn.p.y + r * 0.5);
+            ctx.lineTo(pn.p.x + r * 0.866, pn.p.y + r * 0.5);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+          }
         } else {
           ctx.fillStyle = pn.n.srcCount > 1 ? "#ffd23f" : "#ff4444";
           ctx.beginPath(); ctx.arc(pn.p.x, pn.p.y, r0, 0, Math.PI * 2); ctx.fill();
@@ -1679,7 +1700,7 @@ export function open3DPreviewDialog() {
       const depthAxis = plane === "XZ" ? "y" : plane === "XY" ? "z" : plane === "YZ" ? "x" : null;
       const depthVal = (page.z != null && Number.isFinite(page.z)) ? page.z : 0;
       // 視角
-      if (plane === "XZ") { cam.az = 0; cam.el = Math.PI / 2 - 0.001; }
+      if (plane === "XZ") { cam.az = 0; cam.el = Math.PI / 2; }
       else if (plane === "XY") { cam.az = 0; cam.el = 0; }
       else if (plane === "YZ") { cam.az = Math.PI / 2; cam.el = 0; }
       // 切面

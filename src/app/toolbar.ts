@@ -8,7 +8,7 @@
 // @ts-nocheck
 
 import { state } from "./state";
-import { $ } from "./dom";
+import { $, wrap } from "./dom";
 import {
   // 大量 legacy.ts forward refs(過渡期);ESM named import = live binding,
   // 在 module body 跑到 onclick handler 時都已就緒(handler 是 lazy,點擊才執行)
@@ -54,6 +54,7 @@ import {
   openGlobalJointMgrDialog,
   startExtendableMemberCheck, startExtendableMemberCheckCurrentPage,
   newProjectPrompt, openProjectWithPicker, startMoveMode, startMeasureFromCurrentSelection, getOrCreateJointOnPage,
+  updateBgEditOpsVisibility,
   _startSaveWithHook,
   closeCurrentProject,
   toggleShapeMarqueeMode,
@@ -65,6 +66,16 @@ import {
 } from "../app/integration";
 import { invalidateRankCache, _worldForRank } from "../core/rankCache";
 import { showBusy, hideBusy, busyTick, showBusyWithCancel, setBusyMessage } from "../ui/busy";
+import { parseStraightSegs, updateBgStrokeWidth } from "../io/bgRender";
+import { getPage, refreshPageCoordSection, syncStateScaleFromActiveFile, prewarmAllPagesBgCache } from "./integration";
+import { screenToWorld } from "./transform";
+import { setNextGlobalJointId, setNextGlobalMemberId } from "./state";
+import { handleCmdInputCommit } from "../tools/moveCmd";
+import { hideCtxMenu } from "../dialogs/ctxMenu";
+import { inferGlobalJoint } from "../core/globalJoints";
+import { joint2DToWorld3D, world3DToJoint2D } from "../core/projection";
+import { lineLineIntersect, splitMembersAtCollinearJoints, subtractiveSelect, consolidateGeometry } from "../tools/jointMemberEdit";
+import { renderFileThumb } from "../tools/sectionLink";
 
 // ---------- 標示字體整體放大 / 縮小 / 顯示切換 ----------
 //   舊版 btnLblToggle 已拆成兩顆獨立按鈕(節點 / 桿件)。
@@ -648,7 +659,7 @@ export function _selectedBgLinesAsWorld(file) {
   return out;
 }
 // 計算「不同線」的數量(把共線視為一條)
-function distinctSelectedLineCount(file) {
+export function distinctSelectedLineCount(file) {
   const lines = _selectedBgLinesAsWorld(file);
   if (!lines.length) return 0;
   return groupCollinearLines(lines).length;
