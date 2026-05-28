@@ -13,7 +13,7 @@ import {
   fmtWorld3D, fmtCoord,
   _inPlaneCoordsForJoint,
   findGlobalJointById,
-} from "../legacy";
+} from "../app/integration";
 import { listGlobalBindings } from "../core/globalJoints";
 import { _t } from "../i18n";
 

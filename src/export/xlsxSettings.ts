@@ -6,7 +6,7 @@
 //   colors 用 "#RRGGBB"(瀏覽器 input[type=color] 原生格式),寫進 xlsx XML 時轉成 "FFRRGGBB"
 // @ts-nocheck
 
-import { state } from "../legacy";
+import { state } from "../app/integration";
 
 export type XlsxColorKey =
   | "blockHeader" | "columnHeader" | "subHeader"

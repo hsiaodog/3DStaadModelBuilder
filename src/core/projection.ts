@@ -5,7 +5,7 @@
 //     plane YZ:X = page.z;XY:Z = page.z
 //   翻轉:page.flipX / flipY 套到 in-plane 兩軸
 
-import { state } from "../legacy";
+import { state } from "../app/integration";
 import type { FileEntry, Page, Joint } from "../types";
 
 interface World3D {

@@ -14,7 +14,7 @@ import {
   relayoutNumberingAll, relayoutMembersNumberingAll,
   refreshPageCoordSection, refreshSectionLinkList,
   _showAllCollisionsPopup,
-} from "../legacy";
+} from "../app/integration";
 import { showBusyWithCancel, setBusyMessage, hideBusy } from "../ui/busy";
 import { invalidateRankCache } from "../core/rankCache";
 import { inferAllGlobalJoints } from "../core/globalJoints";

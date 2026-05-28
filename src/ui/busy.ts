@@ -5,7 +5,7 @@
 //   並處理「主 tab 在背景被節流」與「popup rAF 卡死」等 edge case。
 //   依賴 legacy.ts 的 _3dPreviewWindow live binding(已 export)。
 
-import { _3dPreviewWindow } from "../legacy";
+import { _3dPreviewWindow } from "../app/integration";
 
 // 進度顯示輔助:更新 spinner 訊息並讓瀏覽器有機會 paint
 export function setBusyMessage(msg) {

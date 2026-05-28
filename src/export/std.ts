@@ -11,7 +11,7 @@
 //     • buildExportContext — export/shared
 //     • unitToMeter / meterToTarget / staadUnitKeyword — utils/units
 
-import { state, $ } from "../legacy";
+import { state, $ } from "../app/integration";
 import { buildModel, showBuildModelCollisionsIfAny } from "../core/buildModel";
 import { buildExportContext } from "./shared";
 import { unitToMeter, meterToTarget, staadUnitKeyword } from "../utils/units";

@@ -13,7 +13,7 @@
 import {
   state, $, getPage, render, refreshLists,
   clearSelection, _markSelectionSourceIfEmpty,
-} from "../legacy";
+} from "../app/integration";
 
 export function selToolsSelectAll() {
   const p = getPage(); if (!p) return;

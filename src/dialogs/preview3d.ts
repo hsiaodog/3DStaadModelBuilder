@@ -31,7 +31,7 @@ import {
   displayMemberId, refreshLists, render,
   openSearchWindow, _startSaveWithHook,
   fmtWorld3D,
-} from "../legacy";
+} from "../app/integration";
 import { _displayIdForJointWith } from "../core/displayId";
 import { joint2DToWorld3D } from "../core/projection";
 import { _t, _applyI18nOnDoc } from "../i18n";

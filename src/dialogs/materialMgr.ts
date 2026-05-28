@@ -9,7 +9,7 @@
 import {
   state,
   setProjectDirty, setMaterialMgrWin, _materialMgrWin,
-} from "../legacy";
+} from "../app/integration";
 import { _t, _applyI18nOnDoc } from "../i18n";
 
 export function openMaterialMgrWindow() {

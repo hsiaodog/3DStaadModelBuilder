@@ -7,7 +7,7 @@ import {
   state, $, render, refreshLists, getPage, getActiveFile,
   pushUndo, withBusy, escapeHtml, renderFileThumb,
   _fileHasFullSetup, _t,
-} from "../legacy";
+} from "../app/integration";
 import { invalidateRankCache, _rankCache, _worldForRank } from "../core/rankCache";
 import { joint2DToWorld3D } from "../core/projection";
 import { inferAllGlobalJoints } from "../core/globalJoints";

@@ -2,7 +2,7 @@
 //   一次 build,兩條匯出路徑共用 — 拿掉原本在兩個 handler 各自定義一次的所有 setup
 //   .xlsx / .std 拿到 ExportContext 後,只需專注在「怎麼把 model 寫成自己的格式」
 
-import { state, displayMemberId } from "../legacy";
+import { state, displayMemberId } from "../app/integration";
 import { _rankCache, _ensureRankCache } from "../core/rankCache";
 import { joint2DToWorld3D } from "../core/projection";
 

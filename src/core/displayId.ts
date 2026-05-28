@@ -6,7 +6,7 @@
 //   demote 純粹靠 per-coord 分群:anchor 座標 rank 1..K 在前,demote-only 在後;
 //   不在 displayId 加 +offset
 
-import { state, _fileHasFullSetup, getActiveFile, getPage } from "../legacy";
+import { state, _fileHasFullSetup, getActiveFile, getPage } from "../app/integration";
 import { _rankCache, _worldForRank, _axisCap, _ensureRankCache } from "./rankCache";
 
 // ===== Joint connectivity classification(rank 算法用)=====

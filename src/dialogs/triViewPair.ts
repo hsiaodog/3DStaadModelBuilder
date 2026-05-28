@@ -7,7 +7,7 @@
 //   • wireTriViewPairButtons — autoPairBtn onclick(由 legacy.ts 延後綁,避免 TDZ)
 // @ts-nocheck
 
-import { $, state } from "../legacy";
+import { $, state } from "../app/integration";
 import { proposeAutoPairings } from "../core/autopair";
 
 export let _apCandidates: any[] = [];

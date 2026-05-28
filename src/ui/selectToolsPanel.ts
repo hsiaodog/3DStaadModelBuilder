@@ -8,7 +8,7 @@
 import {
   $, state, getPage,
   jointById, render, refreshLists,
-} from "../legacy";
+} from "../app/integration";
 import {
   selToolsSelectAll,
   selToolsSelectJoints,

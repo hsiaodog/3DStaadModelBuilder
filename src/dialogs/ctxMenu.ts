@@ -10,7 +10,7 @@
 import {
   state, $, getPage, findGlobalJointById,
   updateSelectToolLabel, applyTransform,
-} from "../legacy";
+} from "../app/integration";
 
 // 共享狀態 — legacy.ts 的 handlers (ctxRename / ctxDuplicate / ctxOpenTab / 刪除 等) 直接讀寫
 export const ctxState: { target: any; pending: any } = { target: null, pending: null };

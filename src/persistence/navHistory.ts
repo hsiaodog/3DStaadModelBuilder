@@ -11,7 +11,7 @@ import {
   $, state,
   activatePage, applyTransform,
   _saveCurrentTabView,
-} from "../legacy";
+} from "../app/integration";
 import { showBusy, hideBusy, busyTick } from "../ui/busy";
 
 // ---------- 導航歷史(類似 IntelliJ 的 cmd+[ / cmd+]) ----------

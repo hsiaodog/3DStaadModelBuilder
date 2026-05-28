@@ -4,7 +4,7 @@
 //   inferAllGlobalJoints:對全部 globalJoint 跑一遍 infer
 //   joint2DToWorld3D 已搬到 ./projection,這裡 import 使用
 
-import { state, _snapCoordToPrecision } from "../legacy";
+import { state, _snapCoordToPrecision } from "../app/integration";
 import { joint2DToWorld3D } from "./projection";
 
 export interface GlobalBinding {

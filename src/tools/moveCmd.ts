@@ -15,7 +15,7 @@ import {
   setTool, pushUndo, render, refreshLists, applyTransform,
   jointById, evalNumExpr,
   _assertSelectionOnActivePage,
-} from "../legacy";
+} from "../app/integration";
 
 export function startMoveMode(type) {
   if (state.selection.joints.size === 0) {

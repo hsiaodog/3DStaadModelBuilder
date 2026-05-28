@@ -12,7 +12,7 @@
 //     • unitToMeter / meterToTarget — utils/units
 //     • _xlsxCell          — utils/ooxml(OOXML cell helper)
 
-import { state, $ } from "../legacy";
+import { state, $ } from "../app/integration";
 import { buildModel, showBuildModelCollisionsIfAny } from "../core/buildModel";
 import { buildExportContext } from "./shared";
 import { unitToMeter, meterToTarget } from "../utils/units";

@@ -16,7 +16,7 @@
 import {
   state, $, withBusy, activatePage, setProjectDirty,
   nextJointId, nextMemberId, nextFileId, nextGlobalJointId, nextGlobalMemberId,
-} from "../legacy";
+} from "../app/integration";
 import { busyTick, setBusyMessage, showBusy, hideBusy } from "../ui/busy";
 import { _saveRecentProject } from "./recentProjects";
 

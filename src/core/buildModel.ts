@@ -3,7 +3,7 @@
 //   撞號:_displayIdForJointWith 算出的 id 衝突 → fallback 流水號,記錄到 window._lastBuildModelCollisions
 //   匯出端(.xlsx / .std)在輸出後呼叫 showBuildModelCollisionsIfAny() 跳對話框告知使用者
 
-import { state, displayMemberId } from "../legacy";
+import { state, displayMemberId } from "../app/integration";
 import { joint2DToWorld3D } from "./projection";
 import { _displayIdForJointWith } from "./displayId";
 import { setDebugVar, getDebugVar } from "../utils/debug";

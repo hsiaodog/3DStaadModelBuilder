@@ -7,16 +7,16 @@
 // Phase 2 — 已拆出去的 pure utils / constants(從這檔的 inline 定義移到 src/utils/、
 //   src/constants.ts;legacy.ts 透過 import 取得,呼叫位置不必改)
 // ============================================================================
-import { MAX_UNDO, ALLOWED_YY } from "./constants";
-import { staadUnitKeyword, unitToMeter, meterToTarget } from "./utils/units";
-import { xlsxCellRef as _xlsxCellRef, xmlEsc as _xmlEsc, xlsxCell as _xlsxCell } from "./utils/ooxml";
-import { joint2DToWorld3D, world3DToJoint2D } from "./core/projection";
-import { listGlobalBindings, inferGlobalJoint, inferAllGlobalJoints } from "./core/globalJoints";
-import { proposeAutoPairings } from "./core/autopair";
-import { _rankCache, invalidateRankCache, _worldForRank, _axisCap, _ensureRankCache } from "./core/rankCache";
-import { _displayIdForJointWith } from "./core/displayId";
-import { buildModel, showBuildModelCollisionsIfAny } from "./core/buildModel";
-import { buildExportContext } from "./export/shared";
+import { MAX_UNDO, ALLOWED_YY } from "../constants";
+import { staadUnitKeyword, unitToMeter, meterToTarget } from "../utils/units";
+import { xlsxCellRef as _xlsxCellRef, xmlEsc as _xmlEsc, xlsxCell as _xlsxCell } from "../utils/ooxml";
+import { joint2DToWorld3D, world3DToJoint2D } from "../core/projection";
+import { listGlobalBindings, inferGlobalJoint, inferAllGlobalJoints } from "../core/globalJoints";
+import { proposeAutoPairings } from "../core/autopair";
+import { _rankCache, invalidateRankCache, _worldForRank, _axisCap, _ensureRankCache } from "../core/rankCache";
+import { _displayIdForJointWith } from "../core/displayId";
+import { buildModel, showBuildModelCollisionsIfAny } from "../core/buildModel";
+import { buildExportContext } from "../export/shared";
 
 // ---------- main app code(原本是 1.13M chars 的大 <script> block) ----------
 "use strict";
@@ -24,13 +24,13 @@ import { buildExportContext } from "./export/shared";
 // ---------- state ----------
 // state 物件 + counters + setters 搬到 src/app/state.ts
 // DOM refs($ / wrap / stage / bg / bgctx / svg)搬到 src/app/dom.ts
-// legacy.ts 仍 re-export 全部,讓既有 `from "./legacy"` import 不需要改
+// legacy.ts 仍 re-export 全部,讓既有 `from "./integration"` import 不需要改
 import {
   state,
   nextJointId, nextMemberId, nextFileId, nextGlobalJointId, nextGlobalMemberId,
   allocJointId, allocMemberId, allocFileId, allocGlobalJointId, allocGlobalMemberId,
   setNextJointId, setNextMemberId, setNextFileId, setNextGlobalJointId, setNextGlobalMemberId,
-} from "./app/state";
+} from "./state";
 export {
   state,
   nextJointId, nextMemberId, nextFileId, nextGlobalJointId, nextGlobalMemberId,
@@ -40,7 +40,7 @@ export {
 
 // ---------- 復原 / 重做 ----------
 // undoStack / redoStack / pushUndo / undo / redo / postRestore 搬到 src/app/undoRedo.ts
-import { undoStack, redoStack, pushUndo, undo, redo } from "./app/undoRedo";
+import { undoStack, redoStack, pushUndo, undo, redo } from "./undoRedo";
 export { undoStack, redoStack, pushUndo, undo, redo };
 
 export function getActiveFile() {
@@ -192,7 +192,7 @@ export function _inPlaneCoordsForJoint(file, page, joint) {
 // inferGlobalJoint + inferAllGlobalJoints 移到 src/core/globalJoints.ts(Phase 3f)
 
 // Phase 8a:calibrateAllFilesToGlobalOrigin / CustomOrigin 搬到 src/tools/calibrate.ts
-export { calibrateAllFilesToGlobalOrigin, calibrateAllFilesToCustomOrigin } from "./tools/calibrate";
+export { calibrateAllFilesToGlobalOrigin, calibrateAllFilesToCustomOrigin } from "../tools/calibrate";
 
 // joint2DToWorld3D 的反函數:給 3D world (X, Y, Z) 與目標 (file, page),回 2D (joint.x, joint.y)
 //   ratio / origin / plane 全部用目標 page 的設定
@@ -355,7 +355,7 @@ function applyAutoPairings(accepted) {
 }
 
 // ---------- DOM ----------
-import { $, wrap, stage, bg, bgctx, svg } from "./app/dom";
+import { $, wrap, stage, bg, bgctx, svg } from "./dom";
 export { $, wrap, stage, bg, bgctx, svg };
 
 // ---------- transform helpers ----------
@@ -364,246 +364,18 @@ export { $, wrap, stage, bg, bgctx, svg };
 import {
   applyTransform, screenToWorld, fitToView,
   _saveCurrentTabView, _restorePageView,
-} from "./app/transform";
+} from "./transform";
 export {
   applyTransform, screenToWorld, fitToView,
   _saveCurrentTabView, _restorePageView,
 };
 
 // ---------- background loaders ----------
-$("file").addEventListener("change", async (e) => {
-  const files = Array.from(e.target.files || []);
-  // 更新自製檔案狀態文字(取代 native input 的「未選擇任何檔案」)
-  const fst = $("fileState");
-  if (fst) {
-    if (!files.length) {
-      fst.textContent = (typeof _t === "function" && _t("sb.noFileChosen")) || "未選擇任何檔案";
-    } else if (files.length === 1) {
-      fst.textContent = files[0].name;
-    } else {
-      const suffix = (typeof _t === "function" && _t("sb.fileChosenN")) || "個檔案已選";
-      fst.textContent = `${files.length} ${suffix}`;
-    }
-  }
-  for (const f of files) {
-    try { await addFile(f); }
-    catch (err) {
-      console.error("載入失敗:", f.name, err);
-      alert(`載入「${f.name}」失敗:` + (err && err.message ? err.message : err));
-    }
-  }
-  e.target.value = "";  // 允許重複選同檔案
-  refreshFileList();
-  refreshPageSelector();
-});
+// $("file") onchange handler + showImportDialog + setupImportDialogDrag
+// 搬到 src/io/bgLoaders.ts(import 即執行 module-level 副作用)
+import "../io/bgLoaders";
+export { showImportDialog, setupImportDialogDrag } from "../io/bgLoaders";
 
-// 導入設定對話框:顯示檔案預覽、提供 0/90/180/270 旋轉選擇,並即時更新預覽
-//   參數:{ name, drawPreview(canvas) }
-//   回傳:Promise<{ ok: boolean, rotation: 0|90|180|270 }>
-//   預設旋轉:沿用上一次「確定」時所選的角度(取消不會更新);本 session 內生效
-let lastImportRotation = 0;
-// 讓 import dialog 的標題列可以拖曳整個 .imp-box 移動位置;每次重新打開會重置回置中。
-// Lazy init:script 區塊在 HTML 裡早於 #importDialog 的 <div>,直接 querySelector 會拿不到 → 首次呼叫 show 時才掛 listener
-let _importDlgDragInited = false;
-function setupImportDialogDrag() {
-  if (_importDlgDragInited) return;
-  const box = document.querySelector("#importDialog .imp-box");
-  const title = document.querySelector("#importDialog .imp-title");
-  if (!box || !title) return;
-  _importDlgDragInited = true;
-  let drag = null;
-  title.addEventListener("mousedown", (e) => {
-    if (e.button !== 0) return;
-    const rect = box.getBoundingClientRect();
-    // 從 translate(-50%, -50%) 置中切換到顯式 left/top 像素座標,後續拖曳直接寫 left/top
-    box.style.left = rect.left + "px";
-    box.style.top  = rect.top  + "px";
-    box.style.transform = "none";
-    drag = { startX: e.clientX, startY: e.clientY, left: rect.left, top: rect.top };
-    e.preventDefault();
-  });
-  window.addEventListener("mousemove", (e) => {
-    if (!drag) return;
-    // 限制不要拖出螢幕外(留 40px 標題區讓還能抓回來)
-    const maxX = window.innerWidth - 40;
-    const maxY = window.innerHeight - 40;
-    const nx = Math.max(-box.offsetWidth + 80, Math.min(maxX, drag.left + (e.clientX - drag.startX)));
-    const ny = Math.max(0, Math.min(maxY, drag.top + (e.clientY - drag.startY)));
-    box.style.left = nx + "px";
-    box.style.top  = ny + "px";
-  });
-  window.addEventListener("mouseup", () => { drag = null; });
-}
-function showImportDialog({ name, drawPreview }) {
-  return new Promise(async (resolve) => {
-    const dlg     = document.getElementById("importDialog");
-    const canvas  = document.getElementById("importPreviewCanvas");
-    const fnEl    = document.getElementById("importFileName");
-    const okBtn   = document.getElementById("importOkBtn");
-    const caBtn   = document.getElementById("importCancelBtn");
-    const rotBtns = dlg.querySelectorAll(".imp-rot-btn");
-    const stage         = dlg.querySelector(".imp-preview-stage");
-    const previewName   = document.getElementById("importPreviewName");
-    const previewZoom   = document.getElementById("importPreviewZoom");
-    const previewZoomVal = document.getElementById("importPreviewZoomVal");
-    setupImportDialogDrag();   // 第一次打開時才掛拖曳 listener
-    // 每次打開對話框都重置位置為置中(清掉上次拖曳留下的 inline style)
-    const box = dlg.querySelector(".imp-box");
-    if (box) { box.style.left = ""; box.style.top = ""; box.style.transform = ""; }
-    fnEl.textContent = name;
-
-    let curRot = lastImportRotation || 0;   // 沿用上一次的選擇
-    // 參考 floorTypesDialog 的預覽流程:srcCanvas 是 drawPreview 畫進去的原始光柵圖,
-    //   visible canvas 隨 stage 尺寸 + DPR 重設,_drawPreview 每次重繪都從 srcCanvas
-    //   經 ctx 變換(translate / rotate / scale)blit 到 visible canvas → zoom 高倍仍然銳利。
-    const previewState = { zoom: 1, offsetX: 0, offsetY: 0 };
-    let srcCanvas = null;
-
-    const _resizeVisibleCanvas = () => {
-      const cssW = Math.max(80, Math.floor(stage.clientWidth));
-      const cssH = Math.max(60, Math.floor(stage.clientHeight));
-      const dpr = Math.max(1, window.devicePixelRatio || 1);
-      canvas.style.width  = cssW + "px";
-      canvas.style.height = cssH + "px";
-      canvas.width  = Math.round(cssW * dpr);
-      canvas.height = Math.round(cssH * dpr);
-    };
-    const _drawPreview = () => {
-      const ctx = canvas.getContext("2d");
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      if (!srcCanvas) return;
-      const sw = srcCanvas.width, sh = srcCanvas.height;
-      if (sw <= 0 || sh <= 0) return;
-      // 90°/270° 時長寬互換 → fit 算出來的 scale 才能容下旋轉後的 bounding box
-      const rotMod = ((curRot % 360) + 360) % 360;
-      const effW = (rotMod === 90 || rotMod === 270) ? sh : sw;
-      const effH = (rotMod === 90 || rotMod === 270) ? sw : sh;
-      const fit = Math.min(canvas.width / effW, canvas.height / effH) * 0.95;   // 邊緣留一點空隙
-      const sc = fit * previewState.zoom;
-      ctx.save();
-      ctx.translate(canvas.width / 2 + previewState.offsetX, canvas.height / 2 + previewState.offsetY);
-      ctx.rotate(rotMod * Math.PI / 180);
-      ctx.scale(sc, sc);
-      // WYSIWYG 反相 + 對比加強(對應原本 CSS filter,讓使用者看到的接近匯入後實際模樣)。
-      //   drop-shadow 在 canvas 上效能差且邊界鋸齒 → 不沿用,改用 contrast 與 imageSmoothing 補回。
-      try { ctx.filter = "invert(1) hue-rotate(180deg) contrast(1.3)"; } catch (_) {}
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(srcCanvas, -sw / 2, -sh / 2);
-      ctx.restore();
-    };
-    const _setZoom = (z) => {
-      previewState.zoom = Math.max(0.25, Math.min(z, 8));
-      if (previewZoom) previewZoom.value = String(previewState.zoom);
-      if (previewZoomVal) previewZoomVal.textContent = Math.round(previewState.zoom * 100) + "%";
-    };
-    const resetView = () => { previewState.offsetX = 0; previewState.offsetY = 0; _setZoom(1); _drawPreview(); };
-
-    const refreshButtons = () => {
-      rotBtns.forEach(b => b.classList.toggle("active", parseInt(b.dataset.rot) === curRot));
-    };
-    rotBtns.forEach(b => {
-      b.onclick = () => {
-        curRot = parseInt(b.dataset.rot) || 0;
-        refreshButtons();
-        // 切換角度時順便重置 zoom/pan,避免在歪斜狀態下切角度造成視覺跳動
-        resetView();
-      };
-    });
-    refreshButtons();
-
-    // 滾輪 zoom(以滑鼠位置為中心,讓游標下的點維持不動)
-    const onWheel = (e) => {
-      e.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      const dpr = canvas.width / rect.width;
-      // 換算到 canvas 內部像素座標,且以「畫面中心」為原點(對應 _drawPreview 的 translate)
-      const cx = (e.clientX - rect.left) * dpr - canvas.width  / 2;
-      const cy = (e.clientY - rect.top)  * dpr - canvas.height / 2;
-      const factor = (e.deltaY < 0) ? 1.15 : (1 / 1.15);
-      const newZoom = Math.max(0.25, Math.min(previewState.zoom * factor, 8));
-      const ratio = newZoom / previewState.zoom;
-      // 鎖定游標下的點:offset' = c - (c - offset) * ratio
-      previewState.offsetX = cx - (cx - previewState.offsetX) * ratio;
-      previewState.offsetY = cy - (cy - previewState.offsetY) * ratio;
-      _setZoom(newZoom);
-      _drawPreview();
-    };
-    // 左鍵拖曳 = pan
-    let panStart = null;
-    const onDown = (e) => {
-      if (e.button !== 0) return;
-      stage.classList.add("panning");
-      panStart = { x: e.clientX, y: e.clientY, ox: previewState.offsetX, oy: previewState.offsetY };
-      e.preventDefault();
-    };
-    const onMove = (e) => {
-      if (!panStart) return;
-      const rect = canvas.getBoundingClientRect();
-      const dpr = canvas.width / rect.width;
-      previewState.offsetX = panStart.ox + (e.clientX - panStart.x) * dpr;
-      previewState.offsetY = panStart.oy + (e.clientY - panStart.y) * dpr;
-      _drawPreview();
-    };
-    const onUp = () => {
-      if (!panStart) return;
-      panStart = null;
-      stage.classList.remove("panning");
-    };
-    const onDbl = () => { resetView(); };
-    const onZoomInput = () => { _setZoom(+previewZoom.value || 1); _drawPreview(); };
-
-    stage.addEventListener("wheel",     onWheel, { passive: false });
-    stage.addEventListener("mousedown", onDown);
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup",   onUp);
-    stage.addEventListener("dblclick",  onDbl);
-    if (previewZoom) previewZoom.addEventListener("input", onZoomInput);
-
-    // 顯示對話框(必須先 active 才有 clientWidth/clientHeight 可量)
-    dlg.classList.add("active");
-    _resizeVisibleCanvas();
-    // 把 drawPreview 畫到一個 offscreen srcCanvas;callers 會在裡面設 canvas.width/height + 繪圖,
-    //   但 visible canvas 已被 _resizeVisibleCanvas 占走,所以給它一個全新的 srcCanvas。
-    srcCanvas = document.createElement("canvas");
-    srcCanvas.width = 1; srcCanvas.height = 1;
-    try { await drawPreview(srcCanvas); }
-    catch (e) { console.warn("導入預覽失敗:", e); }
-    _setZoom(1);
-    previewState.offsetX = 0; previewState.offsetY = 0;
-    _drawPreview();
-
-    // (顯示對話框已在 _resizeVisibleCanvas 之前完成,這裡不再重複 add)
-
-    const close = (result) => {
-      dlg.classList.remove("active");
-      okBtn.onclick = null;
-      caBtn.onclick = null;
-      document.removeEventListener("keydown", onKey, true);
-      // 拆掉這次對話框掛在 stage / window / slider 上的 zoom / pan listener,避免下次再開時雙重觸發
-      stage.removeEventListener("wheel", onWheel);
-      stage.removeEventListener("mousedown", onDown);
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup",   onUp);
-      stage.removeEventListener("dblclick", onDbl);
-      if (previewZoom) previewZoom.removeEventListener("input", onZoomInput);
-      stage.classList.remove("panning");
-      // 只有在使用者按「確定」時才更新預設;取消不更新
-      if (result && result.ok) lastImportRotation = result.rotation || 0;
-      resolve(result);
-    };
-    const onKey = (e) => {
-      if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); close({ ok: false }); }
-      else if (e.key === "Enter") { e.preventDefault(); e.stopImmediatePropagation(); close({ ok: true, rotation: curRot }); }
-      else { e.stopImmediatePropagation(); }   // 阻擋背景的工具熱鍵(Shift+L、Shift+S 等)
-    };
-    okBtn.onclick = () => close({ ok: true, rotation: curRot });
-    caBtn.onclick = () => close({ ok: false });
-    document.addEventListener("keydown", onKey, true);   // 用 capture 確保比其他 handler 先收到
-  });
-}
 
 // ---------- file / page lifecycle ----------
 // addFile / activatePage / activatePageWithBusy / collision popup helpers / syncStateScaleFromActiveFile
@@ -612,7 +384,7 @@ import {
   addFile, syncStateScaleFromActiveFile,
   activatePage, activatePageWithBusy,
   _maybeShowCollisionPopup, _showAllCollisionsPopup, _showCollisionPopup,
-} from "./app/lifecycle";
+} from "./lifecycle";
 export {
   addFile, syncStateScaleFromActiveFile,
   activatePage, activatePageWithBusy,
@@ -630,12 +402,12 @@ export {
   _navGoTo,
   navBack,
   navForward,
-} from "./state/navHistory";
+} from "../persistence/navHistory";
 import {
   _navRecordIfNotInProgress,
   navBack,
   navForward,
-} from "./state/navHistory";
+} from "../persistence/navHistory";
 // ---------- 底圖渲染 / 路徑偵測 ----------
 // 17 個函式搬到 src/io/bgRender.ts(底圖匡選用 shape detection + render PDF / image / cached SVG)
 // legacy.ts 內 activatePage / 等處仍直接 call → 同時做 named import(進本模組 scope)+ re-export(對外)
@@ -658,7 +430,7 @@ import {
   renderBlankBg,
   renderImageBg,
   renderCachedBg,
-} from "./io/bgRender";
+} from "../io/bgRender";
 export {
   parseStraightSegs,
   bgLineWorldEnds,
@@ -692,7 +464,7 @@ import {
   refreshFileList,
   showFileCtxMenu, deleteSelectedFiles,
   refreshPageSelector,
-} from "./ui/fileList";
+} from "../ui/fileList";
 export {
   fileTypeLabel, filePlaneLabel,
   refreshFileList,
@@ -728,8 +500,14 @@ export function fmtWorld3D(v: number): string {
 // ---------- pan/zoom + canvas events ----------
 // 全部搬到 src/app/canvasEvents.ts(wheel / mousedown / mousemove / mouseup / keydown / keyup
 // + markInteracting + 範圍放大 finalize)。由 wireCanvasEvents() 延後 call。
-import { wireCanvasEvents } from "./app/canvasEvents";
-export { cKeyDown } from "./app/canvasEvents";
+import { wireCanvasEvents, panning, rangeZoomDragStart, rangeZoomSuppressClick,
+         setPanning, setRangeZoomDragStart, setRangeZoomSuppressClick } from "./canvasEvents";
+export { cKeyDown, panning, rangeZoomDragStart, rangeZoomSuppressClick,
+         setPanning, setRangeZoomDragStart, setRangeZoomSuppressClick } from "./canvasEvents";
+import { _setBtnLabel } from "../i18n";
+// integration.ts 內 cacheActivePageBgSegs / bg svg 處理還在用 svgElementToSegments
+// + attachBgPathHandlers + _ensureBgOrigGroup,這些 helper 都在 toolbar.ts → 顯式 import
+import { svgElementToSegments, attachBgPathHandlers } from "./toolbar";
 wireCanvasEvents();
 
 // ---------- tools ----------
@@ -868,7 +646,7 @@ export {
   clearAllMeasurements,
   bgComputeMeasureFromSelection,
   startMeasurePending,
-} from "./tools/measure";
+} from "../tools/measure";
 import {
   exitMeasurePending,
   _refreshAllMeasurementLabels,
@@ -880,7 +658,7 @@ import {
   clearAllMeasurements,
   bgComputeMeasureFromSelection,
   startMeasurePending,
-} from "./tools/measure";
+} from "../tools/measure";
 // 點 / 匡選 完成後,如果在 比例尺 / 座標原點 pending 狀態,依目前選取數量決定下一步 HUD 提示或自動建立
 export function checkBgPendingAfterSelect() {
   const file = getActiveFile();
@@ -1281,7 +1059,7 @@ import {
   renderFileThumb,
   setupSectionLinkDialogDrag,
   wireSectionLinkButton,
-} from "./tools/sectionLink";
+} from "../tools/sectionLink";
 // 切面按鈕 onclick:延後到這支 module 跑到這裡才綁(`$` / `state` 等到此時都已 init)
 //   避免 sectionLink.ts module top-level 直接綁 → TDZ ReferenceError
 wireSectionLinkButton();
@@ -1613,7 +1391,7 @@ import {
   bgToggleDashedOnSelection,
   exitBgDrawLine, exitBgCopyLine, exitBgBisector, exitBgEqui,
   wireBgDrawTools,
-} from "./tools/bgDrawTools";
+} from "../tools/bgDrawTools";
 wireBgDrawTools();
 export {
   startBgDrawLine, commitBgDrawLineSecond,
@@ -1710,7 +1488,7 @@ import {
   _classifyMemberDir,
   _memberPassesDirFilter,
   _toggleDirFilter,
-} from "./tools/selectTools";
+} from "../tools/selectTools";
 export {
   selToolsSelectAll,
   selToolsSelectJoints,
@@ -1724,7 +1502,7 @@ import {
   updateSelectToolsVisibility,
   selToolsExtendAlong,
   wireSelectToolsPanel,
-} from "./ui/selectToolsPanel";
+} from "../ui/selectToolsPanel";
 wireSelectToolsPanel();
 export {
   updateSelectToolsVisibility,
@@ -2131,8 +1909,12 @@ export function finalizeRangeZoomRect(x1, y1, x2, y2) {
 // 搬到 src/app/toolbar.ts。檔案有大量 top-level $().onclick 副作用,但 ESM live binding
 // 確保載入時各 handler 都拿得到目標 helper。
 // 全部從 toolbar.ts re-export(下游很多 module 從 "../legacy" import,維持兼容)
-export * from "./app/toolbar";
-import "./app/toolbar";
+export * from "./toolbar";
+import {
+  calibratePlane, clearAllBgSelection, bgRectsToMembers, zoomToSelection,
+} from "./toolbar";
+import { _startSaveWithHook } from "./init";
+import "./toolbar";
 
 // ---------- 檢查可延伸桿件:斷點偵測 ----------
 // 完整 modal workflow + 縮圖預覽 + 主畫布 zoom-to-rect (~1080 行)
@@ -2151,12 +1933,12 @@ export {
   startExtendableMemberCheck,
   startExtendableMemberCheckCurrentPage,
   openMemberExtensionCheckDialog,
-} from "./tools/extendCheck";
+} from "../tools/extendCheck";
 // legacy.ts 內 $("btnExtendCheck").onclick 直接 call startExtendableMemberCheckCurrentPage
 //   → 同樣需要 named import 進本模組 scope(re-export 不會 bind 到 local scope)
 import {
   startExtendableMemberCheckCurrentPage,
-} from "./tools/extendCheck";
+} from "../tools/extendCheck";
 
 // 一鍵清空所有頁面的本頁數字 — 把每個 page.groupNum 設成 null,refresh + render;Ctrl+Z 可還原
 function clearAllPageGroupNumbers() {
@@ -2564,7 +2346,7 @@ wrap.addEventListener("contextmenu", (e) => {
 
 // ---------- snap ----------
 // snapToBgVertex / snapToBgPaths / snap 搬到 src/app/snap.ts
-import { snapToBgVertex, snapToBgPaths, snap } from "./app/snap";
+import { snapToBgVertex, snapToBgPaths, snap } from "./snap";
 export { snapToBgVertex, snapToBgPaths, snap };
 
 
@@ -2572,7 +2354,7 @@ export { snapToBgVertex, snapToBgPaths, snap };
 export function jointById(id) { return getPage().joints.find(j => j.id === id); }
 
 // 在指定頁面上找鄰近節點,沒有就新建。radius 用世界座標單位(通常 mm)
-function getOrCreateJointOnPage(page, x, y, radius) {
+export function getOrCreateJointOnPage(page, x, y, radius) {
   for (const j of page.joints) {
     if (Math.hypot(j.x - x, j.y - y) < radius) return j;
   }
@@ -2667,12 +2449,12 @@ export {
   showCmdInput,
   hideCmdInput,
   handleCmdInputCommit,
-} from "./tools/moveCmd";
+} from "../tools/moveCmd";
 import {
   startMoveMode,
   exitMoveMode,
   handleCmdInputCommit,
-} from "./tools/moveCmd";
+} from "../tools/moveCmd";
 
 // ---------- Relayout 編號 ----------
 // _relayoutPageCore + 4-stage 桿件編號 ~1080 行搬到 src/core/relayout.ts
@@ -2683,11 +2465,11 @@ export {
   relayoutNumberingAll,
   relayoutMembersNumbering,
   relayoutMembersNumberingAll,
-} from "./core/relayout";
+} from "../core/relayout";
 import {
   relayoutNumbering,
   relayoutMembersNumbering,
-} from "./core/relayout";
+} from "../core/relayout";
 
 // ---------- 節點 / 桿件編輯操作 + selection helpers ----------
 // (原「移動指令(M)」section,內容其實是 extend/duplicate/split/add/delete/intersect/dedup
@@ -2706,7 +2488,7 @@ import {
   _consolidateInPlace, jointHasCollinearMemberInDirection,
   consolidateGeometry,
   dedupSamePageMembers, unifyCrossPageMemberIds,
-} from "./tools/jointMemberEdit";
+} from "../tools/jointMemberEdit";
 export {
   extendSelectedMembersToIntersect, extendJointAxisToIntersect,
   duplicateJointOnAxis,
@@ -2732,7 +2514,7 @@ import {
   exitManualAlign,
   rotateBg90Clockwise,
   wireAutoAlignButtons,
-} from "./dialogs/autoAlign";
+} from "../dialogs/autoAlign";
 wireAutoAlignButtons();
 export {
   extractSvgSegments,
@@ -2817,7 +2599,7 @@ export function drawSnapGrid() {
 }
 
 // Render 看門狗 + _renderImpl 移到 src/render/index.ts(Phase 6)
-import { render } from "./render";
+import { render } from "../render";
 export { render };   // re-export 讓 dialog 等 module 仍能從 "./legacy" import render
 
 export function el(tag: string, attrs: Record<string, any>, text?: any) {
@@ -2830,7 +2612,7 @@ export function el(tag: string, attrs: Record<string, any>, text?: any) {
 // ---------- context menu (右鍵刪除) ----------
 //   showCtxMenu / hideCtxMenu / updateCtxFilterRadios 已搬到 src/dialogs/ctxMenu.ts;
 //   ctxState 是模組共享狀態(target / pending),legacy.ts 其他 handler 走 ctxState.pending 讀寫
-import { showCtxMenu, hideCtxMenu, updateCtxFilterRadios, ctxState } from "./dialogs/ctxMenu";
+import { showCtxMenu, hideCtxMenu, updateCtxFilterRadios, ctxState } from "../dialogs/ctxMenu";
 export { showCtxMenu };
 
 $("ctxBgSplit") && ($("ctxBgSplit").onclick = (e) => {
@@ -3324,7 +3106,7 @@ import {
   getApCandidates,
   setApCandidates,
   wireTriViewPairButtons,
-} from "./dialogs/triViewPair";
+} from "../dialogs/triViewPair";
 wireTriViewPairButtons();
 export {
   openAutoPairDialog,
@@ -3339,8 +3121,8 @@ export {
 //   preview3d 走 setP3dPreviewWindow setter 寫(ESM cross-module)。
 export let _3dPreviewWindow: any = null;
 export function setP3dPreviewWindow(v: any) { _3dPreviewWindow = v; }
-import { open3DPreviewDialog } from "./dialogs/preview3d";
-export { open3DPreviewDialog } from "./dialogs/preview3d";
+import { open3DPreviewDialog } from "../dialogs/preview3d";
+export { open3DPreviewDialog } from "../dialogs/preview3d";
 $("btn3DPreview") && ($("btn3DPreview").onclick = open3DPreviewDialog);
 
 // ===== 材料管理(工具 → 材料管理) =====
@@ -3349,7 +3131,7 @@ export let _materialMgrWin: any = null;
 // Phase 8e:跨模組(materialMgr)要寫這個 ref → 必須走 setter
 export function setMaterialMgrWin(v: any) { _materialMgrWin = v; }
 // Phase 8e:openMaterialMgrWindow(材料管理 popup)搬到 src/dialogs/materialMgr.ts
-import { openMaterialMgrWindow } from "./dialogs/materialMgr";
+import { openMaterialMgrWindow } from "../dialogs/materialMgr";
 
 // Phase 8l:搜尋 popup(openSearchWindow / _searchModel / _renderSearchResults / _parseIdsWithRanges / history helpers)搬到 src/dialogs/search.ts(~2150 行)
 //   _searchWin / _searchWinAutofill declaration + setter 留在 legacy(i18n.applyI18n 會 read _searchWin live binding)
@@ -3357,8 +3139,8 @@ export let _searchWin: any = null;
 export function setSearchWin(v: any) { _searchWin = v; }
 let _searchWinAutofill: any = null;
 export function setSearchWinAutofill(v: any) { _searchWinAutofill = v; }
-import { openSearchWindow } from "./dialogs/search";
-export { openSearchWindow } from "./dialogs/search";
+import { openSearchWindow } from "../dialogs/search";
+export { openSearchWindow } from "../dialogs/search";
 
 // 主頁面 Cmd/Ctrl+F → 開搜尋視窗(避免攔截 input 內的搜尋輸入)
 document.addEventListener("keydown", (e) => {
@@ -3935,12 +3717,12 @@ $("pageZ").onchange = (e) => { pushUndo(); getPage().z = parseFloat(e.target.val
 // staadUnitKeyword / unitToMeter / meterToTarget 移到 src/utils/units.ts(Phase 2)
 
 // Phase 8g:exportStaad button handler 抽成 named function 進 src/export/std.ts
-import { exportStdFile } from "./export/std";
+import { exportStdFile } from "../export/std";
 $("exportStaad") && ($("exportStaad").onclick = exportStdFile);
 
 // Phase 8f:exportXlsxFile + CRC32/ZIP/OOXML 組裝 helpers 搬到 src/export/xlsx.ts
-import { exportXlsxFile } from "./export/xlsx";
-export { exportXlsxFile } from "./export/xlsx";
+import { exportXlsxFile } from "../export/xlsx";
+export { exportXlsxFile } from "../export/xlsx";
 
 $("exportJson").onclick = () => {
   const data = {
@@ -4005,8 +3787,8 @@ $("loadProject") && ($("loadProject").onchange = async (e) => {
 });
 
 // Phase 8d:parseDxf / dxfBbox / dxfToSvg 搬到 src/utils/dxf.ts(純函式,無 DOM / state 依賴)
-import { parseDxf, dxfBbox, dxfToSvg } from "./utils/dxf";
-export { parseDxf, dxfBbox, dxfToSvg } from "./utils/dxf";
+import { parseDxf, dxfBbox, dxfToSvg } from "../utils/dxf";
+export { parseDxf, dxfBbox, dxfToSvg } from "../utils/dxf";
 function download(name, text) {
   const blob = new Blob([text], { type: "text/plain" });
   const url = URL.createObjectURL(blob);
@@ -4017,20 +3799,20 @@ function download(name, text) {
 
 // ---------- 專案儲存 / 讀取(含 PDF / 圖片底圖)----------
 // Phase 8c:setBusyMessage / busyTick / showBusy / showBusyWithCancel / hideBusy 搬到 src/ui/busy.ts
-import { setBusyMessage, busyTick, showBusy, showBusyWithCancel, hideBusy } from "./ui/busy";
-export { setBusyMessage, busyTick, showBusy, showBusyWithCancel, hideBusy } from "./ui/busy";
+import { setBusyMessage, busyTick, showBusy, showBusyWithCancel, hideBusy } from "../ui/busy";
+export { setBusyMessage, busyTick, showBusy, showBusyWithCancel, hideBusy } from "../ui/busy";
 
 // Phase 8i:專案儲存 / 讀取(blobToBase64 / base64ToArrayBuffer / fmtMB / startSave / saveProjectFull/As / buildProjectBlob / ensureRwPermission / writeProjectWithHandle)搬到 src/state/projectFile.ts
-import { base64ToArrayBuffer, fmtMB, startSave, saveProjectFull, saveProjectAs, ensureRwPermission } from "./state/projectFile";
-export { base64ToArrayBuffer, fmtMB, startSave, saveProjectFull, saveProjectAs, ensureRwPermission } from "./state/projectFile";
+import { base64ToArrayBuffer, fmtMB, startSave, saveProjectFull, saveProjectAs, ensureRwPermission } from "../persistence/projectFile";
+export { base64ToArrayBuffer, fmtMB, startSave, saveProjectFull, saveProjectAs, ensureRwPermission } from "../persistence/projectFile";
 
 // Phase 8h:recent projects IDB(_openRecentDB / _saveRecentProject / _getRecentProjects / _removeRecentProject / _openRecentProject)搬到 src/state/recentProjects.ts
-import { _saveRecentProject, _getRecentProjects, _removeRecentProject, _openRecentProject } from "./state/recentProjects";
-export { _saveRecentProject, _getRecentProjects, _removeRecentProject, _openRecentProject } from "./state/recentProjects";
+import { _saveRecentProject, _getRecentProjects, _removeRecentProject, _openRecentProject } from "../persistence/recentProjects";
+export { _saveRecentProject, _getRecentProjects, _removeRecentProject, _openRecentProject } from "../persistence/recentProjects";
 
 // Phase 8j:loadProjectFull(完整專案讀取)搬到 src/state/projectLoad.ts
-import { loadProjectFull } from "./state/projectLoad";
-export { loadProjectFull } from "./state/projectLoad";
+import { loadProjectFull } from "../persistence/projectLoad";
+export { loadProjectFull } from "../persistence/projectLoad";
 
 $("clearAll").onclick = () => {
   // 只清節點 + 桿件,保留所有檔案與底圖、平面、原點、比例尺、切面線、標示等
@@ -4210,12 +3992,12 @@ $("pageSelector").addEventListener("change", (e) => {
 });
 
 // ---------- hover 資訊 tooltip ---------- (實作搬到 src/ui/hoverTip.ts;這邊只做 re-export)
-export { showHoverTip, moveHoverTip, hideHoverTip, fmtJointInfo, fmtMemberInfo } from "./ui/hoverTip";
+export { showHoverTip, moveHoverTip, hideHoverTip, fmtJointInfo, fmtMemberInfo } from "../ui/hoverTip";
 // 釘住的節點資訊視窗 — 實作搬到 src/dialogs/jointInfoPopup.ts
-export { showJointInfoPopup, hideJointInfoPopup } from "./dialogs/jointInfoPopup";
+export { showJointInfoPopup, hideJointInfoPopup } from "../dialogs/jointInfoPopup";
 // 設為錨點 → 跳支座類型選擇 modal(FIXED / PINNED / 取消)
 //   實作已搬到 src/tools/anchor.ts,re-export 維持外部 importer 不用動
-export { pickSupportTypeModal } from "./tools/anchor";
+export { pickSupportTypeModal } from "../tools/anchor";
 // positionHoverTip / escHtml / tipRow / fmtJointInfo / fmtMemberInfo 全搬到 src/ui/hoverTip.ts;
 //   本檔不再保留實作。需要的話走檔頂的 re-export 拿。
 
@@ -4232,7 +4014,7 @@ import {
   _jointConnectivityKind,
   displayJointId,
   displayMemberId,
-} from "./core/displayId";
+} from "../core/displayId";
 export {
   _isJointOrtho,
   _jointHasAnyDiagonal,
@@ -4572,14 +4354,14 @@ function _refreshFloorTypeSidebar() {
 //   下方分割兩窗(左 page list、右大畫面預覽)、Shift / Cmd 多勾選、
 //   上方顯示當前 tab 各型已勾頁數、套用 / 完成 / × 三種收尾按鈕
 // openFloorTypesDialog 移到 src/dialogs/floorTypes.ts(Phase 5)
-import { openFloorTypesDialog } from "./dialogs/floorTypes";
+import { openFloorTypesDialog } from "../dialogs/floorTypes";
 
 // ===== 全局節點管理 dialog =====
 //   左半邊:所有 globalJoint 清單(可搜尋 / 篩選 / 排序)
 //   右半邊:選中筆的詳細資料 — 改 label、看世界座標、列綁定可單獨解除、設原點、刪節點
 //   底部:關閉鈕
 // openGlobalJointMgrDialog + showGlobalJointJumpPopup + hideGlobalJointJumpPopup 移到 src/dialogs/globalJoints.ts(Phase 5)
-import { openGlobalJointMgrDialog, showGlobalJointJumpPopup, hideGlobalJointJumpPopup } from "./dialogs/globalJoints";
+import { openGlobalJointMgrDialog, showGlobalJointJumpPopup, hideGlobalJointJumpPopup } from "../dialogs/globalJoints";
 
 $("pageFlipX") && ($("pageFlipX").onchange = (e) => {
   const p = getPage();
@@ -4689,7 +4471,7 @@ import {
   closePlanePicker,
   planePickerSectorAt,
   wirePlanePicker,
-} from "./dialogs/planePicker";
+} from "../dialogs/planePicker";
 wirePlanePicker();
 export {
   openPlanePicker,
@@ -4708,27 +4490,26 @@ export function paintEmptyCanvasMessage() {
   bgctx.textAlign = "start"; bgctx.textBaseline = "alphabetic";
 }
 
-// ---------- init ----------
-export function initBlank() {
-  const oldSvgBg = document.getElementById("bgSvg");
-  if (oldSvgBg) oldSvgBg.remove();
-  bg.style.display = "block";
-  const dpr = window.devicePixelRatio || 1;
-  bg.width = Math.floor(state.bgWidth * dpr);
-  bg.height = Math.floor(state.bgHeight * dpr);
-  bg.style.width = state.bgWidth + "px";
-  bg.style.height = state.bgHeight + "px";
-  bgctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  paintEmptyCanvasMessage();
-  fitToView(); render(); refreshLists();
-  refreshFileList(); refreshPageSelector();
-  if (typeof refreshTabBar === "function") refreshTabBar();
-  updateSnapGridBtn && updateSnapGridBtn();
-  refreshPageCoordSection && refreshPageCoordSection();
-  updateSelectToolLabel && updateSelectToolLabel();
-  updateScaleRulerButton && updateScaleRulerButton();
-}
-initBlank();
+// i18n re-exports — 下游(app/transform / app/toolbar / measure / etc.)從 "../legacy" 拉
+export { _t, _tx, _addI18n, _applyI18n, _applyI18nOnDoc, _setBtnLabel, _setLanguage } from "../i18n";
+
+// ---------- init / dirty flag / project tabs setup / toolbar mode / icon decorate / lang init ----------
+// 全部搬到 src/app/init.ts(import 即執行 module-level IIFE 副作用,包括 dirty hook、
+// initFirstProject、setupProjectTabsWheel、toolbar mode、icon decorate、lang init)。
+// 注意:initBlank() 本身不能在 init.ts 模組頂 call,因為它會觸發 render → render/index.ts
+// 的 let _renderRecoveryPending 可能還在 TDZ(模組評估順序問題)。改成在 integration.ts
+// 模組最末段 call,確保所有 module 已 fully evaluated。
+import { initBlank, _initFirstProject } from "./init";
+import "./init";   // 觸發 init.ts module-level IIFE 副作用
+export { initBlank, _applyToolbarMode, _startSaveWithHook } from "./init";
+// 等所有 import 跑完後再 initBlank + _initFirstProject — 避免 TDZ
+//   • render/index.ts 的 let _renderRecoveryPending
+//   • persistence/projectTabs.ts 的 let nextProjId
+queueMicrotask(() => {
+  try { initBlank(); } catch (e) { console.error("[initBlank]", e); }
+  try { _initFirstProject(); } catch (e) { console.error("[_initFirstProject]", e); }
+});
+
 
 // ---------- 多專案分頁 ----------
 // projects / activeProjectId / projectDirty + makeEmptyProjectData / snapshotActiveProjectInto /
@@ -4739,7 +4520,7 @@ import {
   setActiveProjectId, setProjectDirty,
   makeEmptyProjectData, snapshotActiveProjectInto, loadProjectDataFromP,
   activateProject, refreshProjectTabs, refreshProjectMenu,
-} from "./state/projectTabs";
+} from "../persistence/projectTabs";
 export {
   projects, activeProjectId, projectDirty,
   setActiveProjectId, setProjectDirty,
@@ -4752,409 +4533,14 @@ export function escapeHtml(s) {
     ({"<":"&lt;",">":"&gt;","&":"&amp;","\"":"&quot;","'":"&apos;"}[c]));
 }
 
-// ---------- 通用對話框 helpers ----------
-// 輸入名稱對話框:回傳字串或 null(取消)
-// 數值輸入對話框,並提供「跳過」按鈕 → 回傳 number / "skip" / null(Esc / 取消)
-function promptNumberWithSkip(title, label, defaultValue) {
-  return new Promise(resolve => {
-    const dlg = document.getElementById("genericDialog");
-    const titleEl = document.getElementById("gdTitle");
-    const msgEl = document.getElementById("gdMsg");
-    const inpEl = document.getElementById("gdInput");
-    const footerEl = document.getElementById("gdFooter");
-    titleEl.textContent = title || "";
-    msgEl.textContent = label || "";
-    inpEl.style.display = "block";
-    inpEl.type = "number";
-    inpEl.value = (defaultValue == null || !Number.isFinite(defaultValue)) ? "" : String(defaultValue);
-    footerEl.innerHTML = "";
-    const cancelBtn = document.createElement("button");
-    cancelBtn.textContent = "取消";
-    const skipBtn = document.createElement("button");
-    skipBtn.textContent = "跳過";
-    const okBtn = document.createElement("button");
-    okBtn.className = "primary";
-    okBtn.textContent = "確定";
-    footerEl.appendChild(cancelBtn);
-    footerEl.appendChild(skipBtn);
-    footerEl.appendChild(okBtn);
-    const cleanup = () => {
-      dlg.classList.remove("active");
-      inpEl.type = "text";   // 還原給其他 promptName 用
-      document.removeEventListener("keydown", onKey, true);
-    };
-    const close = (result) => { cleanup(); resolve(result); };
-    const tryCommit = () => {
-      const v = parseFloat(inpEl.value);
-      if (!Number.isFinite(v)) { skipBtn.classList.add("primary"); inpEl.focus(); return; }
-      close(v);
-    };
-    const onKey = (e) => {
-      if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); close(null); }
-      else if (e.key === "Enter") { e.preventDefault(); e.stopImmediatePropagation(); tryCommit(); }
-      else { e.stopImmediatePropagation(); }
-    };
-    cancelBtn.onclick = () => close(null);
-    skipBtn.onclick = () => close("skip");
-    okBtn.onclick = tryCommit;
-    document.addEventListener("keydown", onKey, true);
-    dlg.classList.add("active");
-    setTimeout(() => { inpEl.focus(); inpEl.select(); }, 30);
-  });
-}
+// ---------- 通用對話框 + 新增/關閉專案 ----------
+// promptNumberWithSkip / promptName / confirm3 + newProjectPrompt / closeProjectById /
+// closeCurrentProject 搬到 src/app/dialogs.ts
+export * from "./dialogs";
 
-export function promptName(title, label, defaultValue) {
-  return new Promise(resolve => {
-    const dlg = document.getElementById("genericDialog");
-    const titleEl = document.getElementById("gdTitle");
-    const msgEl = document.getElementById("gdMsg");
-    const inpEl = document.getElementById("gdInput");
-    const footerEl = document.getElementById("gdFooter");
-    titleEl.textContent = title || "";
-    msgEl.textContent = label || "";
-    inpEl.style.display = "block";
-    inpEl.value = defaultValue || "";
-    footerEl.innerHTML = "";
-    const cancelBtn = document.createElement("button");
-    cancelBtn.textContent = "取消";
-    const okBtn = document.createElement("button");
-    okBtn.className = "primary";
-    okBtn.textContent = "確定";
-    footerEl.appendChild(cancelBtn);
-    footerEl.appendChild(okBtn);
-    const close = (result) => {
-      dlg.classList.remove("active");
-      document.removeEventListener("keydown", onKey, true);
-      resolve(result);
-    };
-    const onKey = (e) => {
-      if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); close(null); }
-      else if (e.key === "Enter") { e.preventDefault(); e.stopImmediatePropagation(); close(inpEl.value.trim()); }
-      else { e.stopImmediatePropagation(); }
-    };
-    cancelBtn.onclick = () => close(null);
-    okBtn.onclick = () => close(inpEl.value.trim());
-    document.addEventListener("keydown", onKey, true);
-    dlg.classList.add("active");
-    setTimeout(() => { inpEl.focus(); inpEl.select(); }, 30);
-  });
-}
-
-// 三選一確認(儲存 / 丟棄 / 取消)→ 回傳 "save" | "discard" | "cancel"
-function confirm3(title, msg) {
-  return new Promise(resolve => {
-    const dlg = document.getElementById("genericDialog");
-    document.getElementById("gdTitle").textContent = title || "";
-    document.getElementById("gdMsg").textContent = msg || "";
-    document.getElementById("gdInput").style.display = "none";
-    const footerEl = document.getElementById("gdFooter");
-    footerEl.innerHTML = "";
-    const mkBtn = (label, cls) => { const b = document.createElement("button"); b.textContent = label; if (cls) b.className = cls; return b; };
-    const cancelBtn  = mkBtn("取消");
-    const discardBtn = mkBtn("丟棄", "warn");
-    const saveBtn    = mkBtn("儲存", "primary");
-    footerEl.appendChild(cancelBtn);
-    footerEl.appendChild(discardBtn);
-    footerEl.appendChild(saveBtn);
-    const close = (r) => { dlg.classList.remove("active"); document.removeEventListener("keydown", onKey, true); resolve(r); };
-    const onKey = (e) => {
-      if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); close("cancel"); }
-      else if (e.key === "Enter") { e.preventDefault(); e.stopImmediatePropagation(); close("save"); }
-      else { e.stopImmediatePropagation(); }
-    };
-    cancelBtn.onclick  = () => close("cancel");
-    discardBtn.onclick = () => close("discard");
-    saveBtn.onclick    = () => close("save");
-    document.addEventListener("keydown", onKey, true);
-    dlg.classList.add("active");
-  });
-}
-
-// ---------- 新增 / 關閉專案 ----------
-export async function newProjectPrompt() {
-  const defaultName = `未命名_${projects.length + 1}`;
-  const name = await promptName("新增專案", "請輸入新專案名稱:", defaultName);
-  if (name == null || name === "") return;
-  if (projects.some(p => p.name === name)) {
-    alert("專案名稱已存在,請換一個");
-    return;
-  }
-  // snapshot 目前專案
-  const cur = projects.find(p => p.id === activeProjectId);
-  if (cur) snapshotActiveProjectInto(cur);
-  // 建立新的空白專案
-  const p = makeEmptyProjectData(name);
-  projects.push(p);
-  setActiveProjectId(p.id);
-  loadProjectDataFromP(p);
-  initBlank();
-  refreshProjectTabs();
-  refreshProjectMenu();
-}
-
-export async function closeProjectById(id) {
-  const p = projects.find(x => x.id === id);
-  if (!p) return;
-  const isActive = (id === activeProjectId);
-  const dirty = isActive ? projectDirty : p.dirty;
-  if (dirty) {
-    const choice = await confirm3("關閉專案", `專案「${p.name}」有未儲存的變更,是否儲存?`);
-    if (choice === "cancel") return;
-    if (choice === "save") {
-      // 若不是當前 active,先切過去才能儲存(startSave 操作 active state)
-      if (!isActive) await activateProject(id);
-      try { await _startSaveWithHook(false); }
-      catch (e) { console.warn("[close] 儲存失敗", e); alert("儲存失敗,已取消關閉"); return; }
-    }
-  }
-  // 從陣列移除
-  const idx = projects.findIndex(x => x.id === id);
-  if (idx >= 0) projects.splice(idx, 1);
-  if (isActive) {
-    // 切到相鄰的分頁;若空了就自動新增一個空白
-    setActiveProjectId(null);
-    if (projects.length) {
-      const target = projects[Math.min(idx, projects.length - 1)];
-      await activateProject(target.id);
-    } else {
-      const np = makeEmptyProjectData("未命名");
-      projects.push(np);
-      setActiveProjectId(np.id);
-      loadProjectDataFromP(np);
-      initBlank();
-      refreshProjectTabs();
-      refreshProjectMenu();
-    }
-  } else {
-    refreshProjectTabs();
-    refreshProjectMenu();
-  }
-}
-export async function closeCurrentProject() {
-  if (activeProjectId != null) await closeProjectById(activeProjectId);
-}
-
-// ---------- dirty flag hooks ----------
-// 把「有變更」訊號吸進 projectDirty(僅在 dirty 狀態轉換時重新渲染 tabs,避免高頻刷新)
-//   走 setPushUndoHook(fn) 而非覆寫 import(ESM 不允許 reassign imported binding)
-import { setPushUndoHook } from "./app/undoRedo";
-setPushUndoHook(() => {
-  const wasDirty = projectDirty;
-  setProjectDirty(true);
-  if (!wasDirty) refreshProjectTabs();
-});
-
-// 初始化第一個預設專案(把目前已在 state 裡的空白環境包成 project)
-(function initFirstProject() {
-  const p = makeEmptyProjectData("未命名");
-  // 目前 state 已經 initBlank,直接接管
-  p.files = state.files;
-  p.globalJoints = state.globalJoints || [];
-  p.materials = Array.isArray(state.materials) ? state.materials : [];
-  p.undoStack = undoStack.slice();
-  p.redoStack = redoStack.slice();
-  p.scale = state.scale;
-  p.unitName = state.unitName;
-  p.globalCapacity = state.globalCapacity;
-  p.activeFileId = state.activeFileId;
-  p.pageIdx = state.pageIdx;
-  p.openTabs = Array.isArray(state.openTabs) ? state.openTabs.map(t => ({ ...t })) : [];
-  p.zoom = state.zoom; p.panX = state.panX; p.panY = state.panY;
-  p.nextJointId = nextJointId;
-  p.nextMemberId = nextMemberId;
-  p.nextFileId = nextFileId;
-  p.nextGlobalJointId = nextGlobalJointId;
-  projects.push(p);
-  setActiveProjectId(p.id);
-  refreshProjectTabs();
-  refreshProjectMenu();
-})();
-
-// 專案分頁列:垂直滾輪 → 水平捲動
-(function setupProjectTabsWheel() {
-  const scroll = document.querySelector("#projectTabs .pt-scroll");
-  if (!scroll) return;
-  scroll.addEventListener("wheel", (e) => {
-    if (e.deltaY === 0) return;
-    e.preventDefault();
-    scroll.scrollLeft += e.deltaY;
-  }, { passive: false });
-})();
-
-// 儲存成功後清 dirty 旗標(原本是 monkey-patch startSave;Phase 8i 抽 startSave 到模組後
-//   改成 named wrapper,所有 caller 走 _startSaveWithHook 取代直接呼叫 startSave)
-export async function _startSaveWithHook(forceAs) {
-  const prevHandle = state.projectFileHandle;
-  const r = await startSave(forceAs);
-  // 儲存成功標誌:handle 非 null 或下載完成(無 error 拋出即視為成功)
-  setProjectDirty(false);
-  // 同步當前 project 的 handle
-  const cur = projects.find(p => p.id === activeProjectId);
-  if (cur) {
-    cur.projectFileHandle = state.projectFileHandle || null;
-    cur.dirty = false;
-  }
-  refreshProjectTabs();
-  refreshProjectMenu();
-  return r;
-}
-
-// ---------- 工具列顯示模式(文字 / 圖示 / 文字+圖示) ----------
-//   body class:tb-mode-text / tb-mode-icon / tb-mode-both;預設 both;狀態存在 localStorage
-const _TB_MODE_KEY = "staad.toolbar.displayMode";
-export function _applyToolbarMode(mode) {
-  const m = (mode === "text" || mode === "icon" || mode === "both") ? mode : "both";
-  document.body.classList.remove("tb-mode-text", "tb-mode-icon", "tb-mode-both");
-  document.body.classList.add("tb-mode-" + m);
-  try { localStorage.setItem(_TB_MODE_KEY, m); } catch (_) {}
-  // 同步 submenu 的勾選符號
-  const map = { "text": "tb-mode-text", "icon": "tb-mode-icon", "both": "tb-mode-both" };
-  document.querySelectorAll("#tbModeMenu .submenu .menu-entry").forEach(e => {
-    e.classList.toggle("checked", e.dataset.action === map[m]);
-  });
-}
-(function _initToolbarMode() {
-  let saved = "both";
-  try { const v = localStorage.getItem(_TB_MODE_KEY); if (v === "text" || v === "icon" || v === "both") saved = v; } catch (_) {}
-  _applyToolbarMode(saved);
-})();
-
-// ---------- 子工具列(selectTools / bgEditTools)圖示裝飾 ----------
-//   原本只有純文字按鈕;這裡定義 id → SVG 對照表,然後用裝飾器把每個按鈕內容包成
-//   <span class="btn-icon">…</span><span class="btn-text">…</span>,讓「工具列顯示模式」一樣作用。
-const _GENERIC_ICON = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.4"/></svg>';
-const _ICON_SVG = {
-  // === selectTools: 選取群組 ===
-  "selToolsAll":        '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1" stroke-dasharray="3 2"/><circle cx="8" cy="8" r="1.6" fill="currentColor" stroke="none"/><circle cx="16" cy="8" r="1.6" fill="currentColor" stroke="none"/><circle cx="8" cy="16" r="1.6" fill="currentColor" stroke="none"/><circle cx="16" cy="16" r="1.6" fill="currentColor" stroke="none"/><line x1="8" y1="8" x2="16" y2="16"/></svg>',
-  "selToolsJoints":     '<svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="18" r="2.2"/></svg>',
-  "selToolsMembers":    '<svg viewBox="0 0 24 24"><circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/><line x1="7" y1="17" x2="17" y2="7"/></svg>',
-  // 方向 filter:全部以「斜線標示」當區別軸,線本身指方向;O = H+V 十字
-  "selToolsDirV":       '<svg viewBox="0 0 24 24"><line x1="12" y1="3" x2="12" y2="21" stroke-width="2.6"/></svg>',
-  "selToolsDirH":       '<svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12" stroke-width="2.6"/></svg>',
-  "selToolsDirO":       '<svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12" stroke-width="2.4"/><line x1="12" y1="3" x2="12" y2="21" stroke-width="2.4"/></svg>',
-  "selToolsDirD":       '<svg viewBox="0 0 24 24"><line x1="4" y1="20" x2="20" y2="4" stroke-width="2.6"/></svg>',
-  "selToolsRepeatHJ":   '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><polyline points="2 6 22 6 18 4 22 6 18 8"/></svg>',
-  "selToolsRepeatVJ":   '<svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/><polyline points="18 2 18 22 16 18 18 22 20 18"/></svg>',
-  "selToolsRepeatOH":   '<svg viewBox="0 0 24 24"><line x1="3" y1="7" x2="15" y2="7"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="17" x2="15" y2="17"/><polyline points="18 8 21 11 18 14"/></svg>',
-  "selToolsRepeatOV":   '<svg viewBox="0 0 24 24"><line x1="7" y1="3" x2="7" y2="15"/><line x1="12" y1="3" x2="12" y2="15"/><line x1="17" y1="3" x2="17" y2="15"/><polyline points="8 18 11 21 14 18"/></svg>',
-  "selToolsRepeatDH":   '<svg viewBox="0 0 24 24"><line x1="3" y1="18" x2="11" y2="10"/><line x1="9" y1="18" x2="17" y2="10"/><polyline points="18 8 21 11 18 14"/></svg>',
-  "selToolsRepeatDV":   '<svg viewBox="0 0 24 24"><line x1="6" y1="3" x2="14" y2="11"/><line x1="6" y1="9" x2="14" y2="17"/><polyline points="8 18 11 21 14 18"/></svg>',
-  // === selectTools: 編輯群組 ===
-  "selToolsExtend":     '<svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="2"/><circle cx="18" cy="12" r="2"/><line x1="8" y1="12" x2="14" y2="12"/><polyline points="14 9 17 12 14 15"/></svg>',
-  "selToolsExtendBoth": '<svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="2"/><circle cx="18" cy="12" r="2"/><line x1="8" y1="12" x2="16" y2="12"/><polyline points="9 9 6 12 9 15"/><polyline points="15 9 18 12 15 15"/></svg>',
-  "selToolsJExtH":      '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><line x1="7" y1="12" x2="19" y2="12"/><polyline points="16 9 19 12 16 15"/></svg>',
-  "selToolsJExtV":      '<svg viewBox="0 0 24 24"><circle cx="12" cy="19" r="2"/><line x1="12" y1="17" x2="12" y2="5"/><polyline points="9 8 12 5 15 8"/></svg>',
-  "selToolsJExtHBoth":  '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><line x1="3" y1="12" x2="21" y2="12"/><polyline points="6 9 3 12 6 15"/><polyline points="18 9 21 12 18 15"/></svg>',
-  "selToolsJExtVBoth":  '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><line x1="12" y1="3" x2="12" y2="21"/><polyline points="9 6 12 3 15 6"/><polyline points="9 18 12 21 15 18"/></svg>',
-  "selToolsDupJointH":  '<svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/><line x1="6" y1="8" x2="6" y2="16"/><line x1="18" y1="8" x2="18" y2="16"/></svg>',
-  "selToolsDupJointV":  '<svg viewBox="0 0 24 24"><line x1="12" y1="3" x2="12" y2="21"/><circle cx="12" cy="6" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="18" r="1.6"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="18" x2="16" y2="18"/></svg>',
-  "selToolsJConnectH":  '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><line x1="7" y1="12" x2="17" y2="12"/></svg>',
-  "selToolsJConnectV":  '<svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="19" r="2"/><line x1="12" y1="7" x2="12" y2="17"/></svg>',
-  "selToolsJConnectD":  '<svg viewBox="0 0 24 24"><circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="12" cy="12" r="1.6"/><line x1="6.5" y1="17.5" x2="17.5" y2="6.5"/></svg>',
-  "selToolsJMerge":     '<svg viewBox="0 0 24 24"><circle cx="5" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="12" r="2"/><path d="M7 6c4 0 4 6 10 6"/><path d="M7 18c4 0 4-6 10-6"/></svg>',
-  "selToolsMeasure":    '<svg viewBox="0 0 24 24"><rect x="2" y="9" width="20" height="7" rx="1"/><line x1="6" y1="9" x2="6" y2="13"/><line x1="10" y1="9" x2="10" y2="13"/><line x1="14" y1="9" x2="14" y2="13"/><line x1="18" y1="9" x2="18" y2="13"/></svg>',
-  "selToolsAnchorToggle":'<svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.2"/><line x1="12" y1="7" x2="12" y2="20"/><path d="M5 14a7 7 0 0 0 14 0"/><line x1="9" y1="11" x2="15" y2="11"/></svg>',
-  "selToolsIntersectSel":'<svg viewBox="0 0 24 24"><line x1="4" y1="4" x2="20" y2="20"/><line x1="20" y1="4" x2="4" y2="20"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/></svg>',
-  "btnDel":             '<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>',
-  // === selectTools: 移動群組 ===
-  "selToolsMove":       '<svg viewBox="0 0 24 24"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>',
-  "selToolsMoveH":      '<svg viewBox="0 0 24 24"><polyline points="6 8 3 11 6 14"/><polyline points="18 8 21 11 18 14"/><line x1="3" y1="11" x2="21" y2="11"/></svg>',
-  "selToolsMoveV":      '<svg viewBox="0 0 24 24"><polyline points="8 6 11 3 14 6"/><polyline points="8 18 11 21 14 18"/><line x1="11" y1="3" x2="11" y2="21"/></svg>',
-  "selToolsMoveDist":   '<svg viewBox="0 0 24 24"><rect x="2" y="9" width="20" height="6" rx="1"/><line x1="6" y1="9" x2="6" y2="12"/><line x1="12" y1="9" x2="12" y2="12"/><line x1="18" y1="9" x2="18" y2="12"/><polyline points="20 18 22 20 20 22"/></svg>',
-  "selToolsMoveAngle":  '<svg viewBox="0 0 24 24"><path d="M4 20 L20 4"/><path d="M4 20 L20 20"/><path d="M14 20a4 4 0 0 0 0-4"/></svg>',
-  "selToolsMoveRect":   '<svg viewBox="0 0 24 24"><line x1="4" y1="20" x2="20" y2="20"/><line x1="4" y1="20" x2="4" y2="6"/><polyline points="2 9 4 6 7 9"/><polyline points="17 22 20 20 17 18"/></svg>',
-  // === bgEditTools: 選取群組 ===
-  // 全選底圖:虛框內含多個 bg primitive(直線、斜線、圓)→ 區隔 selToolsAll
-  "bgEditSelectAll":    '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1" stroke-dasharray="3 2"/><line x1="6" y1="9" x2="12" y2="9"/><line x1="6" y1="15" x2="14" y2="7"/><circle cx="17" cy="16" r="2.5"/></svg>',
-  // 取消選取(虛框 + X)— 跟 ClearShape(取消形狀類型)區別:這裡虛框是動作框
-  "bgEditClear":        '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="1" stroke-dasharray="3 2"/><line x1="8" y1="8" x2="16" y2="16"/><line x1="16" y1="8" x2="8" y2="16"/></svg>',
-  "bgEditMultiSelect":  '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="14" height="14" rx="1" stroke-dasharray="3 2"/><rect x="8" y="8" width="14" height="14" rx="1" stroke-dasharray="3 2"/></svg>',
-  "bgEditSelSquares":   '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1"/></svg>',
-  "bgEditSelRects":     '<svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="1"/></svg>',
-  "bgEditSelCircles":   '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>',
-  "bgEditSelStraight":  '<svg viewBox="0 0 24 24"><line x1="3" y1="21" x2="21" y2="3"/></svg>',
-  "bgEditSelStraightSolid": '<svg viewBox="0 0 24 24"><line x1="3" y1="21" x2="21" y2="3"/><circle cx="3" cy="21" r="1.4" fill="currentColor" stroke="none"/><circle cx="21" cy="3" r="1.4" fill="currentColor" stroke="none"/></svg>',
-  "bgEditSelDiagonals": '<svg viewBox="0 0 24 24"><line x1="3" y1="18" x2="18" y2="3"/><line x1="6" y1="21" x2="21" y2="6"/></svg>',
-  "bgEditSelDashedDiagonals": '<svg viewBox="0 0 24 24"><line x1="3" y1="21" x2="21" y2="3" stroke-dasharray="3 2"/></svg>',
-  // 取消形狀類型:重疊的多種形狀(rect / circle / 斜線)被 X 切除,跟 bgEditClear 區別
-  "bgEditClearShape":   '<svg viewBox="0 0 24 24"><rect x="3" y="3" width="10" height="10"/><circle cx="16" cy="16" r="4"/><line x1="14" y1="3" x2="21" y2="10"/><line x1="20" y1="4" x2="4" y2="20" stroke-width="2.4"/></svg>',
-  // === bgEditTools: 編輯群組 ===
-  // bg 模式版本:用「交叉軸 + 中心點」風格(無外圈),跟主工具列 btnPlaneOrigin(同心圓外圈)區別
-  "bgEditPlaneOrigin":  '<svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="12" y1="3" x2="12" y2="21"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>',
-  // bg 模式版本:單條直尺刻度,跟主工具列 btnScaleRuler(斜尺+刻度)區別
-  "bgEditScaleRuler":   '<svg viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="6" rx="1"/><line x1="6" y1="9" x2="6" y2="13"/><line x1="9" y1="9" x2="9" y2="12"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="15" y1="9" x2="15" y2="12"/><line x1="18" y1="9" x2="18" y2="13"/></svg>',
-  "bgEditDrawLine":     '<svg viewBox="0 0 24 24"><circle cx="5" cy="19" r="1.6"/><circle cx="19" cy="5" r="1.6"/><line x1="6.4" y1="17.6" x2="17.6" y2="6.4"/></svg>',
-  "bgEditDrawDashed":   '<svg viewBox="0 0 24 24"><circle cx="5" cy="19" r="1.6"/><circle cx="19" cy="5" r="1.6"/><line x1="6.4" y1="17.6" x2="17.6" y2="6.4" stroke-dasharray="3 2"/></svg>',
-  "bgEditCopyLine":     '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="12" height="12" rx="1"/><rect x="3" y="9" width="12" height="12" rx="1"/></svg>',
-  "bgEditBisector":     '<svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="12" y1="3" x2="12" y2="21" stroke-dasharray="3 2"/></svg>',
-  "bgEditEquidist":     '<svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12" stroke-dasharray="3 2"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',
-  "bgEditToDashed":     '<svg viewBox="0 0 24 24"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15" stroke-dasharray="3 2"/></svg>',
-  "bgEditSplit":        '<svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="12" y1="4" x2="12" y2="20"/></svg>',
-  "bgEditToMember":     '<svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><polyline points="18 9 21 12 18 15"/><circle cx="3" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>',
-  "bgEditMarkIntersect":'<svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="18"/><line x1="3" y1="18" x2="21" y2="6"/><circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"/></svg>',
-  "bgEditMarkIntersectAndMember":'<svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="18"/><line x1="3" y1="18" x2="21" y2="6"/><circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"/><circle cx="3" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="21" cy="18" r="1.4" fill="currentColor" stroke="none"/></svg>',
-  "bgEditRectToCenterMember": '<svg viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="6"/><line x1="3" y1="12" x2="21" y2="12" stroke-dasharray="3 2"/></svg>',
-  "bgEditRectToTopMember":    '<svg viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="6"/><line x1="3" y1="9" x2="21" y2="9" stroke-dasharray="3 2"/></svg>',
-  "bgEditRectToBottomMember": '<svg viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="6"/><line x1="3" y1="15" x2="21" y2="15" stroke-dasharray="3 2"/></svg>',
-  "bgEditSquareToJoint":'<svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/></svg>',
-  "bgEditDel":          '<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>',
-  "bgEditScaleRulerMove":'<svg viewBox="0 0 24 24"><path d="M3 17L17 3l4 4L7 21z"/><polyline points="6 6 3 9 6 12"/><polyline points="18 6 21 9 18 12"/></svg>',
-  "bgEditMeasureSelect": '<svg viewBox="0 0 24 24"><rect x="2" y="9" width="20" height="7" rx="1"/><polyline points="9 12 11 14 16 9"/></svg>',
-  "bgEditMeasureMove":  '<svg viewBox="0 0 24 24"><rect x="2" y="9" width="20" height="7" rx="1"/><polyline points="6 6 3 9 6 12"/><polyline points="18 6 21 9 18 12"/></svg>',
-  // === bgEditTools: 測量群組(原本沒登錄圖示 → fallback 成 generic dot,現在補) ===
-  // 標示距離:雙箭頭量度線(╞════╡)
-  "bgEditMeasure":      '<svg viewBox="0 0 24 24"><line x1="4" y1="12" x2="20" y2="12"/><polyline points="7 9 4 12 7 15"/><polyline points="17 9 20 12 17 15"/><line x1="4" y1="6" x2="4" y2="18"/><line x1="20" y1="6" x2="20" y2="18"/></svg>',
-  // 水平原點距離:從原點(十字)往右量到一條垂直線
-  "bgEditOriginDistH":  '<svg viewBox="0 0 24 24"><line x1="3" y1="9" x2="3" y2="15"/><line x1="3" y1="12" x2="3" y2="12"/><circle cx="3" cy="12" r="1.6" fill="currentColor" stroke="none"/><line x1="3" y1="12" x2="20" y2="12"/><polyline points="17 9 20 12 17 15"/><line x1="20" y1="4" x2="20" y2="20" stroke-dasharray="3 2"/></svg>',
-  // 垂直原點距離:從原點往下量到一條水平線
-  "bgEditOriginDistV":  '<svg viewBox="0 0 24 24"><line x1="9" y1="3" x2="15" y2="3"/><circle cx="12" cy="3" r="1.6" fill="currentColor" stroke="none"/><line x1="12" y1="3" x2="12" y2="20"/><polyline points="9 17 12 20 15 17"/><line x1="4" y1="20" x2="20" y2="20" stroke-dasharray="3 2"/></svg>',
-  // 與原點最短距離:從原點向斜線方向作垂線(直角符號)
-  "bgEditOriginDistMin":'<svg viewBox="0 0 24 24"><line x1="3" y1="20" x2="21" y2="2"/><circle cx="4" cy="4" r="1.8" fill="currentColor" stroke="none"/><line x1="4" y1="4" x2="13" y2="13"/><polyline points="11 11 13 13 13 11" stroke-width="1.4"/></svg>',
-};
-
-function _decorateSubToolButtons() {
-  // 把 #selectTools / #bgEditTools 內每個 button 的內容包成 icon + text 兩個 span
-  //   - text span 附 data-i18n="subtool.<id>",讓 _applyI18n 直接套字典(若字典裡有此 key)
-  //   - 若 button 沒 id,就維持原文字、不加 i18n 屬性
-  //   - title 屬性附 data-i18n-title="tip.<id>"(同樣 fallback 行為)
-  ["#selectTools", "#bgEditTools"].forEach(sel => {
-    const root = document.querySelector(sel);
-    if (!root) return;
-    root.querySelectorAll("button").forEach(btn => {
-      if (btn.querySelector(".btn-icon")) return;            // 已裝飾
-      const id = btn.id || "";
-      const icon = _ICON_SVG[id] || _GENERIC_ICON;
-      const text = btn.textContent.trim();
-      const i18nAttr = id ? ` data-i18n="subtool.${id}"` : "";
-      btn.innerHTML =
-        `<span class="btn-icon">${icon}</span>` +
-        `<span class="btn-text"${i18nAttr}>${text}</span>`;
-      // tooltip i18n key:若該 id 存在 _I18N["tip." + id],套字典時會覆寫
-      if (id && !btn.dataset.i18nTitle) btn.dataset.i18nTitle = "tip." + id;
-    });
-  });
-}
-_decorateSubToolButtons();
-// 主工具列 button:批次加上 data-i18n-title="tip.<id>";切英文時自動套精簡 en tooltip
-(function _decorateTopToolbarI18n() {
-  document.querySelectorAll("#toolbar button").forEach(btn => {
-    if (btn.id && !btn.dataset.i18nTitle) btn.dataset.i18nTitle = "tip." + btn.id;
-  });
-})();
-// 再跑一次 _applyI18n,套用裝飾器剛加上的 data-i18n / data-i18n-title
-try { _applyI18n(); } catch (_) {}
-
-// Phase 8b:i18n (字典 + _t/_tx/_addI18n/_applyI18n/_applyI18nOnDoc/_setBtnLabel/_setLanguage) 搬到 src/i18n/index.ts
-import { _t, _tx, _addI18n, _applyI18n, _applyI18nOnDoc, _setBtnLabel, _setLanguage, readSavedLang } from "./i18n";
-export { _t, _tx, _addI18n, _applyI18n, _applyI18nOnDoc, _setBtnLabel, _setLanguage } from "./i18n";
-// 原本是 (function _initLang(){...})() 在 i18n 區塊的尾端跑;為了保持「i18n module 載入時
-// 還不算完全 init 完畢、要等 legacy 走到對應位置」的舊時序,把 IIFE 拉回 legacy 這條位置上。
-(function _initLang() {
-  _setLanguage(readSavedLang());
-})();
 
 // Phase 8m:頂部主選單列 + 最近開啟專案 子選單 搬到 src/ui/menubar.ts(~192 行)
-import "./ui/menubar";
+import "../ui/menubar";
 
 // ============================================================================
 // Phase 1 — 把常用 global expose 給 window,維持 console debugging / 既有測試體驗

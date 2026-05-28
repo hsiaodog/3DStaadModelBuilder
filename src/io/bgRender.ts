@@ -15,7 +15,7 @@ import {
   svg, stage, bg, bgctx,
   screenToWorld, fitToView,
   attachBgPathHandlers, svgElementToSegments, _ensureBgOrigGroup,
-} from "../legacy";
+} from "../app/integration";
 
 export function parseStraightSegs(d) {
   const tokens = (d || "").match(/[a-zA-Z]|-?\d*\.?\d+(?:[eE][+-]?\d+)?/g) || [];

@@ -7,7 +7,7 @@
 //     invalidateRankCache():外面任何會影響 rank 的 mutation 都該呼叫(座標 / capacity / floorTypes 改變)
 //     _ensureRankCache():lazy 重建,signature 不變就 skip
 
-import { state, _fileHasFullSetup, _getJointMemberDirs, _hasAnyPerpPair, _allDirsCollinear } from "../legacy";
+import { state, _fileHasFullSetup, _getJointMemberDirs, _hasAnyPerpPair, _allDirsCollinear } from "../app/integration";
 import { joint2DToWorld3D } from "./projection";
 import { wrapPosSort as _wrapPosSort } from "../utils/sort";
 import { setDebugVar, getDebugVar } from "../utils/debug";

@@ -9,7 +9,7 @@
 // @ts-nocheck
 
 import { state } from "./state";
-import { getPage, jointById, svgElementToSegments } from "../legacy";
+import { getPage, jointById, svgElementToSegments } from "../app/integration";
 import { screenToWorld } from "./transform";
 
 export function snapToBgVertex(world, opts?: any) {

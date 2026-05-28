@@ -13,7 +13,7 @@
 
 import {
   state, $, getPage, pushUndo, withBusy, render, refreshLists,
-} from "../legacy";
+} from "../app/integration";
 import { invalidateRankCache } from "../core/rankCache";
 import { _setBtnLabel } from "../i18n";
 

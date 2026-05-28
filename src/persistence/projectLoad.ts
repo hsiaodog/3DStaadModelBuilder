@@ -24,7 +24,7 @@ import {
   setNextJointId, setNextMemberId, setNextFileId, setNextGlobalJointId, setNextGlobalMemberId,
   setProjectDirty,
   projects, activeProjectId,
-} from "../legacy";
+} from "../app/integration";
 import { showBusy, setBusyMessage, busyTick } from "../ui/busy";
 import { inferGlobalJoint } from "../core/globalJoints";
 import { _saveRecentProject } from "./recentProjects";

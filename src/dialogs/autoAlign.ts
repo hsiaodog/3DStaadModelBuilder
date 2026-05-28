@@ -13,7 +13,7 @@ import {
   cacheActivePageBgSegs, syncUserBgLinesToDom,
   applyBgRotation,
   _afterCalibrationChanged, _resyncSectionLinksForFile,
-} from "../legacy";
+} from "../app/integration";
 import { invalidateRankCache } from "../core/rankCache";
 
 export function extractSvgSegments(svgEl) {

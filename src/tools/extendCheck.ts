@@ -18,7 +18,7 @@ import {
   unbindJointFromGlobal,
   _consolidateInPlace,
   consolidateAllPagesWithConfirm,
-} from "../legacy";
+} from "../app/integration";
 import { showBusy, hideBusy, busyTick } from "../ui/busy";
 
 // ---------- 檢查可延伸桿件:斷點偵測 ----------

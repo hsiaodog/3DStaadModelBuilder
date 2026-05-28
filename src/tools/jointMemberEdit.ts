@@ -17,7 +17,8 @@ import {
   unbindJointFromGlobal, snapToBgVertex,
   activatePageWithBusy,
   allocJointId, allocMemberId, allocFileId, allocGlobalJointId, allocGlobalMemberId,
-} from "../legacy";
+  nextMemberId, setNextMemberId,
+} from "../app/integration";
 import { invalidateRankCache } from "../core/rankCache";
 
 export function extendSelectedMembersToIntersect(bothEnds) {
@@ -999,7 +1000,7 @@ export function unifyCrossPageMemberIds() {
       for (const m of pg.members) if (m.id > maxId) maxId = m.id;
     }
   }
-  if (maxId + 1 > nextMemberId) nextMemberId = maxId + 1;
+  if (maxId + 1 > nextMemberId) setNextMemberId(maxId + 1);
   return { gmsUnified, rewritten, conflicts };
 }
 

@@ -18,7 +18,7 @@ import {
   exitScaleRulerPending, exitOriginPending, exitRangeZoom, exitManualAlign,
   exitSplitMode, exitMoveMode,
   cancelScaleRulerDrag, _selectedBgLinesAsWorld, updateBgEditOpsVisibility,
-} from "../legacy";
+} from "../app/integration";
 
 // ---------- 標示距離(只讀,不寫,持續顯示直到 Esc 或重新測量) ----------
 export function exitMeasurePending() {

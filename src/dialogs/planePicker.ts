@@ -9,7 +9,7 @@ import {
   $, state, wrap,
   getPage, pushUndo, render, refreshLists,
   pageHasGroupNum, refreshPageCoordSection,
-} from "../legacy";
+} from "../app/integration";
 import { inferAllGlobalJoints } from "../core/globalJoints";
 
 export function openPlanePicker() {

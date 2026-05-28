@@ -9,7 +9,7 @@ import {
   nextJointId, nextMemberId, nextGlobalJointId, nextGlobalMemberId,
   setNextJointId, setNextMemberId, setNextGlobalJointId, setNextGlobalMemberId,
   _updateGlobalOriginUI,
-} from "../legacy";
+} from "../app/integration";
 
 export function snapshot() {
   // 只快照可序列化部分:每個 file 的 pages、metadata。pdf/image 物件不存。

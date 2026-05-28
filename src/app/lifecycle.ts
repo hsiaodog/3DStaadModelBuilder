@@ -12,9 +12,10 @@ import { $ } from "./dom";
 import { applyTransform, _restorePageView, _saveCurrentTabView } from "./transform";
 import { inferAllGlobalJoints } from "../core/globalJoints";
 import { invalidateRankCache } from "../core/rankCache";
-import { showBusy, hideBusy, busyTick } from "../ui/busy";
+import { showBusy, hideBusy, busyTick, setBusyMessage } from "../ui/busy";
 import {
-  getActiveFile, applyBgRotation, cacheActivePageBgSegs,
+  getActiveFile, getPage,
+  applyBgRotation, cacheActivePageBgSegs,
   detectAlignmentAngle, render, refreshLists, refreshFileList, refreshPageSelector,
   fmtMB, dxfToSvg,
   renderPdfBg, renderImageBg, renderCachedBg, renderBlankBg,
@@ -26,7 +27,7 @@ import {
   parseDxf, dxfBbox,
   _navRecordIfNotInProgress,
   _t,
-} from "../legacy";
+} from "../app/integration";
 
 export async function addFile(f) {
   const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);

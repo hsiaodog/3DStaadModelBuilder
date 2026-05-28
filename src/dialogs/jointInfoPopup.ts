@@ -4,7 +4,7 @@
 //   CSS 樣式在 src/style.css 的 #jointInfoPopup 區塊
 // @ts-nocheck
 
-import { displayJointId } from "../legacy";
+import { displayJointId } from "../app/integration";
 import { fmtJointInfo, hideHoverTip } from "../ui/hoverTip";
 
 // 拖移期間的 closure 狀態:模組單例,只跟 popup 的一份 DOM 對應

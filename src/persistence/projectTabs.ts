@@ -20,7 +20,7 @@ import {
   promptName, escapeHtml,
   closeProjectById,
   _t,
-} from "../legacy";
+} from "../app/integration";
 import { showBusy, hideBusy, busyTick } from "../ui/busy";
 
 export const projects: any[] = [];

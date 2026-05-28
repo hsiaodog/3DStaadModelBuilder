@@ -25,7 +25,7 @@ import {
   checkBgPendingAfterSelect,
   clearSelection, clearAllBgSelection,
   createGlobalJoint,
-  deleteSelectedFiles, deleteSelection,
+  deleteSelectedFiles, deleteSelection, processIntersections, processIntersectionsForSelection,
   displayJointId, displayMemberId,
   duplicateJointOnAxis, extendJointAxisToIntersect, extendSelectedMembersToIntersect,
   effectiveAttr,
@@ -47,13 +47,13 @@ import {
   consolidateAllPagesWithConfirm,
   _runFitMergeByPrecision,
   _run3DOneClickPipeline,
-  relayoutNumberingAll, relayoutMembersNumberingAll,
+  relayoutNumberingAll, relayoutMembersNumberingAll, relayoutNumbering, relayoutMembersNumbering,
   open3DPreviewDialog,
   openMaterialMgrWindow,
   openSearchWindow,
   openGlobalJointMgrDialog,
-  startExtendableMemberCheck,
-  newProjectPrompt, openProjectWithPicker,
+  startExtendableMemberCheck, startExtendableMemberCheckCurrentPage,
+  newProjectPrompt, openProjectWithPicker, startMoveMode, startMeasureFromCurrentSelection, getOrCreateJointOnPage,
   _startSaveWithHook,
   closeCurrentProject,
   toggleShapeMarqueeMode,
@@ -62,9 +62,9 @@ import {
   startScaleRulerDrag,
   setProjectDirty,
   inferAllGlobalJoints,
-} from "../legacy";
+} from "../app/integration";
 import { invalidateRankCache, _worldForRank } from "../core/rankCache";
-import { showBusy, hideBusy, busyTick } from "../ui/busy";
+import { showBusy, hideBusy, busyTick, showBusyWithCancel, setBusyMessage } from "../ui/busy";
 
 // ---------- 標示字體整體放大 / 縮小 / 顯示切換 ----------
 //   舊版 btnLblToggle 已拆成兩顆獨立按鈕(節點 / 桿件)。
@@ -895,7 +895,7 @@ export function updateCalibrateButton() {
 //   3) 比例尺端點同步重縮放,維持畫面上的對位
 //      → 結果:節點/桿件清單顯示一律是整數 mm,桿件長度精確到 1 mm
 //      → 重複按校準不會累積浮點誤差
-function calibratePlane() {
+export function calibratePlane() {
   const file = getActiveFile();
   if (!file) { alert("尚未載入底圖"); return; }
   const hasRuler  = !!file.scaleRuler;
@@ -1093,7 +1093,7 @@ function _bgFindSelectedRects() {
 //   "center":中軸(沿長邊)
 //   "top":   上邊(y 較小,在螢幕上方;水平/垂直長方形都用「上方水平邊」)
 //   "bottom":下邊(y 較大,在螢幕下方;水平/垂直長方形都用「下方水平邊」)
-function bgRectsToMembers(mode) {
+export function bgRectsToMembers(mode) {
   mode = mode || "center";
   const file = getActiveFile();
   const p = getPage();
@@ -1424,7 +1424,7 @@ export function svgElementToSegments(el2) {
   return segs;
 }
 
-function zoomToSelection() {
+export function zoomToSelection() {
   const p = getPage();
   if (!p) return;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;

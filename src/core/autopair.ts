@@ -7,9 +7,9 @@
 //     建議用法:加 `withBusy` spinner 包起來,或事先估規模 + 提示。
 //     真正解法是 spatial index(分桶,outer loop 只看同桶 / 鄰桶)。
 
-import { state } from "../legacy";
+import { state } from "../app/integration";
 import { joint2DToWorld3D } from "./projection";
-import { displayJointId } from "../legacy";
+import { displayJointId } from "../app/integration";
 
 export interface AutoPairCandidate {
   type: "triple" | "pair";

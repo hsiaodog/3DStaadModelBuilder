@@ -6,7 +6,7 @@ import {
   state, $, render, refreshLists, escapeHtml,
   pushUndo, clearSelection, _markSelectionSourceIfEmpty,
   activatePageWithBusy, calibrateAllFilesToGlobalOrigin,
-} from "../legacy";
+} from "../app/integration";
 import { listGlobalBindings, inferAllGlobalJoints } from "../core/globalJoints";
 import { _displayIdForJointWith } from "../core/displayId";
 

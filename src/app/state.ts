@@ -134,11 +134,11 @@ export const state = {
 //   ESM 不允許跨模組對 `let` 做 ++,所以提供 alloc/set 函式給其他模組使用。
 //   專案切換時由 projectTabs.loadProjectDataFromP 透過 setter 重設。
 export let nextJointId = 1, nextMemberId = 1, nextFileId = 1, nextGlobalJointId = 1, nextGlobalMemberId = 1;
-export function allocJointId() { return allocJointId(); }
-export function allocMemberId() { return allocMemberId(); }
-export function allocFileId() { return allocFileId(); }
-export function allocGlobalJointId() { return allocGlobalJointId(); }
-export function allocGlobalMemberId() { return allocGlobalMemberId(); }
+export function allocJointId() { return nextJointId++; }
+export function allocMemberId() { return nextMemberId++; }
+export function allocFileId() { return nextFileId++; }
+export function allocGlobalJointId() { return nextGlobalJointId++; }
+export function allocGlobalMemberId() { return nextGlobalMemberId++; }
 export function setNextJointId(v: number) { nextJointId = v; }
 export function setNextMemberId(v: number) { nextMemberId = v; }
 export function setNextFileId(v: number) { nextFileId = v; }

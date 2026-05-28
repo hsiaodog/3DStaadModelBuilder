@@ -17,7 +17,7 @@ import {
   addBgLineWorld, _refreshBgDrawButtonStates,
   bgSingleLineWorldEnds, groupCollinearLines,
   _selectedBgLinesAsWorld,
-} from "../legacy";
+} from "../app/integration";
 
 // ---------- 畫直線 / 畫虛線 ----------
 //   兩者共用 state.bgDrawLine 狀態與 commit 流程,差別只在 dasharray:

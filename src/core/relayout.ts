@@ -17,7 +17,7 @@ import {
   nextJointId, nextMemberId, setNextJointId, setNextMemberId,
   _fileHasFullSetup, _populateSectionLinkJointsForFile,
   autoBindGlobalMembers, dedupSamePageMembers, unifyCrossPageMemberIds,
-} from "../legacy";
+} from "../app/integration";
 import { joint2DToWorld3D } from "./projection";
 import { showBusyWithCancel, setBusyMessage, busyTick, hideBusy } from "../ui/busy";
 import { wrapPosSort as _wrapPosSort } from "../utils/sort";

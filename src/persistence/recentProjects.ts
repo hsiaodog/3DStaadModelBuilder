@@ -5,7 +5,7 @@
 //     瀏覽器(File System Access API)不允許讀絕對路徑,只能靠 size + mtime 當指紋分辨
 //   handle 是 FileSystemFileHandle,可在使用者手勢下 requestPermission 重新取得讀寫權限。
 
-import { withBusy, loadProjectFull } from "../legacy";
+import { withBusy, loadProjectFull } from "../app/integration";
 
 
 // ── 最近開啟過的專案(File 選單 → 開啟專案 → 子選單列出)──

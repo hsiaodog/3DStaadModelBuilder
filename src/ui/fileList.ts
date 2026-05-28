@@ -10,7 +10,7 @@ import {
   $, state, getActiveFile, pushUndo, render, refreshLists,
   activatePage, activatePageWithBusy, initBlank,
   _t,
-} from "../legacy";
+} from "../app/integration";
 import { ctxState } from "../dialogs/ctxMenu";
 
 export function fileTypeLabel(f) {

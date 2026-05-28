@@ -19,7 +19,7 @@ import {
   updateSelectToolLabel,
   _setToolFinishVisuals, paintEmptyCanvasMessage,
   _searchWin, _materialMgrWin, _3dPreviewWindow,
-} from "../legacy";
+} from "../app/integration";
 
 // ============================================================================
 // 語言包(i18n)

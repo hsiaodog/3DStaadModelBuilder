@@ -12,7 +12,7 @@
 import { MAX_UNDO } from "../constants";
 import { state } from "./state";
 import { $ } from "./dom";
-import { snapshot, applySnap } from "../state/snapshot";
+import { snapshot, applySnap } from "../persistence/snapshot";
 import { invalidateRankCache } from "../core/rankCache";
 import { inferAllGlobalJoints } from "../core/globalJoints";
 import { showBusy, hideBusy, busyTick } from "../ui/busy";
@@ -24,7 +24,7 @@ import {
   applyBgRotation, syncUserBgLinesToDom,
   updatePlaneOriginButton, updateScaleRulerButton, updateCalibrateButton,
   activatePage,
-} from "../legacy";
+} from "../app/integration";
 
 export const undoStack: any[] = [];
 export const redoStack: any[] = [];

@@ -1,7 +1,7 @@
 // Phase 1 — main entry。
 //   1) inline pdf.js + worker(? raw 把 UMD source 當字串 import,global eval → window.pdfjsLib)
 //   2) worker source 也 inline,跑 Blob URL 設給 GlobalWorkerOptions.workerSrc
-//   3) import legacy.ts(整段舊 code,@ts-nocheck)
+//   3) import app/integration.ts(整段舊 code,@ts-nocheck)
 //   4) import style.css(Vite CSS pipeline 處理)
 // 目標:dist/index.html 是真正單檔(2.5MB 左右,含 pdf.js 1.4MB),雙擊即開。
 
@@ -44,5 +44,5 @@ try {
   console.error("[pdf.js] worker blob 設定失敗:", e);
 }
 
-// 把舊 legacy code 整段拉進來執行(@ts-nocheck;之後 phase 會逐步拆模組)
-import "./legacy.ts";
+// 把整合層拉進來執行(@ts-nocheck;之後 phase 會逐步拆模組)
+import "./app/integration.ts";

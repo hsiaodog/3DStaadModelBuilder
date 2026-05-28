@@ -35,7 +35,7 @@ import {
   findRectangleBgLines, findCircleBgPaths, findStraightBgLines, findDiagonalBgSegments,
   _startSaveWithHook,
   withBusy,
-} from "../legacy";
+} from "../app/integration";
 
 // ---------- pan/zoom ----------
 // 互動中標記:滾輪 / 平移期間打開 body.interacting,閒置 250ms 後拿掉
@@ -54,6 +54,15 @@ function markInteracting() {
 //   下方 keydown/keyup 透過 setCKeyDown 寫(ESM 不允許跨函式 reassign export let)
 export let cKeyDown = false;
 export function setCKeyDown(v: boolean) { cKeyDown = v; }
+
+// 共享 input state — integration.ts(舊 legacy 在 bg svg event delegate)也會讀 panning
+//   原本是 wireCanvasEvents() 內部 closure;extract 之後其他模組讀不到 → 改 module-top export let
+export let panning = false;
+export function setPanning(v: boolean) { panning = v; }
+export let rangeZoomDragStart: any = null;
+export function setRangeZoomDragStart(v: any) { rangeZoomDragStart = v; }
+export let rangeZoomSuppressClick = false;
+export function setRangeZoomSuppressClick(v: boolean) { rangeZoomSuppressClick = v; }
 
 // 所有 canvas / window 互動 listener 都包進來,由 legacy.ts 延後 call(避免 TDZ)
 export function wireCanvasEvents() {
@@ -74,7 +83,7 @@ wrap.addEventListener("wheel", (e) => {
   render();
 }, { passive: false });
 
-let panning = false, panStart = null;
+let panStart: any = null;
 let mouseDownPos = null;
 let alignDrag = null;     // 手動對齊拖曳:{ startX, startY, startRot, snapshotPushed }
 let dragMove = null;      // 選取後拖曳節點:{ startX, startY, positions:Map, axis, moved }
@@ -83,7 +92,7 @@ wrap.addEventListener("mousedown", (e) => {
   if (state.rangeZoomMode && e.button === 0) {
     // 範圍放大:mousedown 記錄拖曳起點,mouseup 依位移判定拖曳 / 點擊
     const r = wrap.getBoundingClientRect();
-    rangeZoomDragStart = { x: e.clientX - r.left, y: e.clientY - r.top };
+    setRangeZoomDragStart({ x: e.clientX - r.left, y: e.clientY - r.top });
     e.preventDefault();
     return;
   }
@@ -108,7 +117,7 @@ wrap.addEventListener("mousedown", (e) => {
   }
   if (e.button === 0) mouseDownPos = { x: e.clientX, y: e.clientY };
   if (e.button === 1 || (e.button === 0 && state.spaceDown)) {
-    panning = true; panStart = { x: e.clientX, y: e.clientY, panX: state.panX, panY: state.panY };
+    setPanning(true); panStart = { x: e.clientX, y: e.clientY, panX: state.panX, panY: state.panY };
     wrap.style.cursor = "grabbing";
     e.preventDefault();
     return;
@@ -182,12 +191,12 @@ window.addEventListener("mouseup", (e) => {
     const r = wrap.getBoundingClientRect();
     const mx = e.clientX - r.left, my = e.clientY - r.top;
     const start = rangeZoomDragStart;
-    rangeZoomDragStart = null;
+    setRangeZoomDragStart(null);
     const dx = mx - start.x, dy = my - start.y;
     if (Math.hypot(dx, dy) > 4) {
       // 真的有拖曳 → 直接以拖曳矩形完成範圍放大,並抑制緊接的 click 事件
-      rangeZoomSuppressClick = true;
-      setTimeout(() => { rangeZoomSuppressClick = false; }, 0);
+      setRangeZoomSuppressClick(true);
+      setTimeout(() => { setRangeZoomSuppressClick(false); }, 0);
       finalizeRangeZoomRect(start.x, start.y, mx, my);
       return;
     }
@@ -202,7 +211,7 @@ window.addEventListener("mouseup", (e) => {
       w: Math.abs(m.x2 - m.x1), h: Math.abs(m.y2 - m.y1),
     };
   }
-  panning = false;
+  setPanning(false);
   if (!state.manualAlign.active) wrap.style.cursor = state.spaceDown ? "grab" : "none";
   if (state.marquee) {
     const m = state.marquee;

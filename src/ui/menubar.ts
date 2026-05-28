@@ -20,7 +20,7 @@ import {
   ensureRwPermission, loadProjectFull, newProjectPrompt,
   relayoutNumberingAll, relayoutMembersNumberingAll,
   startExtendableMemberCheck, _startSaveWithHook,
-} from "../legacy";
+} from "../app/integration";
 import { exportXlsxFile } from "../export/xlsx";
 import { openXlsxSettingsDialog } from "../dialogs/xlsxSettings";
 import { openFloorTypesDialog } from "../dialogs/floorTypes";
@@ -28,7 +28,7 @@ import { openGlobalJointMgrDialog } from "../dialogs/globalJoints";
 import { openMaterialMgrWindow } from "../dialogs/materialMgr";
 import { open3DPreviewDialog } from "../dialogs/preview3d";
 import { openSearchWindow } from "../dialogs/search";
-import { _getRecentProjects, _openRecentProject, _removeRecentProject } from "../state/recentProjects";
+import { _getRecentProjects, _openRecentProject, _removeRecentProject } from "../persistence/recentProjects";
 import { _t, _setLanguage } from "../i18n";
 
 // ---------- 頂部主選單列 ----------

@@ -15,7 +15,7 @@ import {
   updatePlaneOriginButton, updateCalibrateButton,
   refreshPageCoordSection, refreshSectionLinkList,
   _updateGlobalOriginUI,
-} from "../legacy";
+} from "../app/integration";
 import { inferAllGlobalJoints } from "../core/globalJoints";
 
 export function calibrateAllFilesToGlobalOrigin(opts) {

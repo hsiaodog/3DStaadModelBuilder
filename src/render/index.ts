@@ -23,7 +23,7 @@ import {
   _computeOutsideMarkerLine, _getMergedSectionLinks, _projectPointOnLine,
   // Phase 6 fix 3:DOM 容器、C 鍵旗標、ID 配發器
   wrap, cKeyDown, allocJointId, allocMemberId,
-} from "../legacy";
+} from "../app/integration";
 import { _worldForRank } from "../core/rankCache";
 import { setDebugVar, getDebugVar } from "../utils/debug";
 

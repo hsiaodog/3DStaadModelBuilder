@@ -18,7 +18,7 @@ import {
   getActiveFile, displayMemberId, pushUndo, refreshLists, render,
   activatePageWithBusy, _zoomMainCanvasToRect,
   _3dPreviewWindow,
-} from "../legacy";
+} from "../app/integration";
 import { _displayIdForJointWith } from "../core/displayId";
 import { joint2DToWorld3D } from "../core/projection";
 import { _worldForRank } from "../core/rankCache";

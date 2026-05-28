@@ -9,7 +9,7 @@
 
 import { state } from "./state";
 import { stage, wrap, $ } from "./dom";
-import { getActiveFile, render, selectFilterLabel, _t } from "../legacy";
+import { getActiveFile, render, selectFilterLabel, _t } from "../app/integration";
 
 export function applyTransform() {
   stage.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;

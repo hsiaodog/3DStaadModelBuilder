@@ -21,7 +21,7 @@ import {
   setTool, clearSelection, exitSplitMode, clearAllBgSelection,
   activatePageWithBusy, escapeHtml,
   allocJointId, allocMemberId,
-} from "../legacy";
+} from "../app/integration";
 import { joint2DToWorld3D, world3DToJoint2D } from "../core/projection";
 
 // ---------- 切面關聯 ----------
