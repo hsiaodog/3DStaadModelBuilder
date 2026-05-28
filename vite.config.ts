@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite';
 import { viteSingleFile } from 'vite-plugin-singlefile';
-import { readFileSync, renameSync, existsSync } from 'node:fs';
+import { readFileSync, renameSync, copyFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 // 從 package.json 讀版本(用 readFileSync 而非 import,避免 TS 抱怨 JSON import 設定)
@@ -18,13 +18,17 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 export default defineConfig({
   plugins: [
     viteSingleFile(),
-    // build 完把 dist/app.html 改名成 dist/index.html(預設 web server entry name)
+    // build 完把 dist/app.html 改名成 dist/index.html(預設 web server entry name),
+    // 同時複製一份到 repo 根目錄叫 STAAD-Tracer.html — 給「git clone 即可用」的使用者
+    // 直接雙擊。這份是 git tracked,每次 release 前重 build + commit 就會更新到最新版。
     {
-      name: 'rename-app-to-index',
+      name: 'rename-app-and-publish-to-root',
       closeBundle() {
-        const from = resolve(__dirname, 'dist/app.html');
-        const to   = resolve(__dirname, 'dist/index.html');
-        if (existsSync(from)) renameSync(from, to);
+        const built = resolve(__dirname, 'dist/app.html');
+        const distIndex = resolve(__dirname, 'dist/index.html');
+        const rootApp = resolve(__dirname, 'STAAD-Tracer.html');
+        if (existsSync(built)) renameSync(built, distIndex);
+        if (existsSync(distIndex)) copyFileSync(distIndex, rootApp);
       },
     },
   ],
