@@ -21,7 +21,9 @@ import {
 } from "../app/integration";
 import { _displayIdForJointWith } from "../core/displayId";
 import { joint2DToWorld3D } from "../core/projection";
-import { _worldForRank } from "../core/rankCache";
+import { _worldForRank, invalidateRankCache } from "../core/rankCache";
+import { hasSupport, supportTypeOf, supportLabel } from "../core/support";
+import { pickSupportModal } from "./supportDialog";
 import { _t, _applyI18nOnDoc } from "../i18n";
 import { openMaterialMgrWindow } from "./materialMgr";
 
@@ -313,6 +315,7 @@ export function openSearchWindow() {
           <label class="bg-btn bg-btn-lg checked"><input type="radio" name="searchType" value="member" checked><span data-i18n="search.tab.member">桿件</span></label>
           <label class="bg-btn bg-btn-lg"><input type="radio" name="searchType" value="joint"><span data-i18n="search.tab.joint">節點</span></label>
           <label class="bg-btn bg-btn-lg" title="依「材料名稱」搜尋桿件"><input type="radio" name="searchType" value="material"><span data-i18n="search.tab.material">材料</span></label>
+          <label class="bg-btn bg-btn-lg" title="依支承類型搜尋節點,並可批次設定 / 清除支承"><input type="radio" name="searchType" value="support"><span data-i18n="search.tab.support">節點支承</span></label>
         </div>
       </div>
       <div class="cols collapsible-when-done">
@@ -385,6 +388,18 @@ export function openSearchWindow() {
             <div id="materialIdComboMenu" class="mat-combo-menu" style="display:none"></div>
           </div>
           <button class="id-hist-btn" data-hist-target="materialIdInput" data-hist-type="material" data-i18n="search.histBtn" type="button" title="最近 50 筆材料搜尋紀錄">歷史 ▾</button>
+        </div>
+      </div>
+      <div class="block" data-role="supportSection">
+        <span class="block-label" data-i18n="search.supportType">支承類型:</span>
+        <div class="bg-btn-group" id="supportTypeFilter">
+          <label class="bg-btn checked" title="所有有支承的節點"><input type="checkbox" value="__any__" checked>有支承</label>
+          <label class="bg-btn"><input type="checkbox" value="FIXED">FIXED</label>
+          <label class="bg-btn"><input type="checkbox" value="PINNED">PINNED</label>
+          <label class="bg-btn"><input type="checkbox" value="FIXED_BUT">FIXED BUT</label>
+          <label class="bg-btn"><input type="checkbox" value="SPRING">SPRING</label>
+          <label class="bg-btn"><input type="checkbox" value="ENFORCED">ENFORCED</label>
+          <label class="bg-btn" title="沒有支承的節點(可用於批次新增支承)"><input type="checkbox" value="__none__">無支承</label>
         </div>
       </div>
       <!-- 搜尋按鈕列(結果包含 也移到這排 → 跟操作按鈕同一列) -->
@@ -576,15 +591,36 @@ export function openSearchWindow() {
       });
     });
   }
-  // 顯示 / 隱藏 section(三種 mode 各自的 block:memberSection / jointSection / materialSection)
+  // 顯示 / 隱藏 section(各 mode 各自的 block:memberSection / jointSection / materialSection / supportSection)
   function syncSections() {
     const type = body.querySelector("input[name=searchType]:checked").value;
     body.querySelectorAll("[data-role=memberSection]")  .forEach(el => el.style.display = type === "member"   ? "" : "none");
     body.querySelectorAll("[data-role=jointSection]")   .forEach(el => el.style.display = type === "joint"    ? "" : "none");
     body.querySelectorAll("[data-role=materialSection]").forEach(el => el.style.display = type === "material" ? "" : "none");
+    body.querySelectorAll("[data-role=supportSection]") .forEach(el => el.style.display = type === "support"  ? "" : "none");
   }
   body.querySelectorAll("input[name=searchType]").forEach(r => r.addEventListener("change", syncSections));
   syncSections();
+  // 支承類型 filter 的輕量 mutex:勾「有支承 / 無支承」⇄ 具體類型 互斥(避免語意衝突)
+  {
+    const supFilter = body.querySelector("#supportTypeFilter");
+    if (supFilter) {
+      const _setChk = (cb, v) => { cb.checked = v; const l = cb.closest(".bg-btn"); if (l) l.classList.toggle("checked", v); };
+      supFilter.addEventListener("change", (e) => {
+        const inp = e.target;
+        if (!inp || inp.type !== "checkbox") return;
+        const all = Array.from(supFilter.querySelectorAll("input[type=checkbox]"));
+        const isMeta = (v) => v === "__any__" || v === "__none__";
+        if (inp.checked && isMeta(inp.value)) {
+          // 勾 meta → 取消所有具體類型 + 另一個 meta
+          for (const cb of all) if (cb !== inp) _setChk(cb, false);
+        } else if (inp.checked && !isMeta(inp.value)) {
+          // 勾具體類型 → 取消 meta
+          for (const cb of all) if (isMeta(cb.value)) _setChk(cb, false);
+        }
+      });
+    }
+  }
   // 節點範圍 mutex:單點 與「方向 / 相鄰斜撐」互斥(任何 X/Y/Z 軸或 相鄰斜撐 被選 → 單點自動取消;反之亦然)
   //   方向軸彼此之間以及 軸 vs 相鄰斜撐 可以同時存在(不互斥)
   const scopeBoxes = body.querySelectorAll("input[name=scope]");
@@ -933,7 +969,7 @@ export function openSearchWindow() {
     const origBtnLabel = btnSearch.textContent;
     btnSearch.disabled = true;
     btnSearch.textContent = "搜尋中…";
-    const _typeLabel = type === "material" ? "材料" : (type === "member" ? "桿件" : "節點");
+    const _typeLabel = type === "material" ? "材料" : (type === "member" ? "桿件" : (type === "support" ? "節點支承" : "節點"));
     resultsDiv.textContent = `⏳ 搜尋中…(${_typeLabel}${idText ? ` · ${idText}` : ""})`;
     // 收合 top panel,讓結果區塊看起來更大(展開設定 按鈕可一鍵還原)
     try { _collapseTopPanel(); } catch (_) {}
@@ -946,6 +982,25 @@ export function openSearchWindow() {
       let result;
       const t0 = performance.now();
       try {
+        if (type === "support") {
+          // 節點支承模式:依支承類型 filter 收集節點(獨立路徑,不走 _searchModel)
+          const supChecked = Array.from(body.querySelectorAll("#supportTypeFilter input[type=checkbox]:checked")).map(c => c.value);
+          result = _collectSupportJoints({ supChecked, idText, fileIds, planeFilters });
+          _lastResult = result;
+          const t1s = performance.now();
+          resultsDiv.textContent = `⏳ 渲染 ${result.joints.length} 個支承節點…`;
+          setTimeout(() => {
+            try {
+              _renderSupportResults(resultsDiv, doc, result, win);
+              if (idText) { _pushSearchHistory("joint", idText); _refreshHistUI(); }
+              console.log(`[search] support model=${(t1s - t0).toFixed(1)}ms`);
+            } catch (e) {
+              console.error("[search] support render failed:", e);
+              resultsDiv.textContent = "渲染失敗:" + (e && e.message ? e.message : String(e));
+            } finally { restore(); }
+          }, 0);
+          return;
+        }
         result = _searchModel({ type, memberDir: "all", scope, memberScope, includeMembers, onlyJoints, idText, fileIds, planeFilters });
         // 方向篩選:節點搜尋 + 含桿件/只有桿件 + 軸/斜撐 scope 時,只保留方向相符的桿件
         //   (避免「Y 軸 + 只有桿件」把 Y 軸節點上連接的 X / Z / 斜 也一併納入)
@@ -1585,6 +1640,8 @@ export function _renderSearchResults(div, doc, result, win) {
   //   特例:結果只有節點、無桿件 → 自動勾選(否則 coord-off 會把僅有的獨立節點藏掉、整張表變空)
   const _persistKey = "__searchShowCoords";
   const _onlyJoints = result.joints.length > 0 && result.members.length === 0;
+  // 結果全是節點(沒有桿件)→ 表格省略桿件專用欄(方向 / 長度 / 表單 / 材料)
+  const _hasMembers = (result.members || []).length > 0;
   const _showCoords = (result._showCoords !== undefined)
     ? !!result._showCoords
     : (_onlyJoints
@@ -1672,6 +1729,7 @@ export function _renderSearchResults(div, doc, result, win) {
   const groupRows = [];  // 每個 page header row + 其在 flatRows 的範圍,支援「整頁選取」
   let lastClickIdx = -1;
   let matInput = null, selInfoSpan = null;
+  let _focusMaterialPicker = null;   // 由材料工具列指派;右鍵「設定材料」會用到
   const refreshSelectionUI = () => {
     for (const r of flatRows) r.tr.classList.toggle("sel", selectedKeys.has(r.key));
     // 整頁高亮:某 page 的所有 member 都被選 → 該頁 header 列加上 all-sel
@@ -1684,6 +1742,43 @@ export function _renderSearchResults(div, doc, result, win) {
     }
     if (selInfoSpan) selInfoSpan.textContent = `已選 ${selectedKeys.size} 條`;
   };
+  // === 節點選取(支承用),獨立於 member 選取;key = `${fileId}|${pageKey}|${jointId}` ===
+  const selJointKeys = new Set();
+  const flatJointRows = [];   // 所有可選 joint 列(含獨立節點 + 桿件端點列)
+  let lastJointClickIdx = -1;
+  let supSelInfoSpan = null;
+  const refreshJointSelectionUI = () => {
+    for (const r of flatJointRows) r.tr.classList.toggle("sel", selJointKeys.has(r.key));
+    if (supSelInfoSpan) supSelInfoSpan.textContent = `已選 ${selJointKeys.size} 點`;
+  };
+  // 套用支承到目前選取的節點(走共用 helper),並更新工具列訊息
+  const applySupportToSelectedJoints = (support) => {
+    if (!selJointKeys.size) {
+      if (supSelInfoSpan) {
+        supSelInfoSpan.textContent = "請先點選節點列(Shift / Cmd 多選)";
+        supSelInfoSpan.style.color = "#ff7676";
+        setTimeout(() => { supSelInfoSpan.style.color = ""; refreshJointSelectionUI(); }, 1800);
+      }
+      return;
+    }
+    const { changed, crossPageCount } = _applySupportToResultJoints(flatJointRows, selJointKeys, support);
+    if (supSelInfoSpan) {
+      supSelInfoSpan.style.color = "#7fd3ff";
+      const extra = crossPageCount ? ` ・ 跨頁 ${crossPageCount}` : "";
+      supSelInfoSpan.textContent = `✓ ${support ? `設為 ${support.type}` : "清除支承"} ${changed} 點${extra}`;
+      setTimeout(() => { supSelInfoSpan.style.color = ""; refreshJointSelectionUI(); }, 2500);
+    }
+  };
+  const _openSupModalForSelection = async () => {
+    if (!selJointKeys.size) { applySupportToSelectedJoints(null); return; }   // 觸發「請先選取」提示
+    let preset = null;
+    for (const r of flatJointRows) { if (selJointKeys.has(r.key) && r.j.support) { preset = r.j.support; break; } }
+    const chosen = await pickSupportModal(selJointKeys.size, preset, doc);
+    if (chosen == null) return;
+    applySupportToSelectedJoints(chosen);
+  };
+  // === 右鍵選單(依列類型:桿件→設定材料、節點→設定支承)===
+  const { show: _showCtxMenu, close: _closeCtxMenu } = _makeResultCtxMenu(doc);
   if (result.members.length) {
     const tbar = doc.createElement("div");
     tbar.className = "mat-toolbar";
@@ -1708,6 +1803,11 @@ export function _renderSearchResults(div, doc, result, win) {
     const matMenu = tbar.querySelector("#matComboMenu");
     const matTableSel = tbar.querySelector("#matTableSel");
     selInfoSpan = tbar.querySelector("#selInfo");
+    // 給右鍵「設定材料」用:捲到材料工具列 + focus 材料輸入框(打開下拉讓使用者挑)
+    _focusMaterialPicker = () => {
+      try { tbar.scrollIntoView({ block: "nearest" }); } catch (_) {}
+      if (matInput) { matInput.focus(); matInput.dispatchEvent(new Event("focus")); }
+    };
     // 表單下拉:從 state.materials 蒐集所有不重複的 table 值(含「(全部)」與「(無表單)」)
     const _fillTableSel = () => {
       const prev = matTableSel.value;
@@ -1987,6 +2087,29 @@ export function _renderSearchResults(div, doc, result, win) {
     });
   }
 
+  // === 支承工具列(一般結果表):選取節點列 → 設定 / 清除支承 ===
+  //   只在 coord-on(節點會以獨立列顯示)時提供;coord-off 模式節點併在桿件列內無法逐點選
+  if ((_showCoords || !_hasMembers) && (result.joints.length || result.members.length)) {
+    const stbar = doc.createElement("div");
+    stbar.className = "mat-toolbar";
+    stbar.innerHTML =
+      `<span class="mt-label">節點支承:</span>` +
+      `<button id="btnJSupFixed" class="primary" title="把所選節點設為 FIXED(6 自由度全鎖)">快速 FIXED</button>` +
+      `<button id="btnJSupPinned" title="設為 PINNED(鎖位移不鎖旋轉)">快速 PINNED</button>` +
+      `<button id="btnJSupAdv" title="開支承設定視窗(FIXED BUT / SPRING / ENFORCED),套用到所選節點">設定支承…</button>` +
+      `<button id="btnJSupClear" title="清除所選節點的支承">清除支承</button>` +
+      `<span class="mt-sep">|</span>` +
+      `<button id="btnJSupSelNone" title="清除節點選取">全不選</button>` +
+      `<span id="supSelInfo" class="mt-info">已選 0 點</span>`;
+    div.appendChild(stbar);
+    supSelInfoSpan = stbar.querySelector("#supSelInfo");
+    stbar.querySelector("#btnJSupFixed").addEventListener("click", () => applySupportToSelectedJoints({ type: "FIXED" }));
+    stbar.querySelector("#btnJSupPinned").addEventListener("click", () => applySupportToSelectedJoints({ type: "PINNED" }));
+    stbar.querySelector("#btnJSupClear").addEventListener("click", () => applySupportToSelectedJoints(null));
+    stbar.querySelector("#btnJSupAdv").addEventListener("click", () => _openSupModalForSelection());
+    stbar.querySelector("#btnJSupSelNone").addEventListener("click", () => { selJointKeys.clear(); lastJointClickIdx = -1; refreshJointSelectionUI(); });
+  }
+
   // === group by file+page ===
   const groups = new Map();
   const add = (item, kind) => {
@@ -2141,15 +2264,19 @@ export function _renderSearchResults(div, doc, result, win) {
       const tbl = doc.createElement("table");
       tbl.className = "res-table member-tbl";
       const cap = doc.createElement("caption");
-      cap.textContent = "節點 + 桿件(Click 選桿件列 / Shift 範圍 / Cmd 加減選)";
+      cap.textContent = _hasMembers
+        ? "節點 + 桿件(Click 選桿件列 / Shift 範圍 / Cmd 加減選)"
+        : "節點(Click 選列 / Shift 範圍 / Cmd 加減選)";
       tbl.appendChild(cap);
       const thead = doc.createElement("thead");
-      thead.innerHTML = _showCoords
-        ? `<tr><th>ID</th><th>方向</th>` +
-          `<th class="num">X</th><th class="num">Y</th><th class="num">Z</th>` +
-          `<th class="num">長度</th><th>表單</th><th>材料</th></tr>`
-        : `<tr><th>ID</th><th>方向</th><th>J1</th><th>J2</th>` +
-          `<th class="num">長度</th><th>表單</th><th>材料</th></tr>`;
+      thead.innerHTML = !_hasMembers
+        ? `<tr><th>ID</th><th class="num">X</th><th class="num">Y</th><th class="num">Z</th><th>節點支承</th></tr>`
+        : _showCoords
+          ? `<tr><th>ID</th><th>方向</th>` +
+            `<th class="num">X</th><th class="num">Y</th><th class="num">Z</th>` +
+            `<th class="num">長度</th><th>表單</th><th>材料</th><th>節點支承</th></tr>`
+          : `<tr><th>ID</th><th>方向</th><th>J1</th><th>J2</th>` +
+            `<th class="num">長度</th><th>表單</th><th>材料</th><th>節點支承</th></tr>`;
       tbl.appendChild(thead);
       const tbody = doc.createElement("tbody");
 
@@ -2157,32 +2284,80 @@ export function _renderSearchResults(div, doc, result, win) {
       //    coord-off 模式下節點失去座標欄,沒太多意義 → 直接隱藏
       const memberEndpointIds = new Set();
       for (const m of g.members) { memberEndpointIds.add(m.j1); memberEndpointIds.add(m.j2); }
-      const standaloneJoints = _showCoords ? g.joints.filter(j => !memberEndpointIds.has(j.id)) : [];
+      const standaloneJoints = (_showCoords || !_hasMembers) ? g.joints.filter(j => !memberEndpointIds.has(j.id)) : [];
       const sortedJoints = standaloneJoints
         .map(j => ({ j, w: _world(g.file, g.page, j) }))
         .filter(x => x.w)
         .sort((a, b) => _cmpCoord(a.w, b.w));
+      const _supShortLbl = { FIXED: "FIXED", PINNED: "PINNED", FIXED_BUT: "FIXED BUT", SPRING: "SPRING", ENFORCED: "ENFORCED" };
       const _mkJointRow = (j, w, isEndpoint) => {
         const did = "J" + (typeof _displayIdForJointWith === "function" ? _displayIdForJointWith(g.file, g.page, j) : j.id);
         const tr = doc.createElement("tr");
         tr.className = isEndpoint ? "endpoint-row" : "joint-row";
+        tr.style.cursor = "pointer";
         const tdId = doc.createElement("td");
-        tdId.className = "col-jid" + (j.isAnchor ? " anchor" : "") + (isEndpoint ? " endpoint-id" : "");
-        tdId.textContent = did + (j.isAnchor ? " ▼" : "");
+        const tdSup = doc.createElement("td");   // 「節點支承」欄(完整內容)
+        const _updateCell = () => {
+          const st = supportTypeOf(j);
+          tdId.className = "col-jid" + (st ? " anchor" : "") + (isEndpoint ? " endpoint-id" : "");
+          tdId.textContent = did + (st ? " ▼" : "");
+          tdSup.className = st ? "col-mat" : "muted";
+          tdSup.textContent = st ? (supportLabel(j.support) || st) : "—";
+        };
+        _updateCell();
         tr.appendChild(tdId);
-        const tdDir = doc.createElement("td"); tdDir.className = "col-dir muted"; tdDir.textContent = "—";
-        tr.appendChild(tdDir);
-        for (const v of [w.x, w.y, w.z]) {
-          const td = doc.createElement("td"); td.className = "num"; td.textContent = _fmtN(v);
-          tr.appendChild(td);
+        if (_hasMembers) {
+          // 與桿件列同欄位:方向 / X / Y / Z / 長度 / 表單 / 材料(節點列這些都是 placeholder)
+          const tdDir = doc.createElement("td"); tdDir.className = "col-dir muted"; tdDir.textContent = "—";
+          tr.appendChild(tdDir);
+          for (const v of [w.x, w.y, w.z]) {
+            const td = doc.createElement("td"); td.className = "num"; td.textContent = _fmtN(v);
+            tr.appendChild(td);
+          }
+          const tdLen = doc.createElement("td"); tdLen.className = "num muted"; tdLen.textContent = "—";
+          tr.appendChild(tdLen);
+          const tdTbl = doc.createElement("td"); tdTbl.className = "muted"; tdTbl.textContent = "—";
+          tr.appendChild(tdTbl);
+          const tdMat = doc.createElement("td"); tdMat.className = "muted"; tdMat.textContent = "—";
+          tr.appendChild(tdMat);
+        } else {
+          // 純節點結果:只放 X / Y / Z(省略桿件專用欄)
+          for (const v of [w.x, w.y, w.z]) {
+            const td = doc.createElement("td"); td.className = "num"; td.textContent = _fmtN(v);
+            tr.appendChild(td);
+          }
         }
-        const tdLen = doc.createElement("td"); tdLen.className = "num muted"; tdLen.textContent = "—";
-        tr.appendChild(tdLen);
-        // 表單 / 材料 兩欄(joint 列無材料,placeholder)
-        const tdTbl = doc.createElement("td"); tdTbl.className = "muted"; tdTbl.textContent = "—";
-        tr.appendChild(tdTbl);
-        const tdMat = doc.createElement("td"); tdMat.className = "muted"; tdMat.textContent = "—";
-        tr.appendChild(tdMat);
+        tr.appendChild(tdSup);   // 節點支承欄(最後)
+        // === 節點選取(支承用)+ 右鍵選單 ===
+        const jkey = `${g.file.id}|${g.key}|${j.id}`;
+        const jIdx = flatJointRows.length;
+        flatJointRows.push({ key: jkey, tr, file: g.file, page: g.page, j, _updateCell });
+        tr.addEventListener("click", (e) => {
+          e.stopPropagation();
+          _closeCtxMenu();
+          if (e.shiftKey && lastJointClickIdx >= 0) {
+            const lo = Math.min(jIdx, lastJointClickIdx), hi = Math.max(jIdx, lastJointClickIdx);
+            if (!(e.metaKey || e.ctrlKey)) selJointKeys.clear();
+            for (let i = lo; i <= hi; i++) selJointKeys.add(flatJointRows[i].key);
+          } else if (e.metaKey || e.ctrlKey) {
+            if (selJointKeys.has(jkey)) selJointKeys.delete(jkey); else selJointKeys.add(jkey);
+            lastJointClickIdx = jIdx;
+          } else {
+            selJointKeys.clear(); selJointKeys.add(jkey); lastJointClickIdx = jIdx;
+          }
+          refreshJointSelectionUI();
+        });
+        tr.addEventListener("contextmenu", (e) => {
+          e.preventDefault(); e.stopPropagation();
+          if (!selJointKeys.has(jkey)) { selJointKeys.clear(); selJointKeys.add(jkey); lastJointClickIdx = jIdx; refreshJointSelectionUI(); }
+          const n = selJointKeys.size;
+          _showCtxMenu(e.clientX, e.clientY, [
+            { label: `設定支承…(${n} 點)`, onClick: () => _openSupModalForSelection() },
+            { label: "快速 FIXED",  onClick: () => applySupportToSelectedJoints({ type: "FIXED" }) },
+            { label: "快速 PINNED", onClick: () => applySupportToSelectedJoints({ type: "PINNED" }) },
+            { label: "清除支承",     onClick: () => applySupportToSelectedJoints(null) },
+          ]);
+        });
         return tr;
       };
       for (const { j, w } of sortedJoints) tbody.appendChild(_mkJointRow(j, w, false));
@@ -2232,11 +2407,11 @@ export function _renderSearchResults(div, doc, result, win) {
           const didJ1 = "J" + (typeof _displayIdForJointWith === "function" ? _displayIdForJointWith(g.file, g.page, a) : a.id);
           const didJ2 = "J" + (typeof _displayIdForJointWith === "function" ? _displayIdForJointWith(g.file, g.page, b) : b.id);
           const tdJ1 = doc.createElement("td");
-          tdJ1.className = "col-jid" + (a.isAnchor ? " anchor" : "");
-          tdJ1.textContent = didJ1 + (a.isAnchor ? " ▼" : "");
+          tdJ1.className = "col-jid" + (hasSupport(a) ? " anchor" : "");
+          tdJ1.textContent = didJ1 + (hasSupport(a) ? " ▼" : "");
           const tdJ2 = doc.createElement("td");
-          tdJ2.className = "col-jid" + (b.isAnchor ? " anchor" : "");
-          tdJ2.textContent = didJ2 + (b.isAnchor ? " ▼" : "");
+          tdJ2.className = "col-jid" + (hasSupport(b) ? " anchor" : "");
+          tdJ2.textContent = didJ2 + (hasSupport(b) ? " ▼" : "");
           tr.appendChild(tdJ1); tr.appendChild(tdJ2);
         }
         const tdLen = doc.createElement("td"); tdLen.className = "num"; tdLen.textContent = _fmtN(len);
@@ -2252,7 +2427,9 @@ export function _renderSearchResults(div, doc, result, win) {
         tdTbl.textContent = _matTbl;
         const tdMat = doc.createElement("td"); tdMat.className = "col-mat";
         tdMat.textContent = m.material || "";
-        tr.appendChild(tdLen); tr.appendChild(tdTbl); tr.appendChild(tdMat);
+        // 桿件本身無支承(支承是節點屬性);coord-on 時端點列會各自顯示
+        const tdMSup = doc.createElement("td"); tdMSup.className = "muted"; tdMSup.textContent = "—";
+        tr.appendChild(tdLen); tr.appendChild(tdTbl); tr.appendChild(tdMat); tr.appendChild(tdMSup);
         const rowIdx = flatRows.length;
         tr.addEventListener("click", (e) => {
           e.preventDefault();
@@ -2272,6 +2449,13 @@ export function _renderSearchResults(div, doc, result, win) {
           refreshSelectionUI();
         });
         tr.addEventListener("dblclick", () => { try { jump.onclick && jump.onclick(); } catch (_) {} });
+        tr.addEventListener("contextmenu", (e) => {
+          e.preventDefault(); e.stopPropagation();
+          if (!selectedKeys.has(key)) { selectedKeys.clear(); selectedKeys.add(key); lastClickIdx = rowIdx; refreshSelectionUI(); }
+          _showCtxMenu(e.clientX, e.clientY, [
+            { label: `設定材料…(${selectedKeys.size} 條)`, onClick: () => { if (_focusMaterialPicker) _focusMaterialPicker(); } },
+          ]);
+        });
         tbody.appendChild(tr);
         flatRows.push({ key, file: g.file, page: g.page, m, tr, matTd: tdMat, tblTd: tdTbl });
         // 兩端點列(僅 coord-on 模式;coord-off 模式 J1/J2 已在桿件那列顯示)
@@ -2315,6 +2499,313 @@ export function _renderSearchResults(div, doc, result, win) {
       }
       refreshSelectionUI();
     });
+  }
+  refreshSelectionUI();
+}
+
+// ====================================================================
+// 節點支承搜尋(Phase 4)— 依支承類型收集節點 + 可選取結果 + 批次設定工具列
+// ====================================================================
+
+// 依支承類型 filter 收集節點(獨立於 _searchModel 的簡化路徑)
+//   supChecked:["__any__"] / ["__none__"] / 具體類型陣列(FIXED/PINNED/...);空 = 有支承
+//   回傳 { joints:[{file,key,page,j,w}], members:[], mode:"support", bounds3D }
+export function _collectSupportJoints(opts) {
+  const { supChecked, idText, fileIds, planeFilters } = opts || {};
+  const checked = Array.isArray(supChecked) ? supChecked : [];
+  const typeSet = new Set(checked.filter(v => v !== "__any__" && v !== "__none__"));
+  const noneMode = checked.includes("__none__");
+  const matchSup = (j) => {
+    const st = supportTypeOf(j);
+    if (typeSet.size) return st != null && typeSet.has(st);
+    if (noneMode) return st == null;
+    return st != null;   // 預設 / __any__:所有有支承的點
+  };
+  const idTokens = (idText || "").split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+  const fileIdSet = (Array.isArray(fileIds) && fileIds.length) ? new Set(fileIds) : null;
+  const planeSet  = (Array.isArray(planeFilters) && planeFilters.length) ? new Set(planeFilters) : null;
+
+  const joints = [];
+  const b = { x: [Infinity, -Infinity], y: [Infinity, -Infinity], z: [Infinity, -Infinity] };
+  const ext = (w) => { if (!w) return;
+    if (w.x < b.x[0]) b.x[0] = w.x; if (w.x > b.x[1]) b.x[1] = w.x;
+    if (w.y < b.y[0]) b.y[0] = w.y; if (w.y > b.y[1]) b.y[1] = w.y;
+    if (w.z < b.z[0]) b.z[0] = w.z; if (w.z > b.z[1]) b.z[1] = w.z; };
+  for (const f of state.files) {
+    if (fileIdSet && !fileIdSet.has(f.id)) continue;
+    for (const [pk, pg] of Object.entries(f.pages || {})) {
+      if (!pg || pg._orphan) continue;
+      if (planeSet && !(pg.plane && planeSet.has(pg.plane))) continue;
+      for (const j of (pg.joints || [])) {
+        if (!matchSup(j)) continue;
+        if (idTokens.length) {
+          const did = (typeof _displayIdForJointWith === "function") ? String(_displayIdForJointWith(f, pg, j)) : String(j.id);
+          const rawId = String(j.id);
+          if (!idTokens.some(t => did.includes(t) || rawId.includes(t))) continue;
+        }
+        let w = null;
+        try { w = (typeof _worldForRank === "function") ? _worldForRank(f, pg, j) : joint2DToWorld3D(f, pg, j); } catch (_) {}
+        ext(w);
+        joints.push({ file: f, key: +pk, page: pg, j, w });
+      }
+    }
+  }
+  return { joints, members: [], mode: "support", bounds3D: Number.isFinite(b.x[0]) ? b : null };
+}
+
+// 共用:把 support(null=清除)套用到「結果列中被選取的節點」+ 跨頁 globalId 同步。
+//   flatRows 元素需有 { key, page, j, _updateCell? };回傳 { changed, crossPageCount }。
+//   給「節點支承」tab 與「一般結果表的節點選取」共用,避免重複維護套用邏輯。
+export function _applySupportToResultJoints(flatRows, selKeys, support) {
+  try { pushUndo(); } catch (_) {}
+  let changed = 0;
+  const globalsTouched = new Set();
+  const doneKeys = new Set();   // 同一節點可能出現多列(多桿件端點)→ 只套一次
+  const supJson = support ? JSON.stringify(support) : "";
+  for (const r of flatRows) {
+    if (!selKeys.has(r.key)) continue;
+    if (r._updateCell) r._updateCell();   // 重複列也要刷新顯示
+    if (doneKeys.has(r.key)) continue;
+    doneKeys.add(r.key);
+    const realJ = ((r.page && r.page.joints) || []).find(x => x.id === r.j.id) || r.j;
+    if (realJ.isAnchor !== undefined) delete realJ.isAnchor;
+    if (support) realJ.support = JSON.parse(supJson); else delete realJ.support;
+    changed++;
+    if (realJ.globalId != null) globalsTouched.add(realJ.globalId);
+  }
+  let crossPageCount = 0;
+  if (globalsTouched.size) {
+    for (const f of state.files) {
+      for (const pg of Object.values(f.pages || {})) {
+        if (!pg || pg._orphan) continue;
+        for (const jj of (pg.joints || [])) {
+          if (jj.globalId == null || !globalsTouched.has(jj.globalId)) continue;
+          if (jj.isAnchor !== undefined) delete jj.isAnchor;
+          if (support) jj.support = JSON.parse(supJson);
+          else if (jj.support) delete jj.support;
+          crossPageCount++;
+        }
+      }
+    }
+  }
+  for (const r of flatRows) {
+    if (r.j.globalId != null && globalsTouched.has(r.j.globalId) && r._updateCell) r._updateCell();
+  }
+  try { invalidateRankCache && invalidateRankCache(); } catch (_) {}
+  try { render && render(); } catch (_) {}
+  try { refreshLists && refreshLists(); } catch (_) {}
+  return { changed, crossPageCount };
+}
+
+// 共用右鍵選單:回傳 { show(x,y,items), close() };items = [{ label, onClick }]
+export function _makeResultCtxMenu(doc) {
+  let menu = null;
+  const close = () => { if (menu) { menu.remove(); menu = null; } };
+  doc.addEventListener("click", close);
+  doc.addEventListener("scroll", close, true);
+  const show = (x, y, items) => {
+    close();
+    const m = doc.createElement("div");
+    m.style.cssText = "position:fixed;z-index:9999;background:#1a1c20;border:1px solid #4f9dff;border-radius:5px;" +
+      "padding:4px;box-shadow:0 6px 18px rgba(0,0,0,0.55);min-width:140px;font-size:12px";
+    for (const it of items) {
+      const b = doc.createElement("div");
+      b.textContent = it.label;
+      b.style.cssText = "padding:6px 12px;color:#cfd3d8;cursor:pointer;border-radius:3px;white-space:nowrap";
+      b.addEventListener("mouseenter", () => b.style.background = "#2f4a78");
+      b.addEventListener("mouseleave", () => b.style.background = "");
+      b.addEventListener("click", (e) => { e.stopPropagation(); close(); it.onClick(); });
+      m.appendChild(b);
+    }
+    doc.body.appendChild(m);
+    const vw = doc.documentElement.clientWidth, vh = doc.documentElement.clientHeight;
+    const rect = m.getBoundingClientRect();
+    m.style.left = Math.min(x, vw - rect.width - 6) + "px";
+    m.style.top  = Math.min(y, vh - rect.height - 6) + "px";
+    menu = m;
+  };
+  return { show, close };
+}
+
+// 渲染節點支承結果:可選取的節點表(ID / X / Y / Z / 支承類型)+ 支承設定工具列
+export function _renderSupportResults(div, doc, result, win) {
+  div.innerHTML = "";
+  const joints = result.joints || [];
+  if (!joints.length) { div.textContent = "沒有找到符合條件的節點"; return; }
+
+  const summary = doc.createElement("div");
+  summary.className = "group-title";
+  summary.textContent = `找到 ${joints.length} 個節點`;
+  div.appendChild(summary);
+
+  const _world = (file, page, j) => {
+    try { return (typeof _worldForRank === "function") ? _worldForRank(file, page, j) : joint2DToWorld3D(file, page, j); }
+    catch (_) { return null; }
+  };
+  const _coordDec = Math.max(0, Math.min(6, Number.isFinite(state.measureDecimals) ? state.measureDecimals : 0));
+  const _fmtN = (v) => (Number.isFinite(v) ? v : 0).toFixed(_coordDec);
+  const _supShort = { FIXED: "FIXED", PINNED: "PINNED", FIXED_BUT: "FIXED BUT", SPRING: "SPRING", ENFORCED: "ENFORCED" };
+  const _supDetail = (sup) => {
+    if (!sup) return "";
+    if (sup.type === "FIXED_BUT") return "放鬆 " + ((sup.released || []).join(" ") || "—");
+    if (sup.type === "SPRING")    return Object.entries(sup.springs  || {}).map(([k, v]) => `${k}=${v}`).join(" ");
+    if (sup.type === "ENFORCED")  return Object.entries(sup.enforced || {}).map(([k, v]) => `${k}=${v}`).join(" ");
+    return "";
+  };
+
+  // 選取模型:key = `${fileId}|${pageKey}|${jointId}`
+  const selectedKeys = new Set();
+  const flatRows = [];
+  let lastClickIdx = -1;
+  let selInfoSpan = null;
+  const refreshSelectionUI = () => {
+    for (const r of flatRows) r.tr.classList.toggle("sel", selectedKeys.has(r.key));
+    if (selInfoSpan) selInfoSpan.textContent = `已選 ${selectedKeys.size} 點`;
+  };
+  const { show: _showCtxMenu } = _makeResultCtxMenu(doc);   // 右鍵選單(節點 → 設定支承)
+
+  // === 支承工具列 ===
+  const tbar = doc.createElement("div");
+  tbar.className = "mat-toolbar";
+  tbar.innerHTML =
+    `<span class="mt-label">設定支承:</span>` +
+    `<button id="btnSupFixed" class="primary" title="把所選節點設為 FIXED(6 自由度全鎖)">快速 FIXED</button>` +
+    `<button id="btnSupPinned" title="把所選節點設為 PINNED(鎖位移不鎖旋轉)">快速 PINNED</button>` +
+    `<button id="btnSupAdv" title="開支承設定視窗(FIXED BUT / SPRING / ENFORCED),套用到所選">設定支承…</button>` +
+    `<button id="btnSupClear" title="清除所選節點的支承">清除支承</button>` +
+    `<span class="mt-sep">|</span>` +
+    `<button id="btnSupSelAll" title="全選所有節點結果">全選</button>` +
+    `<button id="btnSupSelNone" title="全不選">全不選</button>` +
+    `<span id="supSelInfo" class="mt-info">已選 0 點</span>`;
+  div.appendChild(tbar);
+  selInfoSpan = tbar.querySelector("#supSelInfo");
+
+  const _hintSelectFirst = () => {
+    selInfoSpan.textContent = "請先點選節點列(Shift / Cmd 多選)";
+    selInfoSpan.style.color = "#ff7676";
+    setTimeout(() => { selInfoSpan.style.color = ""; refreshSelectionUI(); }, 1800);
+  };
+
+  // 套用 / 清除支承到所選(+ 跨頁 globalId 同步)
+  const applySupport = (support) => {
+    if (!selectedKeys.size) { _hintSelectFirst(); return; }
+    const { changed, crossPageCount } = _applySupportToResultJoints(flatRows, selectedKeys, support);
+    selInfoSpan.style.color = "#7fd3ff";
+    const extra = crossPageCount ? ` ・ 跨頁同步 ${crossPageCount}` : "";
+    selInfoSpan.textContent = `✓ ${support ? `設為 ${support.type}` : "清除支承"} ${changed} 點${extra}`;
+    setTimeout(() => { selInfoSpan.style.color = ""; refreshSelectionUI(); }, 2500);
+  };
+  tbar.querySelector("#btnSupFixed").addEventListener("click", () => applySupport({ type: "FIXED" }));
+  tbar.querySelector("#btnSupPinned").addEventListener("click", () => applySupport({ type: "PINNED" }));
+  tbar.querySelector("#btnSupClear").addEventListener("click", () => applySupport(null));
+  tbar.querySelector("#btnSupAdv").addEventListener("click", async () => {
+    if (!selectedKeys.size) { _hintSelectFirst(); return; }
+    let preset = null;
+    for (const r of flatRows) { if (selectedKeys.has(r.key) && r.j.support) { preset = r.j.support; break; } }
+    const chosen = await pickSupportModal(selectedKeys.size, preset, doc);
+    if (chosen == null) return;
+    applySupport(chosen);
+  });
+  tbar.querySelector("#btnSupSelAll").addEventListener("click", () => {
+    for (const r of flatRows) selectedKeys.add(r.key);
+    lastClickIdx = flatRows.length ? flatRows.length - 1 : -1;
+    refreshSelectionUI();
+  });
+  tbar.querySelector("#btnSupSelNone").addEventListener("click", () => { selectedKeys.clear(); lastClickIdx = -1; refreshSelectionUI(); });
+
+  // legend
+  const legend = doc.createElement("div");
+  legend.style.cssText = "margin:3px 0 4px;font-size:10px;color:#9aa0a6";
+  legend.innerHTML = `<span style="color:#ff8c00;font-weight:700">▼ 支承點</span> ・ Click 選列、Shift 範圍、Cmd/Ctrl 加減選 ・ 變更會跨頁同步同一物理點`;
+  div.appendChild(legend);
+
+  // group by file+page
+  const groups = new Map();
+  for (const it of joints) {
+    const key = `${it.file.id}|${it.key}`;
+    if (!groups.has(key)) groups.set(key, { file: it.file, key: it.key, page: it.page, items: [] });
+    groups.get(key).items.push(it);
+  }
+  const _planeOrder = { "XY": 0, "YZ": 1, "XZ": 2 };
+  const sortedGroups = [...groups.values()].sort((a, b) =>
+    (_planeOrder[a.page && a.page.plane] ?? 99) - (_planeOrder[b.page && b.page.plane] ?? 99));
+
+  for (const g of sortedGroups) {
+    const row = doc.createElement("div");
+    row.className = "res-row";
+    const txt = doc.createElement("span");
+    txt.style.flex = "1";
+    const _pl = g.page && g.page.plane;
+    const _planeColor = { XY: "#4fc3f7", XZ: "#c39bff", YZ: "#ffd23f" }[_pl] || "#888";
+    txt.innerHTML = `${g.file.name} #${g.key + 1} <span style="color:${_planeColor};font-weight:700">[${_pl || "?"}]</span> : ${g.items.length} 點`;
+    row.appendChild(txt);
+    div.appendChild(row);
+
+    const tbl = doc.createElement("table");
+    tbl.className = "res-table member-tbl";
+    const thead = doc.createElement("thead");
+    thead.innerHTML = `<tr><th>ID</th><th class="num">X</th><th class="num">Y</th><th class="num">Z</th><th>節點支承</th></tr>`;
+    tbl.appendChild(thead);
+    const tbody = doc.createElement("tbody");
+    const sorted = g.items.map(it => ({ it, w: it.w || _world(g.file, g.page, it.j) }))
+      .sort((a, b) => {
+        const wa = a.w, wb = b.w;
+        if (!wa || !wb) return 0;
+        if (wa.x !== wb.x) return wa.x - wb.x;
+        if (wa.y !== wb.y) return wa.y - wb.y;
+        return wa.z - wb.z;
+      });
+    for (const { it, w } of sorted) {
+      const j = it.j, ww = w || {};
+      const did = "J" + (typeof _displayIdForJointWith === "function" ? _displayIdForJointWith(g.file, g.page, j) : j.id);
+      const tr = doc.createElement("tr");
+      tr.className = "member-row";
+      const key = `${g.file.id}|${g.key}|${j.id}`;
+      const tdId = doc.createElement("td");
+      const tdSup = doc.createElement("td");
+      const _updateCell = () => {
+        const st = supportTypeOf(j);
+        tdId.className = "col-jid" + (st ? " anchor" : "");
+        tdId.textContent = did + (st ? " ▼" : "");
+        tdSup.className = st ? "col-mat" : "muted";
+        tdSup.textContent = st ? (supportLabel(j.support) || st) : "—";
+        tdSup.title = _supDetail(j.support) || "";
+      };
+      tr.appendChild(tdId);
+      for (const v of [ww.x, ww.y, ww.z]) { const td = doc.createElement("td"); td.className = "num"; td.textContent = _fmtN(v); tr.appendChild(td); }
+      tr.appendChild(tdSup);
+      _updateCell();
+      const rowIdx = flatRows.length;
+      flatRows.push({ key, tr, file: g.file, page: g.page, j, _updateCell });
+      tr.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (e.shiftKey && lastClickIdx >= 0) {
+          const lo = Math.min(rowIdx, lastClickIdx), hi = Math.max(rowIdx, lastClickIdx);
+          if (!(e.metaKey || e.ctrlKey)) selectedKeys.clear();
+          for (let i = lo; i <= hi; i++) selectedKeys.add(flatRows[i].key);
+        } else if (e.metaKey || e.ctrlKey) {
+          if (selectedKeys.has(key)) selectedKeys.delete(key); else selectedKeys.add(key);
+          lastClickIdx = rowIdx;
+        } else {
+          selectedKeys.clear(); selectedKeys.add(key); lastClickIdx = rowIdx;
+        }
+        refreshSelectionUI();
+      });
+      tr.addEventListener("contextmenu", (e) => {
+        e.preventDefault(); e.stopPropagation();
+        if (!selectedKeys.has(key)) { selectedKeys.clear(); selectedKeys.add(key); lastClickIdx = rowIdx; refreshSelectionUI(); }
+        const n = selectedKeys.size;
+        _showCtxMenu(e.clientX, e.clientY, [
+          { label: `設定支承…(${n} 點)`, onClick: () => { const b = tbar.querySelector("#btnSupAdv"); b && b.click(); } },
+          { label: "快速 FIXED",  onClick: () => applySupport({ type: "FIXED" }) },
+          { label: "快速 PINNED", onClick: () => applySupport({ type: "PINNED" }) },
+          { label: "清除支承",     onClick: () => applySupport(null) },
+        ]);
+      });
+      tbody.appendChild(tr);
+    }
+    tbl.appendChild(tbody);
+    div.appendChild(tbl);
   }
   refreshSelectionUI();
 }

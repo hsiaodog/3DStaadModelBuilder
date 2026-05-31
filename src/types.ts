@@ -86,7 +86,12 @@ export interface Joint {
   y: number;
   /** 綁到 globalJoint 的 id */
   globalId?: number | null;
-  /** 手動設成 anchor 的標記 */
+  /** 節點支承 / 邊界條件(FIXED / PINNED / FIXED BUT / SPRING / ENFORCED)。
+   *  有支承的點會自動被編號演算法視為座標軸錨點(見 core/rankCache.ts)。*/
+  support?: import("./core/support").Support;
+  /** @deprecated 舊欄位 — 載入時 migrateJointSupport() 會升級為 support 並清掉 */
+  supportType?: "FIXED" | "PINNED";
+  /** @deprecated 舊「編號錨點」旗標 — 概念已移除,migration 會清掉(support ⟹ anchor)*/
   isAnchor?: boolean;
 }
 

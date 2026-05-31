@@ -34,6 +34,7 @@ import {
 } from "../app/integration";
 import { _displayIdForJointWith } from "../core/displayId";
 import { joint2DToWorld3D } from "../core/projection";
+import { supportTypeOf, hasSupport } from "../core/support";
 import { _t, _applyI18nOnDoc } from "../i18n";
 import { setBusyMessage } from "../ui/busy";
 
@@ -651,12 +652,12 @@ export function open3DPreviewDialog() {
             nodeMap.set(nk, node);
           }
           node.srcCount++;
-          if (j.isAnchor) node.isAnchor = true;   // 任一 binding joint 是 anchor → 3D 節點視為 anchor
+          if (hasSupport(j)) node.isAnchor = true;   // 任一 binding joint 有支承 → 3D 節點視為支承/錨點
           // 任一 sibling 是 PINNED → 3D 視為 PINNED(否則為 FIXED 三角形預設)
-          if (j.isAnchor && j.supportType === "PINNED") node.supportType = "PINNED";
+          if (supportTypeOf(j) === "PINNED") node.supportType = "PINNED";
           if (node.samples.length < 8) {
             const dispId = (typeof _displayIdForJointWith === "function") ? _displayIdForJointWith(f, pg, j) : j.id;
-            node.samples.push({ fileId: f.id, fileName: f.name, pageIdx: +k, jointId: j.id, displayId: dispId, plane: pg.plane, isAnchor: !!j.isAnchor });
+            node.samples.push({ fileId: f.id, fileName: f.name, pageIdx: +k, jointId: j.id, displayId: dispId, plane: pg.plane, isAnchor: hasSupport(j) });
           }
           local.set(j.id, nk);
         }
@@ -1216,7 +1217,7 @@ export function open3DPreviewDialog() {
         </div>`;
       }).join("");
       const planeGridJ = _planeGridHtml(hN.samples, "J", "#ffd23f");
-      const anchorBadge = hN.isAnchor ? ` <span style="color:#ff8c00;font-weight:700">▼ 錨點</span>` : "";
+      const anchorBadge = hN.isAnchor ? ` <span style="color:#ff8c00;font-weight:700">▼ 支承</span>` : "";
       const html =
         `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
           <span style="color:#9bb6e8;font-weight:700;font-size:11px">節點資訊${anchorBadge}</span>
@@ -1273,7 +1274,7 @@ export function open3DPreviewDialog() {
         tooltip.style.top  = (e.clientY - r.top + 12) + "px";
         const samples = hit.samples.map(s => `  ${s.fileName} #${s.pageIdx + 1} J${s.displayId} (${s.plane})`).join("\n");
         tooltip.textContent =
-          (hit.isAnchor ? "▼ 錨點 (isAnchor)\n" : "") +
+          (hit.isAnchor ? "▼ 支承\n" : "") +
           `世界座標: (${fmtWorld3D(hit.x)}, ${fmtWorld3D(hit.y)}, ${fmtWorld3D(hit.z)})\n` +
           `綁定 joint 數: ${hit.srcCount}\n` +
           `來源(前 ${hit.samples.length}):\n${samples}`;

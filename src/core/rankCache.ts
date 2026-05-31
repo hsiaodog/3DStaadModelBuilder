@@ -9,6 +9,7 @@
 
 import { state, _fileHasFullSetup, _getJointMemberDirs, _hasAnyPerpPair, _allDirsCollinear } from "../app/integration";
 import { joint2DToWorld3D } from "./projection";
+import { hasSupport } from "./support";
 import { wrapPosSort as _wrapPosSort } from "../utils/sort";
 import { setDebugVar, getDebugVar } from "../utils/debug";
 
@@ -95,11 +96,12 @@ export function _ensureRankCache(): void {
           if (!pl) { pl = new Set(); gidPlanes.set(j.globalId, pl); }
           pl.add(pg.plane);
         }
-        if (j.isAnchor && j.globalId != null) manualAnchorGids.add(j.globalId);
+        // 有支承的點 = 強制座標軸錨點(取代舊的手動 isAnchor:support ⟹ anchor)
+        if (hasSupport(j) && j.globalId != null) manualAnchorGids.add(j.globalId);
         const dirs = _getJointMemberDirs(j, pg);
         const hasPerpPair = _hasAnyPerpPair(dirs);
         const localIsAnchor =
-          !!j.isAnchor ||
+          hasSupport(j) ||
           dirs.length < 2 ||
           hasPerpPair ||
           _allDirsCollinear(dirs);
@@ -119,7 +121,7 @@ export function _ensureRankCache(): void {
   for (const info of _scanInfos) {
     const isCoordAnchor = info.gid != null
       ? coordAnchorGids.has(info.gid)
-      : (info.hasPerpPair || (info.localIsAnchor && info.j.isAnchor));
+      : (info.hasPerpPair || (info.localIsAnchor && hasSupport(info.j)));
     if (isCoordAnchor) {
       for (const ax of ["x", "y", "z"] as const) cls[ax].anchorVal.add(round(info.w[ax]));
     }

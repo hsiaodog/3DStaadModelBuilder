@@ -15,6 +15,7 @@ import {
   findGlobalJointById,
 } from "../app/integration";
 import { listGlobalBindings } from "../core/globalJoints";
+import { supportTypeOf } from "../core/support";
 import { _t } from "../i18n";
 
 function ensureHoverTip() {
@@ -69,15 +70,19 @@ export function fmtJointInfo(j) {
   const id = displayJointId(j);
   // i18n helper:沒翻譯回 fallback
   const T = (k, fb) => (typeof _t === "function" && _t(k)) || fb;
-  const _supType = (j.supportType === "PINNED") ? "PINNED" : (j.isAnchor ? "FIXED" : null);
-  const anchorTag = j.isAnchor
-    ? ` <span style="color:#ff8c00;font-weight:700">▼ ${T("hover.anchor","錨點")}</span>` +
-      (_supType ? ` <span style="color:#5ab9ff;font-weight:700">[${_supType}]</span>` : "")
+  const _supType = supportTypeOf(j);
+  const _supLabel: Record<string, string> = {
+    FIXED: "FIXED(6 自由度全鎖)", PINNED: "PINNED(只鎖位移)",
+    FIXED_BUT: "FIXED BUT(部分釋放)", SPRING: "SPRING(彈簧)", ENFORCED: "ENFORCED(強制位移)",
+  };
+  const supTag = _supType
+    ? ` <span style="color:#ff8c00;font-weight:700">▼ ${T("hover.support","支承")}</span>` +
+      ` <span style="color:#5ab9ff;font-weight:700">[${_supType}]</span>`
     : "";
-  const lines = [`<span class="ttip-title">${T("hover.joint.title","節點")} J${id}${anchorTag}</span>`];
-  if (j.isAnchor) {
-    lines.push(tipRow(T("hover.anchor","錨點"), "手動標記 — rank 編號時視為座標軸 anchor(等同 H+V 真實交點),不會被推到後段"));
-    lines.push(tipRow("支座類型", `${_supType}${_supType === "FIXED" ? "(6 自由度全鎖)" : "(只鎖位移)"}`));
+  const lines = [`<span class="ttip-title">${T("hover.joint.title","節點")} J${id}${supTag}</span>`];
+  if (_supType) {
+    lines.push(tipRow(T("hover.support","支承"), _supLabel[_supType] || _supType));
+    lines.push(tipRow("", "支承點在 rank 編號時自動視為座標軸錨點,不會被推到後段"));
   }
   if (state.scale && o) {
     const p0 = getPage();

@@ -14,6 +14,7 @@
 
 import { state, $ } from "../app/integration";
 import { buildModel, showBuildModelCollisionsIfAny } from "../core/buildModel";
+import { supportTypeOf, supportStaadSpec } from "../core/support";
 import { buildExportContext } from "./shared";
 import { unitToMeter, meterToTarget } from "../utils/units";
 import { xlsxCell as _xlsxCell } from "../utils/ooxml";
@@ -757,7 +758,7 @@ export function exportXlsxFile() {
   _rMat++;   // BRACE YZ 後也加一列空白 — PROPERTIES 區結尾收齊,跟 BRACE XZ 後對稱
   // === SUPPORTS 區塊(col 92 起,接在 Material 右邊)===
   //   layout 跟 Material 一致:6 個 ID slot + Type(col 99)
-  //   anchor joint 按 supportType 分組(預設 FIXED)
+  //   有支承的 joint 依「STAAD 規格字串」分組(FIXED / PINNED / FIXED BUT … / SPRING / ENFORCED)
   const SUP_BASE_COL = 92;
   const SUP_ID_SLOTS = 6;
   const SUP_TYPE_COL = SUP_BASE_COL + SUP_ID_SLOTS + 1;     // 99
@@ -777,18 +778,23 @@ export function exportXlsxFile() {
     }
   };
   {
-    const fixedIds: number[] = [];
-    const pinnedIds: number[] = [];
+    const specToIds = new Map<string, number[]>();
     for (const j of joints as any[]) {
-      if (!j.isAnchor) continue;
-      if (j.supportType === "PINNED") pinnedIds.push(j.id);
-      else fixedIds.push(j.id);
+      if (!supportTypeOf(j)) continue;
+      const spec = supportStaadSpec(j.support);
+      if (!specToIds.has(spec)) specToIds.set(spec, []);
+      specToIds.get(spec)!.push(j.id);
     }
-    fixedIds.sort((a, b) => a - b);
-    pinnedIds.sort((a, b) => a - b);
-    _writeSupBlock("FIXED",  fixedIds);
-    if (fixedIds.length && pinnedIds.length) _rSup++;   // 兩組之間空一行
-    _writeSupBlock("PINNED", pinnedIds);
+    // 輸出順序:FIXED、PINNED 先,其餘規格依字串排序
+    const _specOrder = (s: string) => s === "FIXED" ? 0 : s === "PINNED" ? 1 : 2;
+    const specs = [...specToIds.keys()].sort((a, b) => _specOrder(a) - _specOrder(b) || a.localeCompare(b));
+    let _firstSup = true;
+    for (const spec of specs) {
+      const ids = specToIds.get(spec)!.sort((a, b) => a - b);
+      if (!_firstSup) _rSup++;   // 各組之間空一行
+      _writeSupBlock(spec, ids);
+      _firstSup = false;
+    }
   }
   // 大區分隔欄(黃色)改用 OOXML <cols> 元素整欄套色,不再 push per-row 空格(避免大量空格 cell 造成 Excel 開檔抱怨)
   //   col 19(T)= JOINT 類 vs MEMBER 類;col 39(AN)= MEMBER 類 vs MATERIAL 類

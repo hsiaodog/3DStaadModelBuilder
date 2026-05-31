@@ -25,6 +25,7 @@ import {
   wrap, cKeyDown, allocJointId, allocMemberId,
 } from "../app/integration";
 import { _worldForRank } from "../core/rankCache";
+import { supportTypeOf, hasSupport } from "../core/support";
 import { setDebugVar, getDebugVar } from "../utils/debug";
 
 // labelsLayer 事件委派(只設定一次):每次 render 會建 ~17k 個 lbl div,
@@ -485,9 +486,9 @@ function _renderImpl() {
   for (const j of p.joints) {
     const isSel = _selOnSrc && state.selection.joints.has(j.id);
     const isLinked = !isSel && _linkedJointIds.has(j.id);
-    // 紫(選取) / 紫 + dashed(linked 預覽,跨頁同物理點) / 橘(手動錨點 isAnchor) / 紅(預設)
+    // 紫(選取) / 紫 + dashed(linked 預覽,跨頁同物理點) / 橘(支承點) / 紅(預設)
     //   linked 用「同一個紫」+ dashed,確保編號與節點圖示同色,只靠 stroke-dasharray / italic 區分
-    const color = (isSel || isLinked) ? "#a855f7" : (j.isAnchor ? "#ff8c00" : "#ff2424");
+    const color = (isSel || isLinked) ? "#a855f7" : (hasSupport(j) ? "#ff8c00" : "#ff2424");
 
     // 收集相連桿件方向(僅未選取時要計算 X 角度)
     //   舊版每個 joint 都掃全部 members(O(J×M));改用預建的 adjAngles → O(degree(j))
@@ -509,39 +510,46 @@ function _renderImpl() {
     }
 
     // 主圓:始終空心;選取時只把顏色從紅變黃,X 仍可見
-    // 錨點(isAnchor):依 supportType 換 symbol — PINNED = 正方形、其餘(FIXED) = 倒三角
+    // 支承點:依 support 類型換 symbol(單一 SVG 元素,維持 .joint hover/selected 樣式)
+    //   FIXED=倒三角 / PINNED=正方形 / FIXED_BUT=菱形 / SPRING=線圈 / ENFORCED=六邊形
     //   ★ 選取/linked 時保持符號,只換顏色;不改回圓圈
     //   stroke=color(選取時走紫色 #a855f7、未選走橘色 #ff8c00);fill 跟 stroke 同調但帶透明度
-    const isAnchorMark = !!j.isAnchor;
+    const isAnchorMark = hasSupport(j);
     const c = isAnchorMark ? (() => {
       const r = jointR * 2.6;            // 加大 1.6 → 2.6
       const x = j.x, y = j.y;
       const _anchorFill = (isSel || isLinked)
         ? "rgba(168, 85, 247, 0.35)"   // 選取/linked → 紫色 #a855f7 + 35% alpha
         : "rgba(255, 140, 0, 0.4)";    // 未選 → 橘色
-      if (j.supportType === "PINNED") {
-        // 正方形(置中於 j),邊長 ≈ 三角形外接圓邊長,保留視覺密度一致
+      const _cls = "joint anchor-marker" + (isSel ? " selected" : "") + (isLinked ? " linked" : "");
+      const _common: Record<string, any> = {
+        class: _cls, "data-jid": j.id,
+        stroke: color, "stroke-width": swJoint * 2.0, "stroke-linejoin": "round",
+      };
+      const st = supportTypeOf(j);
+      const k = r * 0.866, h = r * 0.5;   // 三角 / 六邊形幾何
+      if (st === "PINNED") {
+        // 正方形(置中於 j),邊長 ≈ 三角形外接圓邊長
         const s = r * 1.732;             // ≈ √3 r
-        return el("rect", {
-          x: x - s / 2, y: y - s / 2, width: s, height: s,
-          class: "joint anchor-marker" + (isSel ? " selected" : "") + (isLinked ? " linked" : ""),
-          "data-jid": j.id,
-          fill: _anchorFill,
-          stroke: color, "stroke-width": swJoint * 2.0,
-          "stroke-linejoin": "round",
-        });
+        return el("rect", { ..._common, x: x - s / 2, y: y - s / 2, width: s, height: s, fill: _anchorFill });
       }
-      const p1x = x, p1y = y - r;            // 頂點朝上
-      const p2x = x - r * 0.866, p2y = y + r * 0.5;   // 左下
-      const p3x = x + r * 0.866, p3y = y + r * 0.5;   // 右下
-      return el("polygon", {
-        points: `${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y}`,
-        class: "joint anchor-marker" + (isSel ? " selected" : "") + (isLinked ? " linked" : ""),
-        "data-jid": j.id,
-        fill: _anchorFill,
-        stroke: color, "stroke-width": swJoint * 2.0,    // 線寬也加粗
-        "stroke-linejoin": "round",
-      });
+      if (st === "FIXED_BUT") {
+        // 菱形(旋轉正方形)= 部分釋放
+        return el("polygon", { ..._common, points: `${x},${y - r} ${x + r},${y} ${x},${y + r} ${x - r},${y}`, fill: _anchorFill });
+      }
+      if (st === "SPRING") {
+        // 彈簧線圈(zigzag path,不填色)
+        const d = `M ${x - r} ${y} L ${x - 0.6 * r} ${y - 0.6 * r} L ${x - 0.2 * r} ${y + 0.6 * r}` +
+                  ` L ${x + 0.2 * r} ${y - 0.6 * r} L ${x + 0.6 * r} ${y + 0.6 * r} L ${x + r} ${y}`;
+        return el("path", { ..._common, d, fill: "none", "stroke-linecap": "round" });
+      }
+      if (st === "ENFORCED") {
+        // 六邊形 = 強制位移
+        const pts = `${x},${y - r} ${x + k},${y - h} ${x + k},${y + h} ${x},${y + r} ${x - k},${y + h} ${x - k},${y - h}`;
+        return el("polygon", { ..._common, points: pts, fill: _anchorFill });
+      }
+      // FIXED(預設):倒三角(頂點朝上)
+      return el("polygon", { ..._common, points: `${x},${y - r} ${x - k},${y + h} ${x + k},${y + h}`, fill: _anchorFill });
     })() : el("circle", {
       cx: j.x, cy: j.y, r: jointR,
       class: "joint" + (isSel ? " selected" : "") + (isLinked ? " linked" : ""),
@@ -1335,7 +1343,7 @@ function _renderImpl() {
     div.style.top = toScreenY(lab.cy) + "px";
     div.style.fontSize = lblFontPx + "px";
     // 編號與節點圖示同色:選取 / linked 都用同一個 #a855f7,linked 額外加 italic 區分
-    div.style.color = (isSelJ || isLinkedJ) ? "#a855f7" : (j.isAnchor ? "#ff8c00" : "#ff2424");
+    div.style.color = (isSelJ || isLinkedJ) ? "#a855f7" : (hasSupport(j) ? "#ff8c00" : "#ff2424");
     if (isLinkedJ) { div.style.fontStyle = "italic"; }
     // 事件已委派到 labelsLayer(見 _setupLabelsDelegation)
     labelsLayer.appendChild(div);

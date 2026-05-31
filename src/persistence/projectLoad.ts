@@ -27,6 +27,7 @@ import {
 } from "../app/integration";
 import { showBusy, setBusyMessage, busyTick } from "../ui/busy";
 import { inferGlobalJoint } from "../core/globalJoints";
+import { migrateAllSupports } from "../core/support";
 import { _saveRecentProject } from "./recentProjects";
 import { base64ToArrayBuffer, fmtMB } from "./projectFile";
 import { loadXlsxSettingsFromProject } from "../export/xlsxSettings";
@@ -290,6 +291,10 @@ export async function loadProjectFull(file, handle) {
       }
     }
   }
+  // 支承資料 migration:舊存檔的 isAnchor + supportType → 新的 support 物件(idempotent)
+  //   必須在 activatePage(會觸發 rank / render 讀 support)之前跑
+  migrateAllSupports(state.files);
+
   setBusyMessage("套用作用中頁面…");
   await busyTick();
 
@@ -346,6 +351,7 @@ export async function loadProjectFull(file, handle) {
   }
   // 加入「最近開啟」紀錄(handle 若為空也存,讓使用者至少看得到名字)
   //   多帶 size + lastModified → 同名但不同內容的檔可以在清單裡並存區分
+  //   多帶 text(原始 JSON)→ 快取進 IndexedDB,讓沒有 handle 的瀏覽器(Safari/Brave)也能一鍵重開
   try {
     if (file && file.name) {
       _saveRecentProject(
@@ -353,6 +359,7 @@ export async function loadProjectFull(file, handle) {
         handle || null,
         Number.isFinite(file.size) ? file.size : 0,
         Number.isFinite(file.lastModified) ? file.lastModified : 0,
+        text,
       );
     }
   } catch (_) {}

@@ -24,6 +24,7 @@ import {
 } from "../app/integration";
 import { nextJointId, nextMemberId, nextFileId, nextGlobalJointId, nextGlobalMemberId } from "../app/state";
 import { projectDirty } from "./projectTabs";
+import { migrateAllSupports } from "../core/support";
 
 const DB_NAME = "staadTracerAutoBackup";
 const STORE   = "backups";
@@ -313,6 +314,16 @@ export async function restoreBackupIntoNewProject(record: any) {
   let payload: any;
   try { payload = JSON.parse(record.payload); }
   catch (e) { alert("備份內容已毀損,無法解析"); return; }
+  // 支承資料 migration:舊備份的 isAnchor + supportType → 新的 support 物件
+  migrateAllSupports(payload.files || []);
+  // ★ 還原序列化時被攤平成陣列的 Set 欄位(_cloneFileForBackup 把 Set → array)。
+  //   否則 render / renderCachedBg 對 selectedBgPaths.has(...) 會丟「c.has is not a function」。
+  //   與 projectLoad 載入路徑保持一致。
+  const _restoredFiles = (payload.files || []).map((f: any) => ({
+    ...f,
+    selectedBgPaths: new Set(Array.isArray(f.selectedBgPaths) ? f.selectedBgPaths : []),
+    deletedBgPaths:  new Set(Array.isArray(f.deletedBgPaths)  ? f.deletedBgPaths  : []),
+  }));
   // 建一個新 project entry,套用 payload
   // 重用 loadProjectDataFromP 的形狀:它讀的 p 物件需要 files/globalJoints/... 跟 next* 計數器
   // 但 loadProjectDataFromP 是套到當前 state,不是建分頁 → 我們得手動把 payload 包成 project entry
@@ -320,7 +331,7 @@ export async function restoreBackupIntoNewProject(record: any) {
   const newProj: any = {
     id: newId,
     name: `[復原] ${record.projectName || "未命名"}`,
-    files: payload.files || [],
+    files: _restoredFiles,
     globalJoints: payload.globalJoints || [],
     globalMembers: payload.globalMembers || [],
     undoStack: [], redoStack: [],

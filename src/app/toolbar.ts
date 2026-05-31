@@ -265,20 +265,25 @@ $("selToolsJConnectV") && ($("selToolsJConnectV").onclick = () => connectSelecte
 $("selToolsJConnectD") && ($("selToolsJConnectD").onclick = () => connectSelectedJointsDiagonal());
 $("selToolsJMerge")    && ($("selToolsJMerge").onclick    = () => mergeTwoSelectedJoints());
 $("selToolsMeasure")   && ($("selToolsMeasure").onclick   = () => startMeasureFromCurrentSelection());
-$("selToolsAnchorToggle") && ($("selToolsAnchorToggle").onclick = () => toggleAnchorOnSelectedJoints());
-// _updateAnchorToggleBtn / toggleAnchorOnSelectedJoints / toggleSupportTypeOnSelectedAnchors /
-// updateSupportTypeBtn 已抽到 tools/anchor.ts(pickSupportTypeModal 也在那邊)
+// 節點支承區塊:設定支承… / 快速固接 / 快速銷接 / 清除支承
+$("selToolsSupportSet")    && ($("selToolsSupportSet").onclick    = () => setSupportOnSelectedJoints());
+$("selToolsSupportFixed")  && ($("selToolsSupportFixed").onclick  = () => quickSupportFixed());
+$("selToolsSupportPinned") && ($("selToolsSupportPinned").onclick = () => quickSupportPinned());
+$("selToolsSupportClear")  && ($("selToolsSupportClear").onclick  = () => clearSupportOnSelectedJoints());
+// 支承相關函式抽在 tools/anchor.ts
 import {
-  _updateAnchorToggleBtn,
+  setSupportOnSelectedJoints,
+  quickSupportFixed,
+  quickSupportPinned,
+  clearSupportOnSelectedJoints,
   toggleAnchorOnSelectedJoints,
-  toggleSupportTypeOnSelectedAnchors,
-  updateSupportTypeBtn,
 } from "../tools/anchor";
 export {
-  _updateAnchorToggleBtn,
+  setSupportOnSelectedJoints,
+  quickSupportFixed,
+  quickSupportPinned,
+  clearSupportOnSelectedJoints,
   toggleAnchorOnSelectedJoints,
-  toggleSupportTypeOnSelectedAnchors,
-  updateSupportTypeBtn,
 };
 
 // 兩點合一:把選取的 2 個節點合併

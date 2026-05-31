@@ -29,6 +29,7 @@ import { openMaterialMgrWindow } from "../dialogs/materialMgr";
 import { open3DPreviewDialog } from "../dialogs/preview3d";
 import { openSearchWindow } from "../dialogs/search";
 import { _getRecentProjects, _openRecentProject, _removeRecentProject } from "../persistence/recentProjects";
+import { listBackups, restoreBackupIntoNewProject, deleteBackup } from "../persistence/autoBackup";
 import { _t, _setLanguage } from "../i18n";
 import { showAboutDialog, checkForUpdatesManual, checkForUpdatesAuto } from "./versionCheck";
 import { openAutoBackupDialog } from "../persistence/autoBackup";
@@ -46,7 +47,7 @@ async function _refreshRecentProjectMenu() {
     e.style.cssText = "opacity:0.5;pointer-events:none;font-style:italic";
     e.textContent = (typeof _t === "function" && _t("file.recentEmpty")) || "(尚無最近開啟的專案)";
     cont.appendChild(e);
-    return;
+    // 不 return:即使沒有最近開啟,仍要往下列出「可復原的自動備份」
   }
   // 檔案大小格式化(MB / KB)
   const _fmtSize = (n) => {
@@ -108,6 +109,67 @@ async function _refreshRecentProjectMenu() {
       _openRecentProject(item);
     });
     cont.appendChild(row);
+  }
+  // === 可復原的自動備份(上次未存檔就關閉的編輯)→ 標示「復原」,點擊載成新分頁 ===
+  let backups: any[] = [];
+  try { backups = await listBackups(); } catch (_) {}
+  if (backups.length) {
+    const divider = document.createElement("div");
+    divider.style.cssText = "border-top:1px solid #333;margin:4px 0";
+    cont.appendChild(divider);
+    const hdr = document.createElement("div");
+    hdr.style.cssText = "padding:4px 14px;font-size:10px;color:#ffd23f;font-weight:700;pointer-events:none";
+    hdr.textContent = `可復原的自動備份(${backups.length})`;
+    cont.appendChild(hdr);
+    for (const b of backups) {
+      const row = document.createElement("div");
+      row.className = "menu-entry";
+      row.style.cssText = "display:flex;flex-direction:column;gap:2px;padding:6px 14px";
+      const topRow = document.createElement("div");
+      topRow.style.cssText = "display:flex;align-items:center;gap:6px;justify-content:space-between";
+      const main = document.createElement("span");
+      main.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center";
+      const badge = document.createElement("span");
+      badge.textContent = "復原";
+      badge.style.cssText = "background:#7a5c00;color:#ffd23f;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-right:6px;flex-shrink:0";
+      main.appendChild(badge);
+      main.appendChild(document.createTextNode(
+        b.projectName + (b.jobName && b.jobName !== b.projectName ? ` (${b.jobName})` : "")));
+      const when = document.createElement("span");
+      when.style.cssText = "font-size:10px;color:#9aa0a6;flex-shrink:0";
+      when.textContent = _fmtDate(b.savedAt);
+      const del = document.createElement("span");
+      del.textContent = "×";
+      del.title = "刪除此備份";
+      del.style.cssText = "padding:0 4px;color:#9aa0a6;cursor:pointer;flex-shrink:0;border-radius:3px";
+      del.onmouseenter = () => { del.style.background = "rgba(255,80,80,0.25)"; del.style.color = "#fff"; };
+      del.onmouseleave = () => { del.style.background = "transparent"; del.style.color = "#9aa0a6"; };
+      del.onclick = async (e) => {
+        e.stopPropagation();
+        if (!window.confirm(`刪除自動備份「${b.projectName}」?此操作無法復原。`)) return;
+        try { await deleteBackup(b.projectId); } catch (_) {}
+        _refreshRecentProjectMenu();
+      };
+      topRow.appendChild(main);
+      topRow.appendChild(when);
+      topRow.appendChild(del);
+      const meta = document.createElement("div");
+      meta.style.cssText = "font-size:10px;color:#7a8088;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+      const sz = _fmtSize(b.payloadSize);
+      const metaParts: string[] = [`${b.nJoints || 0} 節點 / ${b.nMembers || 0} 桿`];
+      if (sz) metaParts.push(sz);
+      if (b.fileHandleName) metaParts.push(`原檔 ${b.fileHandleName}`);
+      meta.textContent = metaParts.join(" · ");
+      row.title = `自動備份(尚未存檔的編輯)· ${_fmtDate(b.savedAt)}\n點擊 → 以「[復原]」新分頁載入(原檔不會被覆寫)`;
+      row.appendChild(topRow);
+      row.appendChild(meta);
+      row.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        document.querySelectorAll("#menuBar .menu-item").forEach(m => m.classList.remove("open"));
+        try { await restoreBackupIntoNewProject(b); } catch (err) { console.warn("[復原] 失敗:", err); }
+      });
+      cont.appendChild(row);
+    }
   }
 }
 (function setupMenuBar() {

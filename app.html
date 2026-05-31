@@ -385,9 +385,15 @@
         <button id="selToolsJConnectD"   title="斜線連結選取節點:找出選取節點中所有共線(非水平/垂直)的子群,沿斜線方向排序後相鄰兩兩連桿件;不重複既有桿件。常用於 X 型支撐 / 桁架斜桿">點點斜線連結</button>
         <button id="selToolsJMerge"      title="兩點合一:把選取的 2 個節點合併到中點,連到任一端的桿件自動延長或收縮;若兩點本來有桿件相連,該桿件會被移除">兩點合一</button>
         <button id="selToolsMeasure"     title="標示距離(只讀):選 1 條桿件 → 量該線長度;選 2+ 條桿件 → 找平行對量垂直距離。結果可沿線滑動,點擊確認 / Esc 清除">標示距離</button>
-        <button id="selToolsAnchorToggle" title="標記/取消錨點(anchor):把選取節點標記為座標軸錨點 — 即使該 joint 不是 H+V 真實交點(例如柱腳沒基座樑),也算作該座標的 anchor → rank 編號時跟正常數值一起排,不會被 demote。按下會跳支座類型(FIXED/PINNED)選擇,Cmd+Z 可還原">設為錨點</button>
         <button id="selToolsIntersectSel" style="display:none" title="切交點(選取):只對目前選取的桿件兩兩求交,在交點處建節點並拆段。需選 ≥2 條桿件;新拆段會自動加入選取以利連續操作">切交點(選取)</button>
         <button id="btnDel" class="danger" title="刪除選取 (Shift+D / Del):移除選取的節點與桿件">刪除</button>
+      </div>
+      <div class="bg-edit-section">
+        <div class="bg-edit-title" data-i18n="subtool.section.support">節點支承</div>
+        <button id="selToolsSupportSet"    title="設定支承(選取節點):開啟支承設定視窗,可選 FIXED / PINNED / FIXED BUT / SPRING / ENFORCED 並填參數,套用到選取節點(含跨頁對應點)。設定支承會自動把該點標為編號錨點。Cmd+Z 可還原">設定支承…</button>
+        <button id="selToolsSupportFixed"  title="快速設為固接 FIXED(6 個自由度全鎖),不開視窗">快速固接</button>
+        <button id="selToolsSupportPinned" title="快速設為銷接 PINNED(鎖 3 平移、放 3 轉動),不開視窗">快速銷接</button>
+        <button id="selToolsSupportClear"  title="清除選取節點的支承">清除支承</button>
       </div>
       <div class="bg-edit-section">
         <div class="bg-edit-title" data-i18n="subtool.section.move">移動</div>

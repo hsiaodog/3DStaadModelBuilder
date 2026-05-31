@@ -26,7 +26,7 @@ interface MemberCollision {
   memberId: number;
 }
 interface BuildModelResult {
-  joints: Array<{ id: number; x: number; y: number; z: number; isAnchor?: boolean; supportType?: "FIXED" | "PINNED" }>;
+  joints: Array<{ id: number; x: number; y: number; z: number; support?: import("./support").Support }>;
   members: Array<{ id: number; j1: number; j2: number }>;
 }
 
@@ -89,16 +89,10 @@ export function buildModel(): BuildModelResult {
           dup = { id: nid as number, x: X, y: Y, z: Z };
           allJoints.push(dup);
         }
-        // 累積錨點 / 支座類型:任一頁面的此 joint 標 isAnchor → 該物理點視為錨點
-        //   supportType 取「最後一次設值」(實務上多頁應同步;若不同步,以最後讀到為準)
-        if (j.isAnchor) {
-          (dup as any).isAnchor = true;
-          if (j.supportType === "PINNED" || j.supportType === "FIXED") {
-            (dup as any).supportType = j.supportType;
-          } else if (!(dup as any).supportType) {
-            (dup as any).supportType = "FIXED";   // 未指定 → FIXED 預設
-          }
-        }
+        // 累積支承:任一頁面的此 joint 有 support → 傳遞到去重後的物理點。
+        //   support 取「最後一次設值」(實務上多頁應同步;若不同步,以最後讀到為準)。
+        //   有支承的點在編號階段(rankCache)會自動視為座標軸錨點。
+        if ((j as any).support) (dup as any).support = (j as any).support;
         idMap.set(j.id, dup.id);
       }
       for (const m of pg.members) {

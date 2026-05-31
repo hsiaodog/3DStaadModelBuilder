@@ -13,6 +13,7 @@
 
 import { state, $ } from "../app/integration";
 import { buildModel, showBuildModelCollisionsIfAny } from "../core/buildModel";
+import { supportTypeOf, supportStaadSpec } from "../core/support";
 import { buildExportContext } from "./shared";
 import { unitToMeter, meterToTarget, staadUnitKeyword } from "../utils/units";
 import { saveFileWithPicker } from "../utils/saveFile";
@@ -321,21 +322,24 @@ export function exportStdFile() {
     _writeMatGroup("BRACE XY",  _memBraceXY);
     _writeMatGroup("BRACE YZ",  _memBraceYZ);
   }
-  // === SUPPORTS:錨點(isAnchor=true 的 joint)→ FIXED / PINNED 分組輸出 ===
+  // === SUPPORTS:有支承的 joint → 依「STAAD 規格字串」分組輸出 ===
   //   STAAD 格式:
   //     SUPPORTS
   //     1 5 9 TO 12 FIXED
   //     20 21 PINNED
-  //   未指定 supportType 的錨點預設 FIXED
+  //     30 FIXED BUT MX MY MZ
+  //     40 FIXED BUT KFY 15000 KMX 200
+  //     50 ENFORCED
+  //   相同規格的節點壓進同一組(TO range);FIXED / PINNED 先輸出,其餘依字串排序。
   {
-    const fixedIds: number[] = [];
-    const pinnedIds: number[] = [];
+    const specToIds = new Map<string, number[]>();
     for (const j of joints as any[]) {
-      if (!j.isAnchor) continue;
-      if (j.supportType === "PINNED") pinnedIds.push(j.id);
-      else fixedIds.push(j.id);   // FIXED 為預設
+      if (!supportTypeOf(j)) continue;
+      const spec = supportStaadSpec(j.support);
+      if (!specToIds.has(spec)) specToIds.set(spec, []);
+      specToIds.get(spec)!.push(j.id);
     }
-    if (fixedIds.length || pinnedIds.length) {
+    if (specToIds.size) {
       lines.push("SUPPORTS");
       // 跟 MEMBER PROPERTY 一樣壓 TO range,每列 ≤ 6 slot
       const _writeSupportLines = (ids: number[], kind: string) => {
@@ -352,8 +356,10 @@ export function exportStdFile() {
         }
         _flush();
       };
-      _writeSupportLines(fixedIds, "FIXED");
-      _writeSupportLines(pinnedIds, "PINNED");
+      // 輸出順序:FIXED、PINNED 先,其餘規格依字串排序(穩定輸出)
+      const _specOrder = (s: string) => s === "FIXED" ? 0 : s === "PINNED" ? 1 : 2;
+      const specs = [...specToIds.keys()].sort((a, b) => _specOrder(a) - _specOrder(b) || a.localeCompare(b));
+      for (const spec of specs) _writeSupportLines(specToIds.get(spec)!, spec);
     }
   }
   lines.push("FINISH");

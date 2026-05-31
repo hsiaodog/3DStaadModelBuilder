@@ -509,7 +509,6 @@ export { cKeyDown, panning, rangeZoomDragStart, rangeZoomSuppressClick, mouseDow
          setPanning, setRangeZoomDragStart, setRangeZoomSuppressClick, setMouseDownPos } from "./canvasEvents";
 import { _setBtnLabel, _t } from "../i18n";
 import { _measureDec } from "../tools/measure";
-import { _updateAnchorToggleBtn } from "../tools/anchor";
 import { calibrateAllFilesToCustomOrigin, calibrateAllFilesToGlobalOrigin } from "../tools/calibrate";
 import { handleMoveModeClick } from "../tools/moveCmd";
 // integration.ts 內 cacheActivePageBgSegs / bg svg 處理還在用 svgElementToSegments
@@ -3372,7 +3371,6 @@ export function refreshLists() {
   if (typeof refreshSectionLinkList === "function") refreshSectionLinkList();
   if (typeof _updateGlobalOriginUI === "function") _updateGlobalOriginUI();
   if (typeof _refreshFloorTypeSidebar === "function") _refreshFloorTypeSidebar();
-  if (typeof _updateAnchorToggleBtn === "function") _updateAnchorToggleBtn();
   const p = getPage();
   const af0 = getActiveFile();
   const orig = af0 && af0.planeOrigin;
@@ -4018,9 +4016,6 @@ $("pageSelector").addEventListener("change", (e) => {
 export { showHoverTip, moveHoverTip, hideHoverTip, fmtJointInfo, fmtMemberInfo } from "../ui/hoverTip";
 // 釘住的節點資訊視窗 — 實作搬到 src/dialogs/jointInfoPopup.ts
 export { showJointInfoPopup, hideJointInfoPopup } from "../dialogs/jointInfoPopup";
-// 設為錨點 → 跳支座類型選擇 modal(FIXED / PINNED / 取消)
-//   實作已搬到 src/tools/anchor.ts,re-export 維持外部 importer 不用動
-export { pickSupportTypeModal } from "../tools/anchor";
 // positionHoverTip / escHtml / tipRow / fmtJointInfo / fmtMemberInfo 全搬到 src/ui/hoverTip.ts;
 //   本檔不再保留實作。需要的話走檔頂的 re-export 拿。
 
@@ -4531,11 +4526,8 @@ export { initBlank, _applyToolbarMode, _startSaveWithHook } from "./init";
 queueMicrotask(() => {
   try { initBlank(); } catch (e) { console.error("[initBlank]", e); }
   try { _initFirstProject(); } catch (e) { console.error("[_initFirstProject]", e); }
-  // 啟動完成後,在 idle 時檢查 IndexedDB 有沒有殘留的自動備份(代表上次沒乾淨儲存)
-  //   等到 _initFirstProject 完成後再跑,確保 projects 陣列已就緒,使用者按「復原」時能 push 新分頁。
-  setTimeout(() => {
-    import("../persistence/autoBackup").then(m => m.checkRecoveryOnStartup()).catch(() => {});
-  }, 1500);
+  // 啟動時不再彈出自動備份復原對話框 —— 可復原的備份已改為列在
+  //   「File → 開啟專案 → 可復原的自動備份」子選單裡,使用者要復原時自行點選即可。
 });
 
 

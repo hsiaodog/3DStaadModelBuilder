@@ -50,7 +50,7 @@ export function initBlank() {
 // ---------- dirty flag hooks ----------
 // 把「有變更」訊號吸進 projectDirty(僅在 dirty 狀態轉換時重新渲染 tabs,避免高頻刷新)
 // 同時觸發自動備份(debounce 30s)— 不會寫到任何磁碟檔案,只進瀏覽器 IDB。
-import { scheduleBackupSoon, flushBackupNow, clearBackupForActive, checkRecoveryOnStartup } from "../persistence/autoBackup";
+import { scheduleBackupSoon, flushBackupNow, clearBackupForActive } from "../persistence/autoBackup";
 setPushUndoHook(() => {
   const wasDirty = projectDirty;
   setProjectDirty(true);
@@ -173,7 +173,7 @@ const _ICON_SVG = {
   "selToolsJConnectD":  '<svg viewBox="0 0 24 24"><circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="12" cy="12" r="1.6"/><line x1="6.5" y1="17.5" x2="17.5" y2="6.5"/></svg>',
   "selToolsJMerge":     '<svg viewBox="0 0 24 24"><circle cx="5" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="12" r="2"/><path d="M7 6c4 0 4 6 10 6"/><path d="M7 18c4 0 4-6 10-6"/></svg>',
   "selToolsMeasure":    '<svg viewBox="0 0 24 24"><rect x="2" y="9" width="20" height="7" rx="1"/><line x1="6" y1="9" x2="6" y2="13"/><line x1="10" y1="9" x2="10" y2="13"/><line x1="14" y1="9" x2="14" y2="13"/><line x1="18" y1="9" x2="18" y2="13"/></svg>',
-  "selToolsAnchorToggle":'<svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.2"/><line x1="12" y1="7" x2="12" y2="20"/><path d="M5 14a7 7 0 0 0 14 0"/><line x1="9" y1="11" x2="15" y2="11"/></svg>',
+  "selToolsSupportSet":  '<svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.2"/><line x1="12" y1="7" x2="12" y2="20"/><path d="M5 14a7 7 0 0 0 14 0"/><line x1="9" y1="11" x2="15" y2="11"/></svg>',
   "selToolsIntersectSel":'<svg viewBox="0 0 24 24"><line x1="4" y1="4" x2="20" y2="20"/><line x1="20" y1="4" x2="4" y2="20"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/></svg>',
   "btnDel":             '<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>',
   // === selectTools: 移動群組 ===
