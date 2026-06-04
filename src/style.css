@@ -1,0 +1,1245 @@
+  :root {
+    --bg: #1e1f22;
+    --panel: #2b2d31;
+    --panel2: #232428;
+    --line: #3a3d44;
+    --text: #e6e6e6;
+    --muted: #9aa0a6;
+    --accent: #4f9dff;
+    --accent2: #66d9b0;
+    --warn: #ff9b59;
+    --danger: #ff6464;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; overflow: hidden; }
+  #app { position: relative; width: 100vw; height: 100vh; }
+  /* 頂部橫向主選單列 */
+  #menuBar {
+    position: fixed; top: 0; left: 0; right: 0; height: 28px;
+    background: rgba(28, 30, 34, 0.96);
+    border-bottom: 1px solid #444;
+    display: flex; align-items: stretch;
+    z-index: 2100; user-select: none;
+    backdrop-filter: blur(6px);
+    font-size: 12px;
+  }
+  #menuBar .menu-item {
+    position: relative; display: flex; align-items: center;
+    padding: 0 14px; cursor: pointer; color: #ddd;
+  }
+  #menuBar .menu-item:hover { background: rgba(255,255,255,0.08); }
+  #menuBar .menu-item.open   { background: #2f4a78; color: #fff; }
+  #menuBar .menu-icon-btn {
+    position: relative; display: flex; align-items: center; justify-content: center;
+    padding: 0 10px; cursor: pointer; color: #ddd;
+  }
+  #menuBar .menu-icon-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+  #menuBar .menu-icon-btn svg { display: block; }
+  #menuBar .menu-dropdown {
+    display: none; position: absolute; top: 100%; left: 0;
+    min-width: 180px; background: #1f2126;
+    border: 1px solid #444; padding: 4px 0;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.55);
+    z-index: 2101;
+  }
+  #menuBar .menu-item.open .menu-dropdown { display: block; }
+  #menuBar .menu-entry {
+    padding: 6px 16px; color: #ddd; font-size: 12px; white-space: nowrap;
+  }
+  #menuBar .menu-entry:hover { background: #3a3d44; color: #fff; }
+  #menuBar .menu-sep { height: 1px; background: #444; margin: 4px 0; }
+  /* 子選單(右側展開):.menu-entry.has-submenu hover → 右側顯示 .submenu */
+  #menuBar .menu-entry.has-submenu { position: relative; padding-right: 26px; }
+  #menuBar .menu-entry.has-submenu::after { content: "▶"; position: absolute; right: 8px;
+    top: 50%; transform: translateY(-50%); font-size: 9px; color: #888; }
+  #menuBar .menu-entry.has-submenu:hover::after { color: #fff; }
+  #menuBar .menu-entry .submenu { display: none; position: absolute; left: 100%; top: -5px;
+    min-width: 160px; background: #1f2126; border: 1px solid #444; padding: 4px 0;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.55); z-index: 2102; }
+  #menuBar .menu-entry.has-submenu:hover > .submenu { display: block; }
+  #menuBar .menu-entry .submenu .menu-entry { padding: 6px 14px 6px 28px; position: relative; }
+  #menuBar .menu-entry .submenu .menu-entry.checked::before { content: "✓"; position: absolute;
+    left: 10px; top: 50%; transform: translateY(-50%); color: #4f9dff; font-weight: 700; }
+  /* 專案分頁列:直接掛在 menuBar 裡面正中央,不另起一排 */
+  #projectTabs {
+    position: absolute; top: 0; bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 720px; max-width: 70vw; z-index: 1;
+    display: flex; align-items: center;
+    padding: 0 8px;
+    pointer-events: auto;
+    overflow: hidden;
+  }
+  #projectTabs .pt-scroll {
+    display: flex; gap: 3px; width: 100%; height: 22px;
+    overflow-x: scroll; overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  #projectTabs .pt-scroll::-webkit-scrollbar { display: none; }
+  #projectTabs .pt-tab {
+    width: 160px; flex-shrink: 0; height: 22px;
+    background: #2a2d33; border: 1px solid #3a3d44;
+    border-radius: 4px;
+    display: flex; align-items: center; padding: 0 6px 0 10px;
+    gap: 6px; cursor: pointer; font-size: 12px; color: #c8ccd0;
+    user-select: none;
+    transition: background 0.12s, color 0.12s;
+  }
+  #projectTabs .pt-tab:hover { background: #353940; color: #fff; }
+  #projectTabs .pt-tab.active {
+    background: #2f4a78; color: #fff; border-color: #4a78c8;
+    box-shadow: 0 0 0 1px rgba(79,157,255,0.5) inset;
+  }
+  #projectTabs .pt-name {
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #projectTabs .pt-dirty {
+    color: #ffd23f; font-size: 10px; margin-right: 2px;
+  }
+  #projectTabs .pt-close {
+    opacity: 0.55; padding: 0 4px; font-size: 14px; line-height: 1;
+    border-radius: 3px; flex-shrink: 0;
+  }
+  #projectTabs .pt-close:hover { opacity: 1; color: #ff7788; background: rgba(255,255,255,0.1); }
+  /* 輸入框 / 三選一確認:共用 splitDialog 樣式 */
+  #genericDialog {
+    position: fixed; inset: 0; z-index: 3000; display: none;
+    align-items: center; justify-content: center;
+  }
+  #genericDialog.active { display: flex; }
+  #genericDialog .gd-mask { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
+  #genericDialog .gd-card {
+    position: relative; background: var(--panel); border: 1px solid #555;
+    border-radius: 8px; padding: 18px 22px; min-width: 360px; max-width: 520px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.65);
+  }
+  #genericDialog .gd-title { font-weight: 700; font-size: 13px; color: var(--accent2); margin-bottom: 12px; }
+  #genericDialog .gd-msg { font-size: 12px; color: #ddd; margin-bottom: 14px; line-height: 1.5; white-space: pre-wrap; }
+  #genericDialog input { width: 100%; margin-top: 4px; }
+  #genericDialog .gd-footer { display: flex; justify-content: flex-end; gap: 6px; }
+  /* 切面關聯:檔案清單對話框 — 可拖曳、可拉伸、Mac 風關閉、左右佈局(左 list / 右 preview)*/
+  #sectionLinkDialog { position: fixed; inset: 0; z-index: 3000; display: none;
+    align-items: center; justify-content: center; }
+  #sectionLinkDialog.active { display: flex; }
+  #sectionLinkDialog .sl-mask { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
+  #sectionLinkDialog .sl-card {
+    position: relative; background: var(--panel); border: 1px solid #555;
+    border-radius: 8px; padding: 0;
+    width: 80vw; height: 80vh;     /* 預設佔滿 4/5 螢幕 */
+    min-width: 520px; min-height: 380px;
+    max-width: 96vw; max-height: 92vh;
+    resize: both;            /* 右下角自動出現拉伸手柄 — 使用者可拖動改大小 */
+    overflow: hidden;        /* resize 需要 overflow != visible */
+    box-shadow: 0 12px 40px rgba(0,0,0,0.65);
+    display: flex; flex-direction: column;
+  }
+  #sectionLinkDialog .sl-titlebar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; cursor: move; user-select: none;
+    background: linear-gradient(to bottom, #2b2d31, #23252a);
+    border-bottom: 1px solid #3a3d44;
+    flex-shrink: 0;
+  }
+  #sectionLinkDialog .sl-close {
+    width: 13px; height: 13px; border-radius: 50%;
+    background: #ff5f57; border: 1px solid rgba(0,0,0,0.2);
+    cursor: pointer; flex-shrink: 0; position: relative;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: transparent; font-size: 10px; line-height: 1;
+    transition: color 0.15s;
+  }
+  #sectionLinkDialog .sl-close:hover { color: rgba(0,0,0,0.55); }
+  #sectionLinkDialog .sl-close::after { content: "×"; position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -51%); }
+  #sectionLinkDialog .sl-title { font-weight: 700; font-size: 13px; color: var(--accent2); }
+  #sectionLinkDialog .sl-info {
+    font-size: 11px; color: #9aa0a6; white-space: pre-wrap; line-height: 1.5;
+    padding: 10px 16px; border-bottom: 1px solid #2a2d33; background: #1c1e22;
+    flex-shrink: 0;
+  }
+  /* 左右佈局 body:左 list、右 preview — 皆可隨對話框拉伸自適應 */
+  #sectionLinkDialog .sl-body {
+    flex: 1 1 auto; min-height: 0;
+    display: grid; grid-template-columns: 1fr 1fr;
+    overflow: hidden;
+  }
+  #sectionLinkDialog .sl-left {
+    display: flex; flex-direction: column;
+    border-right: 1px solid #3a3d44;
+    overflow: hidden; min-width: 0;
+  }
+  #sectionLinkDialog .sl-list {
+    flex: 1 1 auto; overflow-y: auto;
+    background: #1a1c20;
+  }
+  #sectionLinkDialog .sl-row {
+    padding: 8px 10px; display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid #2a2d33; cursor: pointer;
+  }
+  #sectionLinkDialog .sl-row:last-child { border-bottom: none; }
+  #sectionLinkDialog .sl-row:hover { background: #24262b; }
+  #sectionLinkDialog .sl-row.on { background: rgba(79,157,255,0.18); }
+  #sectionLinkDialog .sl-row.focus { outline: 1px solid #4f9dff; outline-offset: -1px; }
+  #sectionLinkDialog .sl-check {
+    width: 16px; height: 16px; border: 1px solid #555; border-radius: 3px;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0; font-size: 11px; color: #4f9dff; background: transparent;
+  }
+  #sectionLinkDialog .sl-row.on .sl-check { background: #4f9dff; color: #fff; border-color: #4f9dff; }
+  #sectionLinkDialog .sl-thumb {
+    width: 56px; height: 42px; flex-shrink: 0;
+    border: 1px solid #2a2d33; border-radius: 3px; background: #0d0e10;
+  }
+  #sectionLinkDialog .sl-row-body { flex: 1; min-width: 0; }
+  #sectionLinkDialog .sl-name { font-size: 12px; color: #ddd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #sectionLinkDialog .sl-meta { font-size: 10px; color: #7b818a; margin-top: 2px; }
+  #sectionLinkDialog .sl-dup {
+    padding: 4px 10px; font-size: 11px; flex-shrink: 0;
+    background: #2a2d33; border: 1px solid #3a3d44; color: #ddd; border-radius: 3px;
+    cursor: pointer;
+  }
+  #sectionLinkDialog .sl-dup:hover { background: #353940; color: #fff; }
+  /* 右側 preview 面板:focus 中檔案的大圖預覽 */
+  #sectionLinkDialog .sl-preview {
+    display: flex; flex-direction: column;
+    background: #0d0e10; overflow: hidden; min-width: 0;
+  }
+  #sectionLinkDialog .sl-preview-header {
+    font-size: 11px; color: #9aa0a6; padding: 8px 12px;
+    border-bottom: 1px solid #2a2d33; background: #141519;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    flex-shrink: 0;
+  }
+  #sectionLinkDialog .sl-preview-stage {
+    flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
+    padding: 12px; min-height: 0; overflow: hidden;
+  }
+  #sectionLinkDialog .sl-preview-canvas {
+    max-width: 100%; max-height: 100%;
+    border: 1px solid #2a2d33; border-radius: 3px;
+  }
+  #sectionLinkDialog .sl-footer {
+    display: flex; justify-content: flex-end; gap: 6px;
+    padding: 10px 16px; border-top: 1px solid #3a3d44; background: #1c1e22;
+    flex-shrink: 0;
+  }
+  .sidebar {
+    position: fixed; top: 40px; bottom: 12px; width: 220px;
+    background: rgba(43,45,49,0.92); backdrop-filter: blur(8px);
+    display: flex; flex-direction: column; min-width: 0;
+    overflow-y: auto; overflow-x: hidden;
+    z-index: 1400; box-shadow: 0 6px 22px rgba(0,0,0,0.55);
+    transition: transform 0.22s ease;
+    border-radius: 12px; border: 1px solid var(--line);
+  }
+  .sidebar::-webkit-scrollbar { width: 8px; }
+  .sidebar::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+  .sidebar.left  { left: 12px; }
+  .sidebar.right { right: 12px; }
+  .sidebar.left.collapsed  { transform: translateX(calc(-100% - 16px)); }
+  .sidebar.right.collapsed { transform: translateX(calc(100% + 16px)); }
+  .collapser {
+    position: fixed; top: 50%; width: 18px; height: 64px;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; z-index: 1402; font-size: 14px; user-select: none;
+    transition: left 0.22s ease, right 0.22s ease;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  }
+  .collapser:hover { background: var(--panel2); }
+  .collapser.left  { transform: translateY(-50%); border-radius: 0 6px 6px 0; }
+  .collapser.right { transform: translateY(-50%); border-radius: 6px 0 0 6px; }
+  .collapser.left.collapsed  { left: 4px !important; border-radius: 6px; }
+  .collapser.right.collapsed { right: 4px !important; border-radius: 6px; }
+  .sidebar h2 { margin: 0; padding: 10px 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); border-bottom: 1px solid var(--line); }
+  .section { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  /* 自製檔案選擇按鈕:取代 OS-locale 的 native file input */
+  .file-input-wrap { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .file-input-wrap input[type="file"] { display: none; }
+  .file-input-wrap label.file-btn { padding: 4px 10px; background: #1a1c20;
+    border: 1px solid #555; border-radius: 3px; cursor: pointer; font-size: 11px;
+    color: #ddd; user-select: none; }
+  .file-input-wrap label.file-btn:hover { background: #2a2d33; border-color: #777; }
+  .file-input-wrap .file-state { font-size: 11px; color: #9aa0a6; }
+  .section h3 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); font-weight: 600; }
+  button, .btn { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  button:hover { border-color: #555; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.warn { background: var(--warn); border-color: var(--warn); color: #1c1c1c; }
+  button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+  button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.multi  { box-shadow: 0 0 0 2px #ffd23f inset; }
+  input[type=text], input[type=number], select {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    padding: 5px 8px; border-radius: 5px; font-size: 12px; width: 100%;
+  }
+  label { display: block; margin: 6px 0 3px; color: var(--muted); font-size: 11px; }
+  .row { display: flex; gap: 6px; }
+  .row > * { flex: 1; }
+  #canvas-wrap { position: absolute; top: 28px; left: 0; right: 0; bottom: 0; overflow: hidden; background: #000; cursor: none; }
+  #crosshairH, #crosshairV, #crosshairBox {
+    position: absolute; pointer-events: none; z-index: 50; display: none;
+  }
+  #crosshairH, #crosshairV { background: rgba(220, 220, 220, 0.85); }
+  /* AutoCAD 風格:底圖顏色反相(白↔黑,其他色相保留)以適配深色畫布 */
+  #bg-canvas, #bgSvg { filter: invert(1) hue-rotate(180deg); }
+  #crosshairH { left: 0; right: 0; height: 1px; }
+  #crosshairV { top: 0; bottom: 0; width: 1px; }
+  #crosshairBox {
+    width: 14px; height: 14px;
+    border: 1px solid rgba(255, 220, 120, 0.95);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55) inset;
+    transform: translate(-50%, -50%);
+    background: transparent;
+  }
+  #rangeZoomPreview {
+    position: absolute; display: none; pointer-events: none; z-index: 55;
+    border: 1.5px dashed #ffd23f; background: rgba(255, 210, 63, 0.12);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55) inset;
+  }
+  /* 範圍放大模式:除了畫布與 zoomTools 之外,其他 UI 不接受指標事件 */
+  body.range-zoom-mode #toolbar,
+  body.range-zoom-mode #tabBar,
+  body.range-zoom-mode #bgEditTools,
+  body.range-zoom-mode #selectTools,
+  body.range-zoom-mode .sidebar,
+  body.range-zoom-mode .sidebar-resizer,
+  body.range-zoom-mode .collapser,
+  body.range-zoom-mode #cmdInputBar,
+  body.range-zoom-mode #ctxMenu,
+  body.range-zoom-mode #menuBar,
+  body.range-zoom-mode #hud { pointer-events: none; }
+  /* 並且畫布內的節點 / 桿件 / 標號不可點選(避免觸發選取),讓點擊直接落到 canvas-wrap */
+  body.range-zoom-mode #stage,
+  body.range-zoom-mode #stage *,
+  body.range-zoom-mode #labelsLayer,
+  body.range-zoom-mode #labelsLayer * { pointer-events: none !important; }
+  #stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  /* 只在互動中(滾輪 / 拖曳)為 stage 加 will-change,閒置時拿掉讓 SVG 重新 raster 成清晰版
+     避免「永遠 will-change」造成 zoom 後 bitmap 被等比放大而失真 */
+  body.interacting #stage { will-change: transform; }
+  /* 底圖顯示 / 隱藏切換:#bg-canvas 與 #bgSvg 兩者可能擇一可見,此 class 一併 hidden */
+  body.bg-hidden #bg-canvas, body.bg-hidden #bgSvg { display: none !important; }
+  /* 節點 / 桿件 分開隱藏:
+     joints-hidden  → 隱藏節點圓圈 + 錨點符號 + 節點編號標籤
+     members-hidden → 隱藏桿件線 + 桿件編號標籤
+     兩者同開即等同舊版「桿件節點 隱藏」效果 */
+  body.joints-hidden #vector .joint,
+  body.joints-hidden #vector .joint-x { display: none !important; }
+  body.joints-hidden #labelsLayer .lbl-joint { display: none !important; }
+  body.members-hidden #vector .member { display: none !important; }
+  body.members-hidden #vector .member-release { display: none !important; }
+  body.members-hidden #labelsLayer .lbl-member { display: none !important; }
+  #bg-canvas { display: block; background: transparent; }
+  #vector { position: absolute; left: 0; top: 0; pointer-events: none; background: transparent;
+    shape-rendering: geometricPrecision; overflow: visible; }
+  #labelsLayer { position: absolute; inset: 0; pointer-events: none;
+    overflow: hidden; z-index: 50; }
+  #labelsLayer .lbl { position: absolute; pointer-events: auto; user-select: none;
+    font-family: Arial, Helvetica, sans-serif; font-weight: 700;
+    cursor: none; transform: translate(-50%, -50%);
+    text-shadow: 1px 0 #000, -1px 0 #000, 0 1px #000, 0 -1px #000,
+                 1px 1px #000, -1px -1px #000, 1px -1px #000, -1px 1px #000;
+    line-height: 1; padding: 2px 5px; white-space: nowrap;
+    border-radius: 3px; }
+  #labelsLayer .lbl:hover { background: rgba(0,0,0,0.6); }
+  #labelsLayer .lbl-section-link {
+    background: rgba(0,0,0,0.55); font-weight: 600;
+    padding: 3px 6px; letter-spacing: 0.5px;
+    border: 1px solid transparent;
+  }
+  #hoverTip { position: fixed; pointer-events: none; z-index: 1500;
+    background: rgba(15,15,18,0.96); color: #eaeaea;
+    border: 1px solid #555; border-radius: 6px; padding: 6px 10px;
+    font: 11px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.55);
+    display: none; max-width: 360px; }
+  #hoverTip .ttip-title { color: #ffd23f; font-weight: 700; display: block; margin-bottom: 3px; }
+  #hoverTip .ttip-row   { color: #c8ccd0; }
+  #hoverTip .ttip-key   { color: #8a92a0; }
+  #hoverTip .ttip-val   { color: #fff; }
+  /* 設為錨點 → 跳出支座類型選擇 modal(FIXED / PINNED / 取消) */
+  #supportTypeModal { position: fixed; inset: 0; z-index: 2000; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.5); }
+  #supportTypeModal.active { display: flex; }
+  #supportTypeModal .stm-card { background: #1e1e22; color: #eaeaea;
+    border: 1px solid #555; border-radius: 8px; padding: 0;
+    min-width: 360px; max-width: 480px;
+    box-shadow: 0 10px 32px rgba(0,0,0,0.7);
+    font: 12px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  #supportTypeModal .stm-titlebar { background: rgba(255,255,255,0.06); padding: 8px 14px;
+    border-bottom: 1px solid #444; border-radius: 8px 8px 0 0;
+    color: #ffd23f; font-weight: 700; font-size: 13px; }
+  #supportTypeModal .stm-body { padding: 14px 18px; color: #c8ccd0; }
+  #supportTypeModal .stm-body b { color: #fff; }
+  #supportTypeModal .stm-buttons { padding: 10px 14px 14px; display: flex; gap: 8px; justify-content: flex-end; }
+  #supportTypeModal .stm-btn { padding: 6px 16px; border-radius: 4px; cursor: pointer;
+    border: 1px solid #555; background: #2a2a2e; color: #eaeaea;
+    font: 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  #supportTypeModal .stm-btn:hover { background: #3a3a3e; }
+  #supportTypeModal .stm-btn.primary { background: #1976d2; border-color: #2196f3; color: #fff; }
+  #supportTypeModal .stm-btn.primary:hover { background: #2196f3; }
+  #supportTypeModal .stm-btn.secondary { background: #455a64; border-color: #607d8b; color: #fff; }
+  #supportTypeModal .stm-btn.secondary:hover { background: #607d8b; }
+  /* === 支承設定視窗(Phase 2):類型 + 參數(FIXED BUT / SPRING / ENFORCED)=== */
+  .mech-dialog { position: fixed; inset: 0; z-index: 2000; display: none;
+    align-items: center; justify-content: center; background: rgba(0,0,0,0.5); }
+  .mech-dialog.active { display: flex; }
+  .mech-dialog .sd-card { background: #1e1e22; color: #eaeaea; border: 1px solid #555;
+    border-radius: 8px; min-width: 440px; max-width: 580px;
+    box-shadow: 0 10px 32px rgba(0,0,0,0.7);
+    font: 12px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  .mech-dialog .sd-titlebar { background: rgba(255,255,255,0.06); padding: 8px 14px;
+    border-bottom: 1px solid #444; border-radius: 8px 8px 0 0;
+    color: #ffd23f; font-weight: 700; font-size: 13px; }
+  .mech-dialog .sd-body { padding: 14px 18px; color: #c8ccd0; max-height: 72vh; overflow: auto; }
+  .mech-dialog .sd-intro { margin-bottom: 12px; }
+  .mech-dialog .sd-intro b { color: #fff; }
+  .mech-dialog .sd-types { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .mech-dialog .sd-type { padding: 6px 12px; border: 1px solid #555; border-radius: 6px;
+    cursor: pointer; user-select: none; background: #26262b; color: #cfd3d8; font-weight: 700; }
+  .mech-dialog .sd-type:hover { background: #33343a; color: #fff; }
+  .mech-dialog .sd-type.active { background: #2f4a78; border-color: #4f9dff; color: #fff;
+    box-shadow: 0 0 0 1px rgba(79,157,255,0.3) inset; }
+  .mech-dialog .sd-desc { color: #9aa0a6; margin: 2px 0 12px; font-size: 11px; }
+  .mech-dialog .sd-params { border-top: 1px dashed #3a3a3e; padding-top: 12px; min-height: 18px; }
+  .mech-dialog .sd-params:empty { display: none; }
+  .mech-dialog .sd-grouptitle { color: #9bb6e8; font-weight: 700; font-size: 11px; margin: 8px 0 4px; }
+  .mech-dialog .sd-dofgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px 16px; }
+  .mech-dialog .sd-dof { display: flex; align-items: center; gap: 6px; }
+  .mech-dialog .sd-dof label { cursor: pointer; color: #cfd3d8; }
+  .mech-dialog .sd-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+  .mech-dialog .sd-row .k { width: 52px; color: #9bb6e8; font-weight: 700; }
+  .mech-dialog input[type=number] { width: 130px; background: #15161a; color: #eaeaea;
+    border: 1px solid #555; border-radius: 4px; padding: 4px 6px; font: inherit; }
+  .mech-dialog input[type=number]:focus { outline: none; border-color: #4f9dff; }
+  .mech-dialog .sd-unit { color: #7b818a; font-size: 10.5px; }
+  .mech-dialog .sd-hint { color: #7b818a; font-size: 10.5px; margin-bottom: 8px; }
+  .mech-dialog .sd-warn { color: #ffb454; margin-top: 10px; font-size: 11px; min-height: 14px; }
+  .mech-dialog .sd-buttons { padding: 10px 14px 14px; display: flex; gap: 8px;
+    justify-content: flex-end; border-top: 1px solid #333; }
+  .mech-dialog .sd-btn { padding: 6px 16px; border-radius: 4px; cursor: pointer;
+    border: 1px solid #555; background: #2a2a2e; color: #eaeaea; font: inherit; }
+  .mech-dialog .sd-btn:hover { background: #3a3a3e; }
+  .mech-dialog .sd-btn.primary { background: #1976d2; border-color: #2196f3; color: #fff; }
+  .mech-dialog .sd-btn.primary:hover { background: #2196f3; }
+  .mech-dialog .sd-btn.primary:disabled { background: #37474f; border-color: #455a64;
+    color: #90a4ae; cursor: not-allowed; }
+
+  /* xlsx 輸出設定 modal */
+  #xlsxSettingsModal { position: fixed; inset: 0; z-index: 2000; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.5); }
+  #xlsxSettingsModal.active { display: flex; }
+  #xlsxSettingsModal .xs-card { background: #1e1e22; color: #eaeaea;
+    border: 1px solid #555; border-radius: 8px; padding: 0;
+    min-width: 540px; max-width: 720px;
+    max-height: 86vh; display: flex; flex-direction: column;
+    box-shadow: 0 10px 32px rgba(0,0,0,0.7);
+    font: 12px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  #xlsxSettingsModal .xs-titlebar { background: rgba(255,255,255,0.06); padding: 8px 14px;
+    border-bottom: 1px solid #444; border-radius: 8px 8px 0 0;
+    color: #ffd23f; font-weight: 700; font-size: 13px; flex-shrink: 0; }
+  #xlsxSettingsModal .xs-body { padding: 12px 18px; color: #c8ccd0; overflow-y: auto; flex: 1; }
+  #xlsxSettingsModal .xs-section { margin-bottom: 14px; padding-bottom: 10px;
+    border-bottom: 1px dashed #444; }
+  #xlsxSettingsModal .xs-section:last-child { border-bottom: none; margin-bottom: 0; }
+  #xlsxSettingsModal .xs-section-title { color: #5ab9ff; font-weight: 700;
+    margin-bottom: 6px; font-size: 12px; }
+  #xlsxSettingsModal .xs-row { display: flex; align-items: center; gap: 8px;
+    margin: 4px 0; }
+  #xlsxSettingsModal .xs-label { width: 110px; flex-shrink: 0;
+    color: #c8ccd0; font-size: 11px; }
+  #xlsxSettingsModal .xs-input { background: #2a2a2e; color: #eaeaea;
+    border: 1px solid #555; border-radius: 3px; padding: 3px 6px;
+    font: 11px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    width: 160px; }
+  #xlsxSettingsModal .xs-input.xs-small { width: 70px; }
+  #xlsxSettingsModal .xs-input:focus { outline: 1px solid #5ab9ff; border-color: #5ab9ff; }
+  #xlsxSettingsModal .xs-color { width: 44px; height: 22px; border: 1px solid #555;
+    border-radius: 3px; background: transparent; cursor: pointer; padding: 0; }
+  #xlsxSettingsModal .xs-hint { color: #888; font-size: 10.5px; flex: 1; }
+  #xlsxSettingsModal .xs-hint code { background: #2a2a2e; padding: 1px 4px;
+    border-radius: 2px; color: #ffd23f; }
+  #xlsxSettingsModal .xs-buttons { padding: 10px 14px 14px; display: flex;
+    gap: 8px; justify-content: flex-end; border-top: 1px solid #444; flex-shrink: 0; }
+  #xlsxSettingsModal .xs-btn { padding: 6px 16px; border-radius: 4px; cursor: pointer;
+    border: 1px solid #555; background: #2a2a2e; color: #eaeaea;
+    font: 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  #xlsxSettingsModal .xs-btn:hover { background: #3a3a3e; }
+  #xlsxSettingsModal .xs-btn.primary { background: #1976d2; border-color: #2196f3; color: #fff; }
+  #xlsxSettingsModal .xs-btn.primary:hover { background: #2196f3; }
+  /* 點擊節點 → 釘住的資訊視窗(可拖、可關)。樣式同 hoverTip 但 pointer-events: auto */
+  #jointInfoPopup { position: fixed; pointer-events: auto; z-index: 1600;
+    background: rgba(15,15,18,0.97); color: #eaeaea;
+    border: 1px solid #777; border-radius: 6px; padding: 0;
+    font: 11px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    display: none; max-width: 380px; }
+  #jointInfoPopup .jip-titlebar { background: rgba(255,255,255,0.06); padding: 4px 8px;
+    border-bottom: 1px solid #444; border-radius: 6px 6px 0 0; cursor: move;
+    display: flex; justify-content: space-between; align-items: center; user-select: none; }
+  #jointInfoPopup .jip-title-text { color: #ffd23f; font-weight: 700; font-size: 12px; }
+  #jointInfoPopup .jip-close { color: #9aa0a6; padding: 0 6px; cursor: pointer; border-radius: 3px;
+    font-size: 14px; line-height: 1; }
+  #jointInfoPopup .jip-close:hover { background: rgba(255,80,80,0.3); color: #fff; }
+  #jointInfoPopup .jip-body { padding: 6px 10px; }
+  #jointInfoPopup .ttip-title { color: #ffd23f; font-weight: 700; display: block; margin-bottom: 3px; }
+  #jointInfoPopup .ttip-row   { color: #c8ccd0; }
+  #jointInfoPopup .ttip-key   { color: #8a92a0; }
+  #jointInfoPopup .ttip-val   { color: #fff; }
+  #vector line, #vector circle, #vector rect { vector-effect: non-scaling-stroke; }
+  #hud { position: fixed; bottom: 18px; left: 75%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.7); padding: 8px 12px; border-radius: 6px;
+    font-size: 11px; color: #ddd; pointer-events: none;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4); backdrop-filter: blur(4px); }
+  #toolbar { position: absolute; top: 8px; left: 8px; right: 8px;
+    background: transparent; padding: 6px; border-radius: 7px;
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    gap: 8px; z-index: 1500; align-items: stretch; pointer-events: none; }
+  /* 整個 toolbar 鏈條都 pointer-events: none,只有 button / input / select 等互動元素自己 auto;
+     讓非按鈕區的 click(間隙 / 標題 / 空白)穿透到下層 canvas */
+  #toolbar .tb-section { display: flex; flex-direction: column; gap: 4px;
+    min-width: 0; padding: 2px 4px; pointer-events: none; }
+  #toolbar .tb-title { color: #9aa0a6; font-size: 10px; padding: 1px 4px 2px;
+    letter-spacing: 0.5px; text-transform: uppercase; font-weight: 600;
+    pointer-events: none; user-select: none; }
+  /* 按鈕用 flex + wrap,寬度跟著內容(icon / 文字 / icon+文字 三種模式自動適配) */
+  #toolbar .tb-buttons { display: flex; flex-wrap: wrap;
+    gap: 3px; pointer-events: none; align-content: flex-start; }
+  #toolbar button, #toolbar input, #toolbar select, #toolbar label { pointer-events: auto; }
+  #toolbar button { padding: 6px 10px; white-space: nowrap;
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    flex: 0 0 auto; }
+  #toolbar button .btn-icon,
+  #selectTools button .btn-icon,
+  #bgEditTools button .btn-icon,
+  #zoomTools button .btn-icon { display: inline-flex; align-items: center; justify-content: center;
+    font-size: 13px; line-height: 1; flex-shrink: 0; }
+  #toolbar button .btn-icon svg,
+  #selectTools button .btn-icon svg,
+  #bgEditTools button .btn-icon svg,
+  #zoomTools button .btn-icon svg { display: block; width: 14px; height: 14px;
+    stroke: currentColor; fill: none; stroke-width: 1.7;
+    stroke-linecap: round; stroke-linejoin: round; }
+  #toolbar button .btn-text,
+  #selectTools button .btn-text,
+  #bgEditTools button .btn-text,
+  #zoomTools button .btn-text { display: inline; }
+  /* zoomTools 寬按鈕(zt-wide):icon 與文字之間留間距 */
+  #zoomTools button.zt-wide { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+  /* zoomTools 內 checkbox 旁的小圖示(.zt-icon) — 跟 btn-icon 同視覺重量 */
+  #zoomTools .zoom-tools-row .zt-icon { display: inline-flex; align-items: center;
+    justify-content: center; flex-shrink: 0; }
+  #zoomTools .zoom-tools-row .zt-icon svg { display: block; width: 13px; height: 13px;
+    stroke: currentColor; fill: none; stroke-width: 1.6;
+    stroke-linecap: round; stroke-linejoin: round; opacity: 0.85; }
+  /* Sub-tool buttons:icon 與 text 之間留間距 */
+  #selectTools button,
+  #bgEditTools button { display: inline-flex; align-items: center; gap: 5px; }
+  /* 工具列顯示模式(預設:文字+圖示)*/
+  body.tb-mode-text  #toolbar button .btn-icon,
+  body.tb-mode-text  #selectTools button .btn-icon,
+  body.tb-mode-text  #bgEditTools button .btn-icon,
+  body.tb-mode-text  #zoomTools button .btn-icon,
+  body.tb-mode-text  #zoomTools .zoom-tools-row .zt-icon { display: none; }
+  body.tb-mode-icon  #toolbar button .btn-text,
+  body.tb-mode-icon  #selectTools button .btn-text,
+  body.tb-mode-icon  #bgEditTools button .btn-text,
+  body.tb-mode-icon  #zoomTools button .btn-text,
+  body.tb-mode-icon  #zoomTools .zoom-tools-row > span:not(.zt-icon) { display: none; }
+  body.tb-mode-icon  #toolbar button { padding: 6px 10px; min-width: 32px; }
+  /* icon 模式:selectTools / bgEditTools 按鈕收縮成方形 — 不再被 min-width: 110px 撐寬 */
+  body.tb-mode-icon  #selectTools button,
+  body.tb-mode-icon  #bgEditTools button { padding: 5px 8px; justify-content: center;
+    min-width: 0; width: 32px; }
+  /* icon 模式:zoomTools 的 .zt-wide 按鈕同樣收縮 */
+  body.tb-mode-icon  #zoomTools button.zt-wide { width: auto; min-width: 0;
+    padding: 5px 8px; justify-content: center; }
+  /* 檔案分頁列:掛在 menuBar 右側,跟 projectTabs(置中)不同層級 */
+  #tabBar { position: absolute; top: 0; bottom: 0; right: 8px;
+    z-index: 2; display: flex; align-items: center; gap: 3px;
+    padding: 0 4px; max-width: 50vw; overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none; }
+  #tabBar::-webkit-scrollbar { display: none; }
+  #tabBar .tab { display: inline-flex; align-items: center; gap: 4px;
+    height: 22px; flex-shrink: 0;
+    background: #2a2d33; border: 1px solid #3a3d44; border-radius: 4px;
+    padding: 0 4px 0 8px; font-size: 11px; color: #c8ccd0;
+    cursor: pointer; white-space: nowrap; max-width: 180px;
+    transition: background 0.12s, color 0.12s, border-color 0.12s; }
+  #tabBar .tab:hover { background: #353940; color: #fff; }
+  #tabBar .tab.active { background: #2f4a78; color: #fff; border-color: #4a78c8;
+    box-shadow: 0 0 0 1px rgba(79,157,255,0.5) inset; }
+  #tabBar .tab .tab-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #tabBar .tab .tab-close { opacity: 0.55; padding: 0 3px;
+    font-size: 13px; line-height: 1; border-radius: 3px; flex-shrink: 0; }
+  #tabBar .tab .tab-close:hover { opacity: 1; color: #ff7788;
+    background: rgba(255,255,255,0.1); }
+  #bgEditTools, #selectTools { position: fixed; top: 100px; z-index: 1500;
+    background: transparent; padding: 6px; border-radius: 7px;
+    display: flex; flex-direction: column; flex-wrap: wrap;
+    align-content: flex-start; gap: 8px;
+    transition: left 0.22s ease; pointer-events: none; }
+  /* 跟 #toolbar 一樣:容器 + section 都 pointer-events: none,只有 button / input / select 自己 auto;
+     讓視覺面板非按鈕區的 click 穿透到下層 canvas */
+  #bgEditTools .bg-edit-section,
+  #selectTools .bg-edit-section { display: flex; flex-direction: column; gap: 3px;
+    background: rgba(255,255,255,0.04); padding: 5px 4px; border-radius: 5px;
+    pointer-events: none; }
+  #bgEditTools .bg-edit-section + .bg-edit-section,
+  #selectTools .bg-edit-section + .bg-edit-section { border-top: 1px solid rgba(255,255,255,0.05); }
+  #bgEditTools .bg-edit-title,
+  #selectTools .bg-edit-title { color: #9aa0a6; font-size: 10px; padding: 1px 4px 3px;
+    letter-spacing: 0.5px; text-transform: uppercase; font-weight: 600;
+    pointer-events: auto; cursor: pointer; user-select: none; white-space: nowrap; }
+  #bgEditTools .bg-edit-title:hover,
+  #selectTools .bg-edit-title:hover { color: #cfd3d8; }
+  /* 收合三角(▾ 展開 / ▸ 收合)— 用 ::before,不干擾 i18n 設的 textContent */
+  #bgEditTools .bg-edit-title::before,
+  #selectTools .bg-edit-title::before { content: "\25BE"; display: inline-block;
+    width: 9px; margin-right: 2px; font-size: 8px; color: #6b7178; }
+  #bgEditTools .bg-edit-section.collapsed > .bg-edit-title::before,
+  #selectTools .bg-edit-section.collapsed > .bg-edit-title::before { content: "\25B8"; }
+  /* 收合:隱藏該區除標題外的所有內容(按鈕),整欄縮成只剩標題 */
+  #bgEditTools .bg-edit-section.collapsed > :not(.bg-edit-title),
+  #selectTools .bg-edit-section.collapsed > :not(.bg-edit-title) { display: none; }
+  #bgEditTools button, #bgEditTools input, #bgEditTools select, #bgEditTools label,
+  #selectTools button, #selectTools input, #selectTools select, #selectTools label { pointer-events: auto; }
+  #bgEditTools button,
+  #selectTools button { padding: 6px 10px; font-size: 11px; text-align: left; min-width: 110px; }
+  #cmdInputBar { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.86); padding: 8px 12px; border-radius: 7px;
+    z-index: 1500; display: flex; gap: 8px; align-items: center;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.55); backdrop-filter: blur(6px); }
+  #cmdInputBar .cmd-prompt { color: #ffe066; font-size: 12px; min-width: 120px; }
+  #cmdInputField { background: #1a1c20; border: 1px solid #4f9dff; color: #fff;
+    padding: 4px 8px; border-radius: 4px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px;
+    width: 140px; outline: none; }
+  #cmdInputField:focus { border-color: #6ab0ff; box-shadow: 0 0 0 2px rgba(106,176,255,0.2); }
+  #cmdInputBar .cmd-unit { color: #9aa0a6; font-size: 11px; min-width: 32px; }
+  #busySpinner { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    background: rgba(0,0,0,0.92); padding: 18px 24px; border-radius: 10px;
+    display: none; z-index: 4500;
+    flex-direction: column; align-items: center; gap: 10px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.55); backdrop-filter: blur(6px);
+    pointer-events: auto; min-width: 360px; max-width: 90vw; }
+  #busySpinner.active { display: flex; }
+  #busySpinner .spin {
+    width: 28px; height: 28px;
+    border: 3px solid rgba(255,255,255,0.15);
+    border-top-color: #ffe066;
+    border-radius: 50%;
+    animation: spinKf 0.7s linear infinite; }
+  @keyframes spinKf { to { transform: rotate(360deg); } }
+  #busySpinner .msg { color: #ddd; font-size: 12px; text-align: center; line-height: 1.5;
+    word-break: break-word; white-space: normal; }
+  #busySpinner .cancel-btn { margin-top: 6px; padding: 6px 18px; font-size: 12px;
+    background: #5e1f1f; color: #ffb0b0; border: 1px solid #8a3a3a;
+    border-radius: 4px; cursor: pointer; display: none;
+    pointer-events: auto; }
+  #busySpinner .cancel-btn:hover { background: #7a2828; color: #fff; }
+  #busySpinner .cancel-btn.active { display: inline-block; }
+  #zoomTools { position: fixed; top: 100px;
+    background: transparent; padding: 6px; border-radius: 7px;
+    display: flex; flex-direction: column; gap: 4px; z-index: 1500;
+    transition: right 0.22s ease; pointer-events: none; }
+  /* 同 #toolbar:容器 + 結構性 div 都 pointer-events: none,只有 button / input / select / label 自己 auto */
+  #zoomTools .zt-zoom-row,
+  #zoomTools .zoom-tools-row,
+  #zoomTools .zt-sep { pointer-events: none; }
+  #zoomTools button, #zoomTools input, #zoomTools select, #zoomTools label { pointer-events: auto; }
+  /* 平面座標指示器 — 嵌在 #zoomTools 頂端,就在放大鏡按鈕上方 */
+  #axisIndicator { width: 84px; height: 90px; pointer-events: auto;
+    user-select: none; opacity: 0.85; align-self: center; margin-bottom: 6px;
+    overflow: visible; }
+  #axisIndicator svg { overflow: visible; }
+  #axisIndicator:hover { opacity: 1; }
+  #zoomTools .zt-zoom-row { display: flex; gap: 4px; }
+  #zoomTools .zt-zoom-row button { width: 34px; height: 30px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center; }
+  #zoomTools button svg { display: block; }
+  #zoomTools .zt-wide { width: 100%; padding: 5px 8px; font-size: 11px;
+    margin-top: 2px; }
+  #zoomTools .zt-sep { height: 1px; background: #444; margin: 4px 0; }
+  #zoomTools .zt-zoom-row button.zt-sq { flex: 1; width: auto; height: 28px;
+    padding: 0; font-size: 13px; font-weight: 700; }
+  .zoom-tools-row { display: flex; align-items: center; gap: 5px;
+    color: var(--text); font-size: 11px; padding: 3px 4px; user-select: none;
+    cursor: pointer; }
+  .zoom-tools-row input { margin: 0; }
+  #hud { z-index: 1500; }
+  .joint { fill: transparent; stroke: #ff2424; cursor: none; }
+  .joint:hover { stroke: #ffe066; stroke-width: 3; }
+  .joint.selected { fill: transparent; stroke: #a855f7; }
+  .joint.linked   { fill: transparent; stroke: #a855f7; }   /* 跨頁同物理點 — 同紫色實線,跟 selected 一致 */
+  .joint.snap { fill: rgba(255, 224, 102, 0.18); stroke: #ffe066; }
+  .joint-x { pointer-events: none; stroke: #ff2424; }
+  .joint-x.selected { stroke: #a855f7; }
+  .joint-x.linked   { stroke: #a855f7; }
+  .member { stroke: var(--accent); cursor: none; }
+  .member:hover { stroke: #ffe066; }
+  .member.selected { stroke: #ffe066; }
+  .member.preview { stroke: #ffd23f; stroke-dasharray: 4 3; opacity: 0.85; }
+  /* 撞號桿件:用亮綠色(neon green)stroke + 較粗線寬提示 */
+  .member.collision { stroke: #39ff14 !important; stroke-width: 2 !important; }
+  .calib { stroke: var(--warn); stroke-dasharray: 5 3; }
+  .label { fill: #fff; font: 10px sans-serif; pointer-events: none; paint-order: stroke; stroke: #000; stroke-width: 2.5; stroke-linejoin: round; }
+  .label-joint  { font-family: Arial, Helvetica, sans-serif; font-weight: 700;
+    paint-order: stroke; stroke: #fff; stroke-linejoin: round;
+    pointer-events: all; cursor: none; }
+  .label-member { font-family: Arial, Helvetica, sans-serif; font-weight: 700;
+    paint-order: stroke; stroke: #fff; stroke-linejoin: round;
+    pointer-events: all; cursor: none; }
+  .badge { display: inline-block; padding: 1px 6px; background: var(--panel2); border: 1px solid var(--line); border-radius: 999px; font-size: 11px; color: var(--muted); }
+  .list { max-height: 220px; overflow: auto; font-size: 12px; }
+  .list .item { padding: 4px 6px; border-bottom: 1px solid var(--line); cursor: pointer; display: flex; justify-content: space-between; }
+  .list .item:hover { background: var(--panel2); }
+  .list .item.sel { background: #2f4a78; }
+  .pages { display: flex; gap: 4px; flex-wrap: wrap; }
+  .pages button { padding: 3px 8px; font-size: 11px; }
+  .help { color: var(--muted); font-size: 11px; line-height: 1.5; }
+  .kbd { background: #111; border: 1px solid #444; border-radius: 3px; padding: 0 4px; font-family: ui-monospace, monospace; font-size: 11px; }
+  hr { border: none; border-top: 1px solid var(--line); margin: 8px 0; }
+  .file-list { max-height: 320px; overflow-y: auto; padding-right: 4px; }
+  .file-list::-webkit-scrollbar { width: 6px; }
+  .file-list::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+  .file-item {
+    padding: 6px 10px; margin-bottom: 4px;
+    border: 1px solid var(--line); border-radius: 6px;
+    background: var(--panel2);
+    font-size: 11px; cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center; gap: 6px;
+  }
+  .file-item:hover { border-color: #555; }
+  .file-item.active { background: #2f4a78; color: #fff; }
+  .file-item.sel { border-color: #ffe066; box-shadow: 0 0 0 1px #ffe066 inset; }
+  .file-item .file-name {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 auto;
+  }
+  .file-item .file-stats {
+    color: #9aa0a6; font-size: 10px; flex-shrink: 0;
+  }
+  .file-item.active .file-stats { color: #c6dbff; }
+  .file-item .file-type {
+    font-size: 9px; font-weight: 700;
+    padding: 1px 4px; border-radius: 3px;
+    background: rgba(255,255,255,0.12); color: #c8ccd0;
+    flex-shrink: 0; letter-spacing: 0.3px;
+  }
+  /* 原始檔:純色背景 */
+  .file-item .file-type.dxf   { background: #2c5e2c; color: #d3f9c8; }
+  .file-item .file-type.pdf   { background: #5a3a1a; color: #fde2c0; }
+  .file-item .file-type.img   { background: #1f3d5a; color: #c0dafd; }
+  /* 拆分檔:用同色系但加邊框,讓「衍生」狀態可辨識 */
+  .file-item .file-type.dxf-s { background: #1f3d1f; color: #b6e9a3; border: 1px solid #4d8a4d; }
+  .file-item .file-type.pdf-s { background: #3d2814; color: #f0c389; border: 1px solid #8a5a2c; }
+  .file-item .file-type.img-s { background: #14283d; color: #a3c5f0; border: 1px solid #2c5a8a; }
+  /* 已載入檔案 → 自訂欄位 popup */
+  #fileListShowPopup {
+    position: absolute; z-index: 1500;
+    background: var(--panel); border: 1px solid #555; border-radius: 8px;
+    padding: 10px 12px; min-width: 220px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  }
+  #fileListShowPopup .flsp-title { font-size: 11px; font-weight: 700; color: var(--accent2); margin-bottom: 6px; letter-spacing: 0.4px; }
+  #fileListShowPopup .flsp-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 11px; cursor: pointer; }
+  #fileListShowPopup .flsp-foot { font-size: 10px; color: #777; margin-top: 6px; }
+  /* 平面標記:XY/XZ/YZ + 可選 @標高 */
+  .file-item .file-plane {
+    font-size: 9px; font-weight: 700;
+    padding: 1px 4px; border-radius: 3px;
+    flex-shrink: 0; letter-spacing: 0.3px;
+    background: rgba(255,255,255,0.06); color: #9aa0a6;
+  }
+  .file-item .file-plane.plane-xy    { background: #1e3a5f; color: #4fc3f7; }
+  .file-item .file-plane.plane-xz    { background: #3f2a5e; color: #c39bff; }
+  .file-item .file-plane.plane-yz    { background: #4d3a14; color: #ffd23f; }
+  .file-item .file-plane.plane-multi { background: #4a2a1a; color: #ffae6b; }
+  .file-item .file-plane.plane-none  { background: rgba(255,255,255,0.04); color: #555; }
+  /* 第三軸數字 badge:跟平面同色系但稍微淡一點,讓平面 + 數字像兩段標籤 */
+  .file-item .file-plane.file-axis   { opacity: 0.85; font-weight: 500; }
+  /* 主關聯 badge:醒目的橘紅,顯示此頁本身有 user-drawn primary section line */
+  .file-item .file-plane.file-primary {
+    background: #5e1f1f; color: #ffb0b0;
+    border: 1px solid #8a3a3a;
+  }
+  .sidebar-resizer {
+    position: fixed; top: 12px; bottom: 12px; width: 6px;
+    cursor: ew-resize; z-index: 1401;
+    background: transparent; transition: background 0.12s ease;
+  }
+  .sidebar-resizer:hover, .sidebar-resizer.dragging { background: rgba(79,157,255,0.45); }
+  /* radial plane picker */
+  #planePicker { position: fixed; z-index: 2000; pointer-events: auto; transform: translate(-50%, -50%); }
+  #planePicker svg { display: block; filter: drop-shadow(0 6px 20px rgba(0,0,0,0.6)); }
+  .pp-sector { fill: rgba(70,75,84,0.7); stroke: #444; stroke-width: 1; cursor: pointer; transition: fill 0.1s; }
+  .pp-sector.hot { fill: #4f9dff; stroke: #79b6ff; }
+  .pp-sector[data-plane="cancel"].hot { fill: #ff6464; stroke: #ff8080; }
+  /* 底線選取(用 stroke 顏色覆蓋) */
+  #bgSvg .bg-stroke.bg-selected { stroke: #00cc66 !important; }
+  #bgSvg .bg-stroke:hover { stroke: #ffd23f !important; }
+  /* 底線粗度:用 CSS 變數一次設,避免逐元素 attribute 寫入造成卡頓(尤其 DXF 上千元素時) */
+  #bgSvg { --bg-sw: 1px; }
+  #bgSvg .bg-stroke { stroke-width: var(--bg-sw) !important; }
+  .pp-label { fill: #fff; font: 600 13px sans-serif; pointer-events: none; }
+  .pp-hint  { fill: #888; font: 10px sans-serif; pointer-events: none; }
+  /* split dialog + dim mask */
+  #splitDialog, #gbindDialog, #autoPairDialog { position: fixed; inset: 0; z-index: 2500; display: flex;
+    align-items: center; justify-content: center; pointer-events: auto;
+    background: rgba(0,0,0,0.4); }
+  #splitDialog .dlg-card, #gbindDialog .dlg-card, #autoPairDialog .dlg-card { background: var(--panel); border: 1px solid #555;
+    border-radius: 10px; padding: 16px 18px; min-width: 300px;
+    pointer-events: auto; box-shadow: 0 12px 40px rgba(0,0,0,0.7); }
+  #splitDialog .dlg-title, #gbindDialog .dlg-title, #autoPairDialog .dlg-title { font-weight: 700; font-size: 13px; color: var(--accent2); margin-bottom: 10px; }
+  #splitDialog input { width: 100%; margin-top: 4px; }
+  #splitDialog .dlg-footer, #gbindDialog .dlg-footer, #autoPairDialog .dlg-footer { display: flex; justify-content: flex-end; gap: 6px; margin-top: 14px; }
+  /* 樓層類型管理 — 跟 #sectionLinkDialog 同一個 pattern(可拖、可拉大小、左右切兩半、紅圈關閉鈕)*/
+  #floorTypesDialog { position: fixed; inset: 0; z-index: 2500; display: none;
+    align-items: center; justify-content: center; }
+  #floorTypesDialog.active { display: flex; }
+  #floorTypesDialog .ft-mask { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
+  #floorTypesDialog .dlg-card {
+    position: relative; background: var(--panel); border: 1px solid #555;
+    border-radius: 8px; padding: 0;
+    width: 86vw; height: 84vh;
+    min-width: 640px; min-height: 420px;
+    max-width: 96vw; max-height: 94vh;
+    resize: both; overflow: hidden;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.65);
+    display: flex; flex-direction: column;
+  }
+  #floorTypesDialog .ft-titlebar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; cursor: move; user-select: none;
+    background: linear-gradient(to bottom, #2b2d31, #23252a);
+    border-bottom: 1px solid #3a3d44;
+    flex-shrink: 0;
+  }
+  #floorTypesDialog .ft-close {
+    width: 13px; height: 13px; border-radius: 50%;
+    background: #ff5f57; border: 1px solid rgba(0,0,0,0.2);
+    cursor: pointer; flex-shrink: 0; position: relative;
+    color: transparent; font-size: 10px; line-height: 1;
+    transition: color 0.15s;
+  }
+  #floorTypesDialog .ft-close:hover { color: rgba(0,0,0,0.55); }
+  #floorTypesDialog .ft-close::after { content: "×"; position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -51%); }
+  #floorTypesDialog .ft-title { font-weight: 700; font-size: 13px; color: var(--accent2); }
+  /* 分頁列 — 樓層 / 斜撐 切換,共用同一池 yyStart 但各自 type 清單與 page 集合 */
+  #floorTypesDialog .ft-tabs {
+    display: flex; gap: 2px; padding: 0 12px;
+    background: #16181c; border-bottom: 1px solid #3a3d44; flex-shrink: 0;
+  }
+  #floorTypesDialog .ft-tab {
+    padding: 8px 14px; font-size: 12px; color: #aab; cursor: pointer;
+    border-bottom: 2px solid transparent; user-select: none;
+    transition: color 0.1s, border-color 0.1s;
+  }
+  #floorTypesDialog .ft-tab:hover { color: #ddd; }
+  #floorTypesDialog .ft-tab.active {
+    color: var(--accent2); border-bottom-color: var(--accent2); font-weight: 700;
+  }
+  #floorTypesDialog .ft-tab .ft-tab-count {
+    color: #7b818a; font-size: 10px; margin-left: 4px;
+  }
+  #floorTypesDialog .ft-summary {
+    font-size: 11px; color: #9aa0a6; padding: 8px 16px;
+    border-bottom: 1px solid #2a2d33; background: #1c1e22; flex-shrink: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #floorTypesDialog .ft-summary .ft-sum-item { display: inline-block; margin-right: 14px; }
+  #floorTypesDialog .ft-summary .ft-sum-item b { color: #b8e986; font-weight: 700; }
+  #floorTypesDialog .ft-content { padding: 10px 16px; border-bottom: 1px solid #2a2d33;
+    flex-shrink: 0; max-height: 32vh; overflow: auto; background: #18191d; }
+  #floorTypesDialog .ft-content table { width: 100%; border-collapse: collapse; font-size: 12px;
+    table-layout: fixed; }
+  #floorTypesDialog .ft-content th { color: #aab; font-weight: 700; padding: 4px 6px;
+    border-bottom: 1px solid #444; text-align: left; }
+  #floorTypesDialog .ft-content td { padding: 3px 6px; border-bottom: 1px solid #2a2d33;
+    vertical-align: middle; }
+  #floorTypesDialog .ft-content tr.on td { background: rgba(79,157,255,0.14); }
+  #floorTypesDialog .ft-content tr { cursor: pointer; }
+  #floorTypesDialog .ft-content td.ft-row-handle { width: 22px; padding: 0; text-align: center;
+    background: #1a1c20; border-right: 1px solid #2a2d33; user-select: none; }
+  #floorTypesDialog .ft-content tr:hover td.ft-row-handle { background: #23262c; }
+  #floorTypesDialog .ft-content tr.on td.ft-row-handle { background: rgba(79,157,255,0.32); }
+  #floorTypesDialog .ft-content td.ft-row-handle .ft-dot { display: inline-block;
+    width: 8px; height: 8px; border-radius: 50%; background: #444;
+    vertical-align: middle; }
+  #floorTypesDialog .ft-content tr.on td.ft-row-handle .ft-dot { background: var(--accent2); }
+  #floorTypesDialog .ft-content input[type=text], #floorTypesDialog .ft-content select {
+    background: #1a1c20; color: #ddd; border: 1px solid #444; border-radius: 3px;
+    padding: 3px 6px; font: inherit; width: 100%; box-sizing: border-box; }
+  #floorTypesDialog .ft-content .del-btn { padding: 2px 8px; font-size: 11px; color: #ff7676;
+    border-color: #5a3434; background: transparent; white-space: nowrap; }
+  #floorTypesDialog .ft-content .del-btn:hover { background: #3a1f1f; color: #fff; }
+  #floorTypesDialog .ft-content .ft-actions { margin-top: 8px; display: flex; gap: 8px;
+    align-items: center; flex-wrap: wrap; }
+  #floorTypesDialog .ft-content .ft-hint { flex: 1; color: #9aa0a6; font-size: 11px; }
+  /* 左右佈局:左 page list、右 preview — 跟 sl-body 一模一樣 */
+  #floorTypesDialog .ft-body {
+    flex: 1 1 auto; min-height: 0;
+    display: grid; grid-template-columns: 1fr 1fr;
+    overflow: hidden;
+  }
+  #floorTypesDialog .ft-left {
+    display: flex; flex-direction: column;
+    border-right: 1px solid #3a3d44;
+    overflow: hidden; min-width: 0;
+  }
+  #floorTypesDialog .ft-pages-head {
+    font-size: 11px; color: #9aa0a6; padding: 6px 10px 8px;
+    border-bottom: 1px solid #2a2d33; background: #141519; flex-shrink: 0;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  #floorTypesDialog .ft-pages-head .ft-sel-label { color: #b8e986; font-weight: 700; }
+  #floorTypesDialog .ft-pages-head .ft-filter-row {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  #floorTypesDialog .ft-pages-head select {
+    background: #1a1c20; color: #ddd; border: 1px solid #444; border-radius: 3px;
+    padding: 2px 6px; font: inherit; font-size: 11px;
+  }
+  #floorTypesDialog .ft-pages-head .ft-sort {
+    background: #1a1c20; color: #ddd; border: 1px solid #444; border-radius: 3px;
+    padding: 2px 6px; font: inherit; font-size: 11px; cursor: pointer;
+  }
+  #floorTypesDialog .ft-msel-panel .ft-msel-section-head {
+    padding: 4px 10px 2px; font-size: 10px; color: #7b818a;
+    background: #16181c; border-bottom: 1px solid #2a2d33;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  #floorTypesDialog .ft-msel-panel .ft-msel-divider {
+    height: 4px; background: transparent;
+  }
+  /* 多選下拉:button-like 顯示已選 + 浮出 panel(內含一連串 checkbox)*/
+  #floorTypesDialog .ft-msel { position: relative; }
+  #floorTypesDialog .ft-msel-btn {
+    background: #1a1c20; color: #ddd; border: 1px solid #444; border-radius: 3px;
+    padding: 3px 8px; font: inherit; font-size: 11px; cursor: pointer;
+    min-width: 160px; max-width: 240px;
+    display: inline-flex; align-items: center; gap: 6px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #floorTypesDialog .ft-msel-btn:hover { background: #23262c; border-color: #555; }
+  #floorTypesDialog .ft-msel-btn .ft-msel-caret { margin-left: auto; color: #7b818a; }
+  #floorTypesDialog .ft-msel-btn.open { background: #2a2d33; border-color: #4f9dff; }
+  #floorTypesDialog .ft-msel-panel {
+    display: none; position: absolute; top: calc(100% + 4px); left: 0;
+    z-index: 100; min-width: 220px; max-height: 320px; overflow-y: auto;
+    background: #1f2126; border: 1px solid #4f9dff; border-radius: 4px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6); padding: 4px 0;
+  }
+  #floorTypesDialog .ft-msel-panel.open { display: block; }
+  #floorTypesDialog .ft-msel-panel .ft-msel-quick {
+    display: flex; gap: 4px; padding: 4px 8px;
+    border-bottom: 1px solid #2a2d33; margin-bottom: 4px;
+  }
+  #floorTypesDialog .ft-msel-panel .ft-msel-quick button {
+    flex: 1; font-size: 10px; padding: 2px 6px;
+    background: #2a2d33; color: #ddd; border: 1px solid #3a3d44;
+    border-radius: 3px; cursor: pointer;
+  }
+  #floorTypesDialog .ft-msel-panel .ft-msel-quick button:hover {
+    background: #353940; color: #fff;
+  }
+  #floorTypesDialog .ft-msel-panel label {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 10px; cursor: pointer; font-size: 12px; color: #ddd;
+    user-select: none;
+  }
+  #floorTypesDialog .ft-msel-panel label:hover { background: rgba(79,157,255,0.12); }
+  #floorTypesDialog .ft-msel-panel label input[type=checkbox] {
+    margin: 0; cursor: pointer; flex-shrink: 0;
+  }
+  #floorTypesDialog .ft-msel-panel label .ft-msel-meta {
+    color: #7b818a; font-size: 10px; margin-left: auto;
+    font-variant-numeric: tabular-nums;
+  }
+  #floorTypesDialog .ft-pages-list { flex: 1 1 auto; overflow-y: auto;
+    background: #1a1c20; }
+  #floorTypesDialog .ft-page-row {
+    padding: 8px 10px; display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid #2a2d33; cursor: pointer; user-select: none;
+  }
+  #floorTypesDialog .ft-page-row:hover { background: #24262b; }
+  #floorTypesDialog .ft-page-row.active { background: rgba(79,157,255,0.22); }
+  #floorTypesDialog .ft-page-row.active:hover { background: rgba(79,157,255,0.30); }
+  #floorTypesDialog .ft-page-row input[type=checkbox] { margin: 0; cursor: pointer;
+    flex-shrink: 0; }
+  #floorTypesDialog .ft-page-row .ft-thumb { width: 56px; height: 42px; flex-shrink: 0;
+    border: 1px solid #2a2d33; border-radius: 3px; background: #0d0e10; }
+  #floorTypesDialog .ft-page-row .ft-row-body { flex: 1; min-width: 0; }
+  #floorTypesDialog .ft-page-row .ft-page-name { font-size: 12px; color: #ddd;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #floorTypesDialog .ft-page-row .ft-page-meta { font-size: 10px; color: #7b818a;
+    margin-top: 2px; font-variant-numeric: tabular-nums; }
+  #floorTypesDialog .ft-preview {
+    display: flex; flex-direction: column;
+    background: #0d0e10; overflow: hidden; min-width: 0;
+  }
+  #floorTypesDialog .ft-preview-head {
+    font-size: 11px; color: #9aa0a6; padding: 8px 12px;
+    border-bottom: 1px solid #2a2d33; background: #141519; flex-shrink: 0;
+    display: flex; align-items: center; gap: 8px;
+    overflow: hidden; white-space: nowrap;
+  }
+  #floorTypesDialog .ft-preview-head .ft-preview-name { flex: 1;
+    overflow: hidden; text-overflow: ellipsis; }
+  #floorTypesDialog .ft-preview-head .ft-zoom { display: flex; align-items: center;
+    gap: 4px; flex-shrink: 0; }
+  #floorTypesDialog .ft-preview-head .ft-zoom input[type=range] { width: 100px; }
+  #floorTypesDialog .ft-preview-stage {
+    flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
+    padding: 12px; min-height: 0; overflow: hidden;
+  }
+  #floorTypesDialog .ft-preview-canvas {
+    max-width: 100%; max-height: 100%;
+    border: 1px solid #2a2d33; border-radius: 3px;
+  }
+  #floorTypesDialog .ft-footer {
+    display: flex; justify-content: flex-end; gap: 6px;
+    padding: 10px 16px; border-top: 1px solid #3a3d44; background: #1c1e22;
+    flex-shrink: 0;
+  }
+  #floorTypesDialog .ft-footer button { padding: 6px 14px; }
+
+  /* 全局節點管理 dialog — 跟 #floorTypesDialog 同一套 framework(可拖、可拉、紅圈關閉、左右分欄)*/
+  #globalJointMgrDialog { position: fixed; inset: 0; z-index: 2600; display: none;
+    align-items: center; justify-content: center; }
+  #globalJointMgrDialog.active { display: flex; }
+  #globalJointMgrDialog .gjm-mask { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
+  #globalJointMgrDialog .dlg-card {
+    position: relative; background: var(--panel); border: 1px solid #555;
+    border-radius: 8px; padding: 0;
+    width: 88vw; height: 84vh;
+    min-width: 720px; min-height: 460px;
+    max-width: 96vw; max-height: 94vh;
+    resize: both; overflow: hidden;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.65);
+    display: flex; flex-direction: column;
+  }
+  #globalJointMgrDialog .gjm-titlebar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; cursor: move; user-select: none;
+    background: linear-gradient(to bottom, #2b2d31, #23252a);
+    border-bottom: 1px solid #3a3d44; flex-shrink: 0;
+  }
+  #globalJointMgrDialog .gjm-close {
+    width: 13px; height: 13px; border-radius: 50%;
+    background: #ff5f57; border: 1px solid rgba(0,0,0,0.2);
+    cursor: pointer; flex-shrink: 0; position: relative;
+    color: transparent; font-size: 10px; line-height: 1;
+    transition: color 0.15s;
+  }
+  #globalJointMgrDialog .gjm-close:hover { color: rgba(0,0,0,0.55); }
+  #globalJointMgrDialog .gjm-close::after { content: "×"; position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -51%); }
+  #globalJointMgrDialog .gjm-title { font-weight: 700; font-size: 13px; color: var(--accent2); }
+  #globalJointMgrDialog .gjm-summary {
+    font-size: 11px; color: #9aa0a6; padding: 8px 16px;
+    border-bottom: 1px solid #2a2d33; background: #1c1e22; flex-shrink: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #globalJointMgrDialog .gjm-summary b { color: #b8e986; font-weight: 700; }
+  #globalJointMgrDialog .gjm-toolbar {
+    display: flex; gap: 8px; padding: 8px 14px; align-items: center; flex-wrap: wrap;
+    background: #18191d; border-bottom: 1px solid #2a2d33; flex-shrink: 0;
+  }
+  #globalJointMgrDialog .gjm-toolbar input[type=text],
+  #globalJointMgrDialog .gjm-toolbar select {
+    background: #1a1c20; color: #ddd; border: 1px solid #444; border-radius: 3px;
+    padding: 3px 6px; font: inherit; font-size: 11px;
+  }
+  #globalJointMgrDialog .gjm-toolbar input[type=text] { width: 240px; }
+  #globalJointMgrDialog .gjm-toolbar .gjm-spacer { flex: 1; }
+  #globalJointMgrDialog .gjm-body {
+    flex: 1 1 auto; min-height: 0;
+    display: grid; grid-template-columns: 1.2fr 1fr;
+    overflow: hidden;
+  }
+  #globalJointMgrDialog .gjm-left {
+    display: flex; flex-direction: column; border-right: 1px solid #3a3d44;
+    overflow: hidden; min-width: 0;
+  }
+  #globalJointMgrDialog .gjm-list { flex: 1 1 auto; overflow-y: auto; background: #1a1c20; }
+  #globalJointMgrDialog .gjm-row {
+    padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #2a2d33;
+    display: flex; flex-direction: column; gap: 2px; user-select: none;
+  }
+  #globalJointMgrDialog .gjm-row:hover { background: #24262b; }
+  #globalJointMgrDialog .gjm-row.active { background: rgba(79,157,255,0.22); }
+  #globalJointMgrDialog .gjm-row-head { display: flex; align-items: center; gap: 6px; }
+  #globalJointMgrDialog .gjm-row-head .lbl { font-weight: 700; font-size: 12px; color: #ddd; }
+  #globalJointMgrDialog .gjm-row-head .lbl.on-this-page { color: #4fc3f7; }
+  #globalJointMgrDialog .gjm-row-head .coord { color: #9aa0a6; font-size: 11px; font-variant-numeric: tabular-nums; }
+  #globalJointMgrDialog .gjm-row-head .badge-origin { background: #ffe066; color: #000; padding: 0 4px; border-radius: 3px; font-size: 9px; font-weight: 700; }
+  #globalJointMgrDialog .gjm-row-head .badge-warn { color: #ff7043; }
+  #globalJointMgrDialog .gjm-row-meta { font-size: 10px; color: #7b818a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #globalJointMgrDialog .gjm-right {
+    display: flex; flex-direction: column; background: #16181c;
+    overflow-y: auto; min-width: 0; padding: 12px 14px;
+  }
+  #globalJointMgrDialog .gjm-right .empty {
+    color: #7b818a; font-size: 11px; font-style: italic; padding: 20px 4px;
+  }
+  #globalJointMgrDialog .gjm-detail-head { font-size: 14px; font-weight: 700; color: var(--accent2); margin-bottom: 8px; }
+  #globalJointMgrDialog .gjm-field { margin-bottom: 8px; }
+  #globalJointMgrDialog .gjm-field-label { font-size: 10px; color: #7b818a; margin-bottom: 2px;
+    text-transform: uppercase; letter-spacing: 0.5px; }
+  #globalJointMgrDialog .gjm-field input[type=text] {
+    background: #1a1c20; color: #ddd; border: 1px solid #444; border-radius: 3px;
+    padding: 4px 8px; font: inherit; width: 100%; box-sizing: border-box;
+  }
+  #globalJointMgrDialog .gjm-field .coord-grid {
+    display: grid; grid-template-columns: 24px 1fr; gap: 4px 8px;
+    font-size: 11px; color: #cfd3d8;
+  }
+  #globalJointMgrDialog .gjm-field .coord-grid .ax { color: #7b818a; }
+  #globalJointMgrDialog .gjm-binds {
+    list-style: none; margin: 0; padding: 0;
+  }
+  #globalJointMgrDialog .gjm-binds li {
+    display: flex; align-items: center; gap: 6px; padding: 4px 0;
+    border-bottom: 1px solid #2a2d33; font-size: 11px; color: #cfd3d8;
+  }
+  #globalJointMgrDialog .gjm-binds li .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #globalJointMgrDialog .gjm-binds li .name.cur { color: #4fc3f7; }
+  #globalJointMgrDialog .gjm-binds li button { padding: 2px 8px; font-size: 10px; }
+  #globalJointMgrDialog .gjm-warnings {
+    background: rgba(255,112,67,0.08); border-left: 3px solid #ff7043;
+    padding: 6px 10px; font-size: 11px; color: #ff9a7a; line-height: 1.4;
+  }
+  #globalJointMgrDialog .gjm-actions { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+  #globalJointMgrDialog .gjm-actions button { padding: 6px 10px; font-size: 11px; text-align: left; }
+  #globalJointMgrDialog .gjm-actions .danger { color: #ff7676; border-color: #5a3434; background: transparent; }
+  #globalJointMgrDialog .gjm-actions .danger:hover { background: #3a1f1f; color: #fff; }
+  #globalJointMgrDialog .gjm-footer {
+    display: flex; justify-content: flex-end; gap: 6px;
+    padding: 10px 16px; border-top: 1px solid #3a3d44; background: #1c1e22; flex-shrink: 0;
+  }
+
+  /* 跳轉小窗(右側欄 globalJoint 點擊後彈出)*/
+  #gjJumpPopup {
+    position: fixed; z-index: 2700; display: none;
+    min-width: 240px; max-width: 320px; max-height: 360px; overflow-y: auto;
+    background: #1f2126; border: 1px solid #4f9dff; border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.65); padding: 4px 0;
+    font-size: 12px;
+  }
+  #gjJumpPopup.active { display: block; }
+  #gjJumpPopup .gjp-head {
+    padding: 6px 12px; font-size: 11px; color: #b8e986; font-weight: 700;
+    border-bottom: 1px solid #2a2d33;
+  }
+  #gjJumpPopup .gjp-row {
+    padding: 6px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px;
+    color: #ddd;
+  }
+  #gjJumpPopup .gjp-row:hover { background: rgba(79,157,255,0.18); }
+  #gjJumpPopup .gjp-row.cur { color: #7b818a; cursor: default; }
+  #gjJumpPopup .gjp-row.cur:hover { background: transparent; }
+  #gjJumpPopup .gjp-row .plane { color: #7b818a; font-size: 10px; }
+  #apList .ap-row { display: flex; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 4px; border: 1px solid transparent; }
+  #apList .ap-row:hover { background: #2a2d33; }
+  #apList .ap-row.triple { border-color: rgba(79, 195, 247, 0.3); }
+  #apList .ap-row .ap-type { font-weight: 700; min-width: 26px; text-align: center; padding: 1px 5px; border-radius: 3px; font-size: 10px; }
+  #apList .ap-row.triple .ap-type { background: #1e3a5f; color: #4fc3f7; }
+  #apList .ap-row.pair   .ap-type { background: #3a3220; color: #ffd23f; }
+  #apList .ap-row .ap-members { flex: 1; color: #c8ccd0; font-size: 11px; }
+  #apList .ap-row .ap-coord { color: #9aa0a6; font-size: 11px; min-width: 130px; }
+  #gbindList .gbind-row { display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 8px; border-radius: 4px; cursor: pointer; }
+  #gbindList .gbind-row:hover { background: #2a2d33; }
+  #gbindList .gbind-label { color: #ffd23f; font-weight: 700; }
+  #gbindList .gbind-meta { color: #9aa0a6; font-size: 11px; }
+  /* (已移除)綁定全局節點的視覺標記 — 新 ID 系統下同 globalId 會有相同 display ID,不需額外色標 */
+  #splitDim { position: absolute; left: 0; top: 0;
+    background: rgba(0,0,0,0.55); pointer-events: none; }
+  .ctx-menu { position: fixed; background: #2b2d31; border: 1px solid #444;
+    border-radius: 6px; padding: 0; min-width: 200px; max-width: 320px; z-index: 2000;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.5); font-size: 12px;
+    display: flex; flex-direction: column; }
+  .ctx-head { padding: 8px 14px; font-size: 11px; color: var(--muted);
+    border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+  .ctx-list { flex: 1 1 auto; overflow-y: auto; max-height: 50vh;
+    padding: 4px 0; border-bottom: 1px solid var(--line); }
+  .ctx-list::-webkit-scrollbar { width: 6px; }
+  .ctx-list::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+  .ctx-list-item { padding: 3px 14px; font-size: 11px; color: #ccc;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ctx-list-item.orphan { color: #ff9b59; }
+  .ctx-section-label { padding: 8px 14px 2px; font-size: 10px;
+    color: #ff9b59; text-transform: uppercase; letter-spacing: 0.5px; }
+  .ctx-radio { padding: 5px 14px 5px 26px; font-size: 12px; cursor: pointer; position: relative; }
+  .ctx-radio:hover { background: #3a3d44; }
+  .ctx-radio.on::before { content: "●"; position: absolute; left: 12px; color: #4f9dff; font-size: 9px; top: 7px; }
+  /* Shift+S 浮動選取模式選單 */
+  #selectModePopup {
+    position: fixed; z-index: 1600;
+    background: rgba(20,22,28,0.95); border: 1px solid #555; border-radius: 6px;
+    padding: 4px 0; min-width: 110px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+    font-size: 12px; user-select: none;
+  }
+  #selectModePopup .smp-item { padding: 7px 16px; color: #ddd; cursor: pointer; }
+  #selectModePopup .smp-item:hover { background: #3a3d44; }
+  #selectModePopup .smp-item.active { background: #4f9dff; color: #fff; }
+  .ctx-item { padding: 8px 14px; cursor: pointer; flex: 0 0 auto; }
+  .ctx-item:hover { background: #3a3d44; }
+  .ctx-item.danger { color: #ff8080; }
+  .list .item.ctx-active { background: #4a3030; }
+
+  /* 導入設定對話框 */
+  #importDialog { position: fixed; inset: 0; z-index: 5000; display: none; }
+  #importDialog.active { display: block; }
+  #importDialog .imp-mask { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }
+  #importDialog .imp-box { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    background: #1f2126; color: #eaeaea; border: 1px solid #444; border-radius: 8px;
+    padding: 16px 18px 14px;
+    width: 80vw; height: 80vh; max-width: 1600px; max-height: 1000px;
+    display: flex; flex-direction: column;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.65); }
+  #importDialog .imp-title { font-size: 14px; font-weight: 700; margin-bottom: 10px; color: #ffd23f;
+    cursor: move; user-select: none; }
+  #importDialog .imp-title .imp-fn { color: #eaeaea; font-weight: 500; margin-left: 6px; word-break: break-all; }
+  #importDialog .imp-body { display: flex; gap: 18px; align-items: stretch; flex: 1; min-height: 0; }
+  #importDialog .imp-controls { width: 200px; display: flex; flex-direction: column; }
+  #importDialog .imp-section-title { font-size: 12px; color: #aab; margin: 4px 0 6px; }
+  #importDialog .imp-rot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  #importDialog .imp-rot-btn { padding: 10px 0; background: #2a2d33; color: #eaeaea;
+    border: 1px solid #444; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600;
+    transition: background 0.12s; }
+  #importDialog .imp-rot-btn:hover { background: #353940; }
+  #importDialog .imp-rot-btn.active { background: #2f4a78; border-color: #6c9bff; color: #fff; }
+  #importDialog .imp-help { font-size: 11px; color: #888; margin-top: 10px; line-height: 1.5; }
+  /* 參考 floorTypesDialog 的 .ft-preview / .ft-preview-head / .ft-preview-stage 結構;
+     畫面用 canvas 2D ctx.drawImage 重繪(WYSIWYG filter 改用 ctx.filter,zoom 不會像 CSS
+     transform 那樣放大像素 → 高倍率仍然銳利)。 */
+  #importDialog .imp-preview { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+    background: #0d0e10; border: 1px solid #2a2d33; border-radius: 6px; overflow: hidden; }
+  #importDialog .imp-preview-head { font-size: 11px; color: #9aa0a6; padding: 6px 10px;
+    border-bottom: 1px solid #2a2d33; background: #141519; flex-shrink: 0;
+    display: flex; align-items: center; gap: 8px;
+    overflow: hidden; white-space: nowrap; }
+  #importDialog .imp-preview-head .imp-preview-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  #importDialog .imp-preview-head .imp-zoom { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  #importDialog .imp-preview-head .imp-zoom input[type=range] { width: 110px; }
+  #importDialog .imp-preview-stage { flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
+    padding: 12px; min-height: 0; overflow: hidden; background: #000; cursor: grab; }
+  #importDialog .imp-preview-stage.panning { cursor: grabbing; }
+  #importDialog .imp-preview-stage canvas { max-width: 100%; max-height: 100%; display: block; }
+  #importDialog .imp-actions { margin-top: 14px; display: flex; justify-content: flex-end; gap: 8px; }
+  #importDialog .imp-btn { padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 13px;
+    border: 1px solid #555; background: transparent; color: #ccc; }
+  #importDialog .imp-btn:hover { background: #2a2d33; }
+  #importDialog .imp-btn.primary { background: #2f4a78; color: #fff; border-color: #4a78c8; }
+  #importDialog .imp-btn.primary:hover { background: #3a5a90; }
