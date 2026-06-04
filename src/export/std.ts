@@ -322,6 +322,55 @@ export function exportStdFile() {
     _writeMatGroup("BRACE XY",  _memBraceXY);
     _writeMatGroup("BRACE YZ",  _memBraceYZ);
   }
+  // === MEMBER RELEASE / TRUSS / TENSION / COMPRESSION / CABLE ===
+  //   RELEASE:同 (START 自由度, END 自由度) 設定的桿件分組,各組分別輸出 START / END 兩列。
+  //   其餘四種行為類型:各自一個 MEMBER <TYPE> 區塊。
+  {
+    // 每列 ≤ 此數個 id slot(TO range 算 3 slot),沿用 SUPPORTS 的寫法
+    const _writeIdLines = (ids: number[], suffix: string) => {
+      if (!ids.length) return;
+      const segs = _idsToSegs([...ids].sort((a, b) => a - b));
+      const MAX_SLOTS = 6;
+      let buf = "", used = 0;
+      const _flush = () => { if (buf) { lines.push(suffix ? `${buf} ${suffix}` : buf); buf = ""; used = 0; } };
+      for (const seg of segs) {
+        const segSlots = seg.includes(" TO ") ? 3 : 1;
+        if (used > 0 && used + segSlots > MAX_SLOTS) _flush();
+        buf = buf ? `${buf} ${seg}` : seg;
+        used += segSlots;
+      }
+      _flush();
+    };
+    const _dofStr = (arr: any) => (Array.isArray(arr) ? arr.filter((d: string) => ["FX","FY","FZ","MX","MY","MZ"].includes(d)) : []);
+    // RELEASE 分組:key = `S:..|E:..`
+    const relGroups = new Map<string, { start: string[]; end: string[]; ids: number[] }>();
+    const truss: number[] = [], tension: number[] = [], compression: number[] = [], cable: number[] = [];
+    for (const m of members as any[]) {
+      const r = m.release;
+      if (!r || !r.type) continue;
+      if (r.type === "TRUSS") { truss.push(m.id); continue; }
+      if (r.type === "TENSION") { tension.push(m.id); continue; }
+      if (r.type === "COMPRESSION") { compression.push(m.id); continue; }
+      if (r.type === "CABLE") { cable.push(m.id); continue; }
+      // RELEASE
+      const s = _dofStr(r.start), e = _dofStr(r.end);
+      if (!s.length && !e.length) continue;   // 空釋放略過
+      const key = `S:${s.join(" ")}|E:${e.join(" ")}`;
+      if (!relGroups.has(key)) relGroups.set(key, { start: s, end: e, ids: [] });
+      relGroups.get(key)!.ids.push(m.id);
+    }
+    if (relGroups.size) {
+      lines.push("MEMBER RELEASE");
+      for (const g of relGroups.values()) {
+        if (g.start.length) _writeIdLines(g.ids, `START ${g.start.join(" ")}`);
+        if (g.end.length)   _writeIdLines(g.ids, `END ${g.end.join(" ")}`);
+      }
+    }
+    if (truss.length)       { lines.push("MEMBER TRUSS");       _writeIdLines(truss, ""); }
+    if (tension.length)     { lines.push("MEMBER TENSION");     _writeIdLines(tension, ""); }
+    if (compression.length) { lines.push("MEMBER COMPRESSION"); _writeIdLines(compression, ""); }
+    if (cable.length)       { lines.push("MEMBER CABLE");       _writeIdLines(cable, ""); }
+  }
   // === SUPPORTS:有支承的 joint → 依「STAAD 規格字串」分組輸出 ===
   //   STAAD 格式:
   //     SUPPORTS

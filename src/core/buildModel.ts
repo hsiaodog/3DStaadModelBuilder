@@ -27,7 +27,7 @@ interface MemberCollision {
 }
 interface BuildModelResult {
   joints: Array<{ id: number; x: number; y: number; z: number; support?: import("./support").Support }>;
-  members: Array<{ id: number; j1: number; j2: number }>;
+  members: Array<{ id: number; j1: number; j2: number; release?: import("./memberRelease").MemberRelease }>;
 }
 
 export function buildModel(): BuildModelResult {
@@ -111,7 +111,10 @@ export function buildModel(): BuildModelResult {
         }
         seenMemberIds.add(nid as number);
         if (m.globalMemberId != null) seenGlobalMemberIds.add(m.globalMemberId);
-        allMembers.push({ id: nid as number, j1: idMap.get(m.j1)!, j2: idMap.get(m.j2)! });
+        allMembers.push({
+          id: nid as number, j1: idMap.get(m.j1)!, j2: idMap.get(m.j2)!,
+          ...((m as any).release ? { release: (m as any).release } : {}),   // 桿件釋放(跨頁已同步,取首見)
+        });
       }
     }
   }

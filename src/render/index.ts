@@ -26,6 +26,7 @@ import {
 } from "../app/integration";
 import { _worldForRank } from "../core/rankCache";
 import { supportTypeOf, hasSupport } from "../core/support";
+import { releaseRenderInfo } from "../core/memberRelease";
 import { setDebugVar, getDebugVar } from "../utils/debug";
 
 // labelsLayer 事件委派(只設定一次):每次 render 會建 ~17k 個 lbl div,
@@ -439,6 +440,64 @@ function _renderImpl() {
       splitMemberAt(m.id, e.clientX, e.clientY);
     });
     svg.appendChild(ln);
+
+    // ---------- 桿件釋放(member release)記號:線型 + 端部圖示 ----------
+    //   TENSION=虛線 / COMPRESSION=點線 / CABLE=波浪;RELEASE/TRUSS=實線
+    //   端部:hinge=空心圓(含彎矩釋放)/ roller=方塊(只釋放平移);START=j1(a 端)、END=j2(b 端)
+    const _rel = releaseRenderInfo(m);
+    if (_rel) {
+      // 釋放記號屬於桿件圖示:class member-release → 跟隨「隱藏桿件」一起消失;
+      //   顏色跟隨選取(選取→與桿件同的 #ffe066;未選取→維持青色 #2dd4bf)
+      const REL_COLOR = state.selection.members.has(m.id) ? "#ffe066" : "#2dd4bf";
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len, uy = dy / len;
+      // 線型:dashed/dotted 直接改 member line 的 dasharray;wavy 疊一條青色正弦 path
+      if (_rel.lineStyle === "dashed") {
+        ln.setAttribute("stroke-dasharray", `${sw * 12} ${sw * 6}`);   // 長虛線「一 一 一」
+        ln.setAttribute("stroke-width", String(sw * 2));   // TENSION 加粗
+        ln.style.stroke = REL_COLOR;   // TENSION 青色(與波一致;inline style 才能覆蓋 .member CSS;選取→黃)
+      } else if (_rel.lineStyle === "dotted") {
+        // COMPRESSION:直線維持原桿件色(不覆蓋),只沿桿件等距畫一排青色空心圓「o o o o」
+        const cr = jointR * 0.95, spacing = jointR * 4, inset = jointR * 2.5;
+        const usable = Math.max(0, len - 2 * inset);
+        const n = Math.max(1, Math.round(usable / spacing));
+        for (let i = 0; i <= n; i++) {
+          const dist = inset + (n ? usable * i / n : 0);
+          svg.appendChild(el("circle", { class: "member-release", cx: a.x + ux * dist, cy: a.y + uy * dist, r: cr, fill: "none", stroke: REL_COLOR, "stroke-width": sw * 0.9 }));
+        }
+      } else if (_rel.lineStyle === "wavy") {
+        // 平滑正弦波:固定波長(波尺寸一致的大波)+ 整數個波(端點收平)+ 每波多段(平滑)
+        const amp = jointR * 1.8, targetPeriod = jointR * 10;
+        const px = -uy, py = ux;                   // 垂直單位向量
+        const nWaves = Math.max(2, Math.round(len / targetPeriod));
+        const segs = nWaves * 12;
+        let d = `M ${a.x} ${a.y}`;
+        for (let i = 1; i <= segs; i++) {
+          const t = i / segs;
+          const bx = a.x + dx * t, by = a.y + dy * t;
+          const off = Math.sin(t * Math.PI * 2 * nWaves) * amp;
+          d += ` L ${bx + px * off} ${by + py * off}`;
+        }
+        const wave = el("path", { class: "member-release", d, fill: "none", stroke: REL_COLOR, "stroke-width": sw * 0.9, "stroke-linecap": "round", "stroke-linejoin": "round" });
+        wave.style.pointerEvents = "none";
+        svg.appendChild(wave);
+      }
+      // 端部圖示:沿桿件內縮 inset,避開節點圓
+      const mR = jointR * 1.5;
+      const inset = Math.min(len * 0.32, jointR * 3.2);
+      const swMark = swJoint * 1.4;
+      const _mark = (gx, gy, glyph) => {
+        if (glyph === "hinge") {
+          svg.appendChild(el("circle", { class: "member-release", cx: gx, cy: gy, r: mR, fill: "none", stroke: REL_COLOR, "stroke-width": swMark }));
+        } else if (glyph === "roller") {
+          const s = mR * 1.7;
+          svg.appendChild(el("rect", { class: "member-release", x: gx - s / 2, y: gy - s / 2, width: s, height: s, fill: "none", stroke: REL_COLOR, "stroke-width": swMark }));
+        }
+      };
+      _mark(a.x + ux * inset, a.y + uy * inset, _rel.startGlyph);   // START = j1
+      _mark(b.x - ux * inset, b.y - uy * inset, _rel.endGlyph);     // END   = j2
+    }
 
     // 桿件編號移到最後統一繪製,確保始終在最上層
   }

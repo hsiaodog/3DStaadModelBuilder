@@ -34,7 +34,8 @@ import {
 } from "../app/integration";
 import { _displayIdForJointWith } from "../core/displayId";
 import { joint2DToWorld3D } from "../core/projection";
-import { supportTypeOf, hasSupport } from "../core/support";
+import { supportTypeOf, hasSupport, supportLabel } from "../core/support";
+import { releaseRenderInfo, releaseLabel, releaseTypeOf } from "../core/memberRelease";
 import { _t, _applyI18nOnDoc } from "../i18n";
 import { setBusyMessage } from "../ui/busy";
 
@@ -513,10 +514,18 @@ export function open3DPreviewDialog() {
     <div><span style="color:#ffd23f">●</span> <span data-i18n="p3d.legend.crossPage">跨頁綁定節點 (globalJoint 共享)</span></div>
     <div><span style="color:#ff8c00">▼</span> <span data-i18n="p3d.legend.anchorFixed">錨點 FIXED</span></div>
     <div><span style="color:#ff8c00">■</span> <span data-i18n="p3d.legend.anchorPinned">錨點 PINNED</span></div>
+    <div><span style="color:#ff8c00">◆</span> <span data-i18n="p3d.legend.anchorFixedBut">錨點 FIXED BUT</span></div>
+    <div><span style="color:#ff8c00">∿</span> <span data-i18n="p3d.legend.anchorSpring">錨點 SPRING</span></div>
+    <div><span style="color:#ff8c00">⬢</span> <span data-i18n="p3d.legend.anchorEnforced">錨點 ENFORCED</span></div>
     <div style="margin-top:3px"><span style="color:#7eb6ff">━</span> <span data-i18n="p3d.legend.memY">垂直桿件 (Y 軸,柱)</span></div>
     <div><span style="color:#ff9090">━</span> <span data-i18n="p3d.legend.memX">X 軸桿件 (橫樑)</span></div>
     <div><span style="color:#9aff9a">━</span> <span data-i18n="p3d.legend.memZ">Z 軸桿件 (橫樑)</span></div>
     <div><span style="color:#9aa0a6">━</span> <span data-i18n="p3d.legend.memDiag">斜橕 / 非軸向</span></div>
+    <div style="margin-top:3px;padding-top:3px;border-top:1px solid #333"><span style="color:#2dd4bf">○</span> <span data-i18n="p3d.legend.relHinge">桿端釋放(鉸接 / 桁架)</span></div>
+    <div><span style="color:#2dd4bf">□</span> <span data-i18n="p3d.legend.relRoller">桿端釋放(滑支 / 平移)</span></div>
+    <div><span style="color:#2dd4bf">┄</span> <span data-i18n="p3d.legend.relTension">只受拉 TENSION</span></div>
+    <div><span style="color:#2dd4bf">○○○</span> <span data-i18n="p3d.legend.relCompression">只受壓 COMPRESSION</span></div>
+    <div><span style="color:#2dd4bf">∿</span> <span data-i18n="p3d.legend.relCable">索 CABLE</span></div>
     <div style="margin-top:3px;padding-top:3px;border-top:1px solid #333">
       <span data-i18n="p3d.legend.worldAxes">世界軸:</span><span style="color:#ff5252;font-weight:700">X</span>
       ・<span style="color:#4ade80;font-weight:700" data-i18n="p3d.legend.yUp">Y(上)</span>
@@ -653,8 +662,9 @@ export function open3DPreviewDialog() {
           }
           node.srcCount++;
           if (hasSupport(j)) node.isAnchor = true;   // 任一 binding joint 有支承 → 3D 節點視為支承/錨點
-          // 任一 sibling 是 PINNED → 3D 視為 PINNED(否則為 FIXED 三角形預設)
-          if (supportTypeOf(j) === "PINNED") node.supportType = "PINNED";
+          // 擷取支承類型(第一個有支承的 binding joint 為準),供 3D 依類型畫對應符號:
+          //   FIXED=倒三角 / PINNED=正方形 / FIXED_BUT=菱形 / SPRING=彈簧線圈 / ENFORCED=六邊形
+          if (hasSupport(j) && !node.supportType) { node.supportType = supportTypeOf(j); node.supportText = supportLabel(j.support); }
           if (node.samples.length < 8) {
             const dispId = (typeof _displayIdForJointWith === "function") ? _displayIdForJointWith(f, pg, j) : j.id;
             node.samples.push({ fileId: f.id, fileName: f.name, pageIdx: +k, jointId: j.id, displayId: dispId, plane: pg.plane, isAnchor: hasSupport(j) });
@@ -666,8 +676,20 @@ export function open3DPreviewDialog() {
           if (!k1 || !k2 || k1 === k2) continue;
           const ek = k1 < k2 ? `${k1}||${k2}` : `${k2}||${k1}`;
           let edge = edgeMap.get(ek);
-          if (!edge) { edge = { k1, k2, srcCount: 0, samples: [] }; edgeMap.set(ek, edge); }
+          if (!edge) { edge = { k1, k2, srcCount: 0, samples: [], release: null }; edgeMap.set(ek, edge); }
           edge.srcCount++;
+          // 釋放顯示資訊(取第一個有釋放的 member);edge.k1/k2 為首個 member 的 j1/j2 → 若本 member 方向相反需交換端部圖示
+          if (!edge.release) {
+            const _ri = releaseRenderInfo(m);
+            if (_ri) {
+              edge.release = (k1 !== edge.k1)
+                ? { startGlyph: _ri.endGlyph, endGlyph: _ri.startGlyph, lineStyle: _ri.lineStyle }
+                : _ri;
+              // 給資訊面板用的可讀文字(RELEASE 顯示起/末 DOF;其餘顯示類型名)
+              const _rt = releaseTypeOf(m);
+              edge.releaseText = _rt === "RELEASE" ? `RELEASE(${releaseLabel(m.release)})` : releaseLabel(m.release);
+            }
+          }
           if (edge.samples.length < 4) {
             const dispM = (typeof displayMemberId === "function") ? displayMemberId(m) : m.id;
             edge.samples.push({ fileId: f.id, fileName: f.name, pageIdx: +k, memberId: m.id, displayId: dispM, plane: pg.plane });
@@ -1225,6 +1247,7 @@ export function open3DPreviewDialog() {
         </div>
         ${planeGridJ}
         <div style="margin-top:3px">世界座標 (${fmtWorld3D(hN.x)}, ${fmtWorld3D(hN.y)}, ${fmtWorld3D(hN.z)})</div>
+        ${hN.supportText ? `<div><span style="color:#ff8c00;font-weight:700">支承</span> <span style="color:#ff8c00">${_escHtml(hN.supportText)}</span></div>` : ""}
         <div>綁定 joint 數: ${hN.srcCount}</div>
         <div>來源(前 ${(hN.samples || []).length}):</div>
         ${rows}`;
@@ -1254,6 +1277,7 @@ export function open3DPreviewDialog() {
         </div>
         ${planeGridM}
         <div style="margin-top:3px">長度 ${lenStr}</div>
+        ${hE.releaseText ? `<div><span style="color:#2dd4bf;font-weight:700">釋放</span> <span style="color:#2dd4bf">${_escHtml(hE.releaseText)}</span></div>` : ""}
         <div>綁定 member 數: ${hE.srcCount}</div>
         <div>來源(前 ${(hE.samples || []).length}):</div>
         ${rows}`;
@@ -1274,7 +1298,7 @@ export function open3DPreviewDialog() {
         tooltip.style.top  = (e.clientY - r.top + 12) + "px";
         const samples = hit.samples.map(s => `  ${s.fileName} #${s.pageIdx + 1} J${s.displayId} (${s.plane})`).join("\n");
         tooltip.textContent =
-          (hit.isAnchor ? "▼ 支承\n" : "") +
+          (hit.isAnchor ? `▼ 支承${hit.supportText ? " " + hit.supportText : ""}\n` : "") +
           `世界座標: (${fmtWorld3D(hit.x)}, ${fmtWorld3D(hit.y)}, ${fmtWorld3D(hit.z)})\n` +
           `綁定 joint 數: ${hit.srcCount}\n` +
           `來源(前 ${hit.samples.length}):\n${samples}`;
@@ -1292,6 +1316,7 @@ export function open3DPreviewDialog() {
         const lenStr = (n1 && n2) ? ` (長度 ${Math.hypot(n2.x - n1.x, n2.y - n1.y, n2.z - n1.z).toFixed(1)})` : "";
         tooltip.textContent =
           `桿件${lenStr}\n` +
+          (eHit.releaseText ? `釋放: ${eHit.releaseText}\n` : "") +
           `綁定 member 數: ${eHit.srcCount}\n` +
           `來源(前 ${(eHit.samples || []).length}):\n${samples}`;
         canvas.style.cursor = "pointer";
@@ -1449,7 +1474,46 @@ export function open3DPreviewDialog() {
       projEdges.sort((a, b) => b.depth - a.depth);
     }
     if (opts.showEdges && projEdges) {
-      ctx.lineWidth = lw;
+      const REL_COLOR = "#2dd4bf";   // 青色 — 釋放記號統一色
+      const relR = dotRadius() * 1.5, relSW = Math.max(1, lw * 0.95);
+      // 端部圖示:from=端點、toward=另一端;沿桿件內縮後畫 hinge(空心圓)/ roller(方塊)
+      const drawRelMark = (from, toward, glyph) => {
+        if (glyph !== "hinge" && glyph !== "roller") return;
+        const ddx = toward.x - from.x, ddy = toward.y - from.y;
+        const dl = Math.hypot(ddx, ddy) || 1;
+        const inset = Math.min(dotRadius() * 3.2, dl * 0.32);
+        const cx = from.x + ddx / dl * inset, cy = from.y + ddy / dl * inset;
+        ctx.strokeStyle = REL_COLOR; ctx.lineWidth = relSW;
+        if (glyph === "hinge") { ctx.beginPath(); ctx.arc(cx, cy, relR, 0, Math.PI * 2); ctx.stroke(); }
+        else { const s = relR * 1.7; ctx.beginPath(); ctx.rect(cx - s / 2, cy - s / 2, s, s); ctx.stroke(); }
+      };
+      // CABLE 波浪:沿桿件畫青色正弦疊在直線上
+      const drawWavy = (p1, p2) => {
+        const ddx = p2.x - p1.x, ddy = p2.y - p1.y, dl = Math.hypot(ddx, ddy) || 1;
+        const px = -ddy / dl, py = ddx / dl, amp = dotRadius() * 1.8, targetPeriod = dotRadius() * 10;
+        const nWaves = Math.max(2, Math.round(dl / targetPeriod));
+        const segs = nWaves * 12;
+        ctx.strokeStyle = REL_COLOR; ctx.lineWidth = lw; ctx.lineJoin = "round"; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(p1.x, p1.y);
+        for (let i = 1; i <= segs; i++) {
+          const t = i / segs, bx = p1.x + ddx * t, by = p1.y + ddy * t;
+          const off = Math.sin(t * Math.PI * 2 * nWaves) * amp;
+          ctx.lineTo(bx + px * off, by + py * off);
+        }
+        ctx.stroke(); ctx.lineCap = "butt"; ctx.lineJoin = "miter";
+      };
+      // COMPRESSION:沿桿件等距畫一排空心圓「o o o o」
+      const drawCircles = (p1, p2) => {
+        const ddx = p2.x - p1.x, ddy = p2.y - p1.y, dl = Math.hypot(ddx, ddy) || 1;
+        const cr = dotRadius() * 0.95, spacing = dotRadius() * 4, inset = dotRadius() * 2.5;
+        const usable = Math.max(0, dl - 2 * inset);
+        const n = Math.max(1, Math.round(usable / spacing));
+        ctx.strokeStyle = REL_COLOR; ctx.lineWidth = Math.max(1, lw * 0.9);   // COMPRESSION o 圓圈(與波同青色)
+        for (let i = 0; i <= n; i++) {
+          const dist = inset + (n ? usable * i / n : 0);
+          ctx.beginPath(); ctx.arc(p1.x + ddx / dl * dist, p1.y + ddy / dl * dist, cr, 0, Math.PI * 2); ctx.stroke();
+        }
+      };
       for (const pe of projEdges) {
         const dx = pe.n2.x - pe.n1.x, dy = pe.n2.y - pe.n1.y, dz = pe.n2.z - pe.n1.z;
         const adx = Math.abs(dx), ady = Math.abs(dy), adz = Math.abs(dz);
@@ -1458,10 +1522,21 @@ export function open3DPreviewDialog() {
         if (maxD === ady) color = "#7eb6ff";
         else if (maxD === adx) color = "#ff9090";
         else if (maxD === adz) color = "#9aff9a";
-        ctx.strokeStyle = color;
+        const rel = pe.e.release;   // 釋放屬於桿件圖示 → 跟隨桿件(showEdges)顯示,無獨立開關
+        // TENSION 線改用淺青色;COMPRESSION 線維持原桿件(方向)色,只有 o 圓圈用淺青
+        if (rel && rel.lineStyle === "dashed") color = REL_COLOR;        // TENSION 青色(與波一致)
+        ctx.strokeStyle = color; ctx.lineWidth = lw;
+        if (rel && rel.lineStyle === "dashed") { ctx.setLineDash([lw * 12, lw * 6]); ctx.lineWidth = lw * 2; }   // TENSION 長虛線「一 一 一」
         ctx.beginPath();
         ctx.moveTo(pe.p1.x, pe.p1.y); ctx.lineTo(pe.p2.x, pe.p2.y);
         ctx.stroke();
+        ctx.setLineDash([]); ctx.lineCap = "butt";
+        if (rel) {
+          if (rel.lineStyle === "wavy") drawWavy(pe.p1, pe.p2);
+          else if (rel.lineStyle === "dotted") drawCircles(pe.p1, pe.p2);   // COMPRESSION o o o
+          drawRelMark(pe.p1, pe.p2, rel.startGlyph);   // START = j1 = p1
+          drawRelMark(pe.p2, pe.p1, rel.endGlyph);     // END   = j2 = p2
+        }
       }
     }
     // 節點
@@ -1474,27 +1549,51 @@ export function open3DPreviewDialog() {
       for (const pn of projNodes) {
         const r0 = pn.n.srcCount > 1 ? baseR * 1.3 : baseR;
         const isAnchor = !!pn.n.isAnchor;
-        // 錨點:PINNED = 橘色正方形、其餘(FIXED) = 倒三角形(類似 STAAD support symbol)
+        // 錨點:依支承類型畫對應符號(與 2D 選取畫面一致):
+        //   FIXED=倒三角 / PINNED=正方形 / FIXED_BUT=菱形 / SPRING=彈簧線圈 / ENFORCED=六邊形
         // 一般:圓形(srcCount > 1 黃色跨頁綁定 / 單頁紅色)
         if (isAnchor) {
           const r = r0 * 2.5;   // 加大 1.5 → 2.5
+          const cx = pn.p.x, cy = pn.p.y;
+          const k = r * 0.866, hh = r * 0.5;   // 三角 / 六邊形幾何
           ctx.fillStyle = "#ff8c00";
           ctx.strokeStyle = "#ffd9a0";
           ctx.lineWidth = Math.max(1, r0 * 0.18);
-          if (pn.n.supportType === "PINNED") {
+          const st = pn.n.supportType;
+          if (st === "PINNED") {
+            // 正方形
             const s = r * 1.732;   // ≈ √3 r,跟 2D 端視覺一致
+            ctx.beginPath(); ctx.rect(cx - s / 2, cy - s / 2, s, s); ctx.fill(); ctx.stroke();
+          } else if (st === "FIXED_BUT") {
+            // 菱形(部分釋放)
             ctx.beginPath();
-            ctx.rect(pn.p.x - s / 2, pn.p.y - s / 2, s, s);
-            ctx.fill();
+            ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy);
+            ctx.closePath(); ctx.fill(); ctx.stroke();
+          } else if (st === "ENFORCED") {
+            // 六邊形(強制位移)
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - r); ctx.lineTo(cx + k, cy - hh); ctx.lineTo(cx + k, cy + hh);
+            ctx.lineTo(cx, cy + r); ctx.lineTo(cx - k, cy + hh); ctx.lineTo(cx - k, cy - hh);
+            ctx.closePath(); ctx.fill(); ctx.stroke();
+          } else if (st === "SPRING") {
+            // 彈簧線圈(zigzag,只描邊,不填色)
+            ctx.beginPath();
+            ctx.moveTo(cx - r, cy);
+            ctx.lineTo(cx - 0.6 * r, cy - 0.6 * r);
+            ctx.lineTo(cx - 0.2 * r, cy + 0.6 * r);
+            ctx.lineTo(cx + 0.2 * r, cy - 0.6 * r);
+            ctx.lineTo(cx + 0.6 * r, cy + 0.6 * r);
+            ctx.lineTo(cx + r, cy);
+            ctx.strokeStyle = "#ff8c00";
+            ctx.lineWidth = Math.max(1.5, r0 * 0.32);
+            ctx.lineCap = "round"; ctx.lineJoin = "round";
             ctx.stroke();
+            ctx.lineCap = "butt"; ctx.lineJoin = "miter";
           } else {
+            // FIXED(預設):倒三角(頂點朝上)
             ctx.beginPath();
-            ctx.moveTo(pn.p.x, pn.p.y - r);
-            ctx.lineTo(pn.p.x - r * 0.866, pn.p.y + r * 0.5);
-            ctx.lineTo(pn.p.x + r * 0.866, pn.p.y + r * 0.5);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
+            ctx.moveTo(cx, cy - r); ctx.lineTo(cx - k, cy + hh); ctx.lineTo(cx + k, cy + hh);
+            ctx.closePath(); ctx.fill(); ctx.stroke();
           }
         } else {
           ctx.fillStyle = pn.n.srcCount > 1 ? "#ffd23f" : "#ff4444";

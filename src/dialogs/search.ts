@@ -23,7 +23,9 @@ import { _displayIdForJointWith } from "../core/displayId";
 import { joint2DToWorld3D } from "../core/projection";
 import { _worldForRank, invalidateRankCache } from "../core/rankCache";
 import { hasSupport, supportTypeOf, supportLabel } from "../core/support";
+import { releaseTypeOf, releaseLabel, hasRelease } from "../core/memberRelease";
 import { pickSupportModal } from "./supportDialog";
+import { pickReleaseModal } from "./releaseDialog";
 import { _t, _applyI18nOnDoc } from "../i18n";
 import { openMaterialMgrWindow } from "./materialMgr";
 
@@ -316,6 +318,7 @@ export function openSearchWindow() {
           <label class="bg-btn bg-btn-lg"><input type="radio" name="searchType" value="joint"><span data-i18n="search.tab.joint">節點</span></label>
           <label class="bg-btn bg-btn-lg" title="依「材料名稱」搜尋桿件"><input type="radio" name="searchType" value="material"><span data-i18n="search.tab.material">材料</span></label>
           <label class="bg-btn bg-btn-lg" title="依支承類型搜尋節點,並可批次設定 / 清除支承"><input type="radio" name="searchType" value="support"><span data-i18n="search.tab.support">節點支承</span></label>
+          <label class="bg-btn bg-btn-lg" title="依釋放類型搜尋桿件,並可批次設定 / 清除釋放"><input type="radio" name="searchType" value="release"><span data-i18n="search.tab.release">桿件釋放</span></label>
         </div>
       </div>
       <div class="cols collapsible-when-done">
@@ -369,6 +372,19 @@ export function openSearchWindow() {
           <textarea id="memberIdInput" rows="2" data-i18n-placeholder="search.placeholder.id" placeholder="逗號 / 空白 / 換行分隔 ・支援 regex(.*52 = 結尾 52、52.* = 開頭 52、.*52.* = 含 52)・留空 = 全部"></textarea>
           <button class="id-help-btn" data-help-target="memberIdInput" type="button" title="正則表達式速查">?</button>
           <button class="id-hist-btn" data-hist-target="memberIdInput" data-hist-type="member" data-i18n="search.histBtn" type="button" title="最近 50 筆桿件搜尋紀錄">歷史 ▾</button>
+        </div>
+      </div>
+      <div class="block" data-role="releaseSection">
+        <span class="block-label" data-i18n="search.releaseType">釋放類型:</span>
+        <div class="bg-btn-group" id="releaseTypeFilter">
+          <label class="bg-btn" title="不限釋放(依編號搜尋全部桿件)"><input type="checkbox" value="__all__"><span data-i18n="search.release.unrestricted">不限</span></label>
+          <label class="bg-btn checked" title="所有有釋放設定的桿件"><input type="checkbox" value="__any__" checked><span data-i18n="search.release.has">有釋放</span></label>
+          <label class="bg-btn"><input type="checkbox" value="RELEASE">RELEASE</label>
+          <label class="bg-btn"><input type="checkbox" value="TRUSS">TRUSS</label>
+          <label class="bg-btn"><input type="checkbox" value="TENSION">TENSION</label>
+          <label class="bg-btn"><input type="checkbox" value="COMPRESSION">COMPRESSION</label>
+          <label class="bg-btn"><input type="checkbox" value="CABLE">CABLE</label>
+          <label class="bg-btn" title="沒有任何釋放設定的桿件"><input type="checkbox" value="__none__"><span data-i18n="search.release.none">無釋放</span></label>
         </div>
       </div>
       <div class="block id-block" data-role="jointSection">
@@ -591,13 +607,15 @@ export function openSearchWindow() {
       });
     });
   }
-  // 顯示 / 隱藏 section(各 mode 各自的 block:memberSection / jointSection / materialSection / supportSection)
+  // 顯示 / 隱藏 section(各 mode 各自的 block:memberSection / jointSection / materialSection / supportSection / releaseSection)
+  //   桿件釋放(release)比照節點支承:只用「釋放類型」filter(releaseSection)+ 限定平面 / 頁面,不需編號 / 範圍
   function syncSections() {
     const type = body.querySelector("input[name=searchType]:checked").value;
     body.querySelectorAll("[data-role=memberSection]")  .forEach(el => el.style.display = type === "member"   ? "" : "none");
     body.querySelectorAll("[data-role=jointSection]")   .forEach(el => el.style.display = type === "joint"    ? "" : "none");
     body.querySelectorAll("[data-role=materialSection]").forEach(el => el.style.display = type === "material" ? "" : "none");
     body.querySelectorAll("[data-role=supportSection]") .forEach(el => el.style.display = type === "support"  ? "" : "none");
+    body.querySelectorAll("[data-role=releaseSection]") .forEach(el => el.style.display = type === "release"  ? "" : "none");
   }
   body.querySelectorAll("input[name=searchType]").forEach(r => r.addEventListener("change", syncSections));
   syncSections();
@@ -617,6 +635,32 @@ export function openSearchWindow() {
         } else if (inp.checked && !isMeta(inp.value)) {
           // 勾具體類型 → 取消 meta
           for (const cb of all) if (isMeta(cb.value)) _setChk(cb, false);
+        }
+      });
+    }
+  }
+  // 釋放類型 filter mutex(桿件 tab):__all__(不限) / __any__(有釋放) / __none__(無釋放) 三個 meta 互斥;
+  //   具體類型(RELEASE/TRUSS/…)彼此可並存,但會取消所有 meta;全部取消時自動回到「不限」
+  {
+    const relFilter = body.querySelector("#releaseTypeFilter");
+    if (relFilter) {
+      const _setChk = (cb, v) => { cb.checked = v; const l = cb.closest(".bg-btn"); if (l) l.classList.toggle("checked", v); };
+      const isMeta = (v) => v === "__all__" || v === "__any__" || v === "__none__";
+      relFilter.addEventListener("change", (e) => {
+        const inp = e.target;
+        if (!inp || inp.type !== "checkbox") return;
+        const all = Array.from(relFilter.querySelectorAll("input[type=checkbox]"));
+        if (inp.checked && isMeta(inp.value)) {
+          // 勾任一 meta → 取消其它所有(meta 與具體類型)
+          for (const cb of all) if (cb !== inp) _setChk(cb, false);
+        } else if (inp.checked && !isMeta(inp.value)) {
+          // 勾具體類型 → 取消所有 meta
+          for (const cb of all) if (isMeta(cb.value)) _setChk(cb, false);
+        }
+        // 全部取消 → 回到「不限」
+        if (!all.some(cb => cb.checked)) {
+          const allCb = all.find(cb => cb.value === "__all__");
+          if (allCb) _setChk(allCb, true);
         }
       });
     }
@@ -651,7 +695,7 @@ export function openSearchWindow() {
   const _activeIdInput = () => {
     const type = body.querySelector("input[name=searchType]:checked").value;
     if (type === "material") return materialIdInput;
-    return type === "member" ? memberIdInput : jointIdInput;
+    return (type === "member" || type === "release") ? memberIdInput : jointIdInput;
   };
   // === 材料名稱 combobox(輸入下拉,可依輸入即時 filter)===
   //   來源:state.materials + 模型中已使用但未在清單的字串
@@ -954,13 +998,15 @@ export function openSearchWindow() {
     const type = body.querySelector("input[name=searchType]:checked").value;
     const scope = Array.from(body.querySelectorAll("input[name=scope]:checked")).map(el => el.value);
     if (!scope.length) scope.push("single");
-    const memberScope = (body.querySelector("input[name=memberScope]:checked") || {}).value || "single";
+    // 桿件釋放(release)無編號 / 範圍輸入 → 一律以「全部桿件 + 單條」為基底,僅靠釋放類型 filter 篩選
+    const memberScope = (type === "release") ? "single" : ((body.querySelector("input[name=memberScope]:checked") || {}).value || "single");
     const onlyMembers    = !!onlyMembersCb.checked;
     // 「只有桿件」= 含桿件 的資料 + 隱藏節點列 → 此處強制把 includeMembers 也設為 true,
     //   讓 _searchModel 對節點搜尋同時拉出連接的桿件;後面再 result.joints = [] 把節點列拿掉
     const includeMembers = !!incMembersCb.checked || onlyMembers;
     const onlyJoints = !!(body.querySelector("#onlyJoints") && body.querySelector("#onlyJoints").checked);
-    const idText = _activeIdInput().value.trim();
+    // 桿件釋放無編號輸入 → 忽略(不依編號篩選)
+    const idText = (type === "release") ? "" : _activeIdInput().value.trim();
     // 多選來自 checkbox 清單;不選 = 全部
     const fileIds      = _getChecked(fileList).map(v => parseInt(v, 10)).filter(Number.isFinite);
     const planeFilters = _getChecked(planeList);
@@ -969,7 +1015,7 @@ export function openSearchWindow() {
     const origBtnLabel = btnSearch.textContent;
     btnSearch.disabled = true;
     btnSearch.textContent = "搜尋中…";
-    const _typeLabel = type === "material" ? "材料" : (type === "member" ? "桿件" : (type === "support" ? "節點支承" : "節點"));
+    const _typeLabel = type === "material" ? "材料" : (type === "member" ? "桿件" : (type === "support" ? "節點支承" : (type === "release" ? "桿件釋放" : "節點")));
     resultsDiv.textContent = `⏳ 搜尋中…(${_typeLabel}${idText ? ` · ${idText}` : ""})`;
     // 收合 top panel,讓結果區塊看起來更大(展開設定 按鈕可一鍵還原)
     try { _collapseTopPanel(); } catch (_) {}
@@ -1001,7 +1047,9 @@ export function openSearchWindow() {
           }, 0);
           return;
         }
-        result = _searchModel({ type, memberDir: "all", scope, memberScope, includeMembers, onlyJoints, idText, fileIds, planeFilters });
+        // 桿件釋放(release)沿用桿件搜尋骨架:傳 type:"member" 給 _searchModel,稍後再依釋放類型 filter
+        const modelType = (type === "release") ? "member" : type;
+        result = _searchModel({ type: modelType, memberDir: "all", scope, memberScope, includeMembers, onlyJoints, idText, fileIds, planeFilters });
         // 方向篩選:節點搜尋 + 含桿件/只有桿件 + 軸/斜撐 scope 時,只保留方向相符的桿件
         //   (避免「Y 軸 + 只有桿件」把 Y 軸節點上連接的 X / Z / 斜 也一併納入)
         if (type === "joint" && includeMembers && Array.isArray(scope) && scope.length) {
@@ -1044,6 +1092,27 @@ export function openSearchWindow() {
         } else if (_filter.mat === "none") {
           result.members = result.members.filter(mr => !mr.m || !mr.m.material || !String(mr.m.material).trim());
         }
+        // 釋放類型 filter(桿件釋放 tab):
+        //   __all__ / 無勾選 → 不過濾;__any__ → 有釋放;__none__ → 無釋放;具體類型 → 該類型聯集
+        if (type === "release") {
+          const relChecked = new Set(
+            Array.from(body.querySelectorAll("#releaseTypeFilter input[type=checkbox]:checked")).map(c => c.value)
+          );
+          const relNoFilter = relChecked.size === 0 || relChecked.has("__all__");
+          if (!relNoFilter) {
+            const wantAny  = relChecked.has("__any__");
+            const wantNone = relChecked.has("__none__");
+            const wantTypes = new Set([...relChecked].filter(v => v !== "__any__" && v !== "__none__" && v !== "__all__"));
+            result.members = result.members.filter(mr => {
+              const m = mr.m;
+              const has = hasRelease(m);
+              if (wantNone) return !has;
+              if (wantAny)  return has;
+              // 具體類型:需有有效釋放且類型相符
+              return has && wantTypes.has(releaseTypeOf(m));
+            });
+          }
+        }
       } catch (e) {
         console.error("[search] _searchModel failed:", e);
         resultsDiv.textContent = "搜尋失敗:" + (e && e.message ? e.message : String(e));
@@ -1056,7 +1125,8 @@ export function openSearchWindow() {
       setTimeout(() => {
         try {
           _renderSearchResults(resultsDiv, doc, result, win);
-          if (idText) { _pushSearchHistory(type, idText); _refreshHistUI(); }
+          // 桿件釋放沿用桿件的編號歷史(同一組 ID 空間)
+          if (idText) { _pushSearchHistory(type === "release" ? "member" : type, idText); _refreshHistUI(); }
           const t2 = performance.now();
           console.log(`[search] model=${(t1 - t0).toFixed(1)}ms render=${(t2 - t1).toFixed(1)}ms`);
         } catch (e) {
@@ -1097,9 +1167,11 @@ export function openSearchWindow() {
     // 只清除目前模式(桿件 / 節點 / 材料)的歷史,讓三種紀錄可獨立管理
     // 走 win.confirm 而非主視窗的 confirm — 不然確認窗會跑到主視窗而非搜尋 popup
     const type = body.querySelector("input[name=searchType]:checked").value;
-    const msg = `清除「${type === "material" ? "材料" : (type === "member" ? "桿件" : "節點")}」的所有搜尋歷史(共 ${_loadSearchHistory(type).length} 筆)?`;
+    // 桿件釋放沿用桿件歷史
+    const histType = type === "release" ? "member" : type;
+    const msg = `清除「${histType === "material" ? "材料" : (histType === "member" ? "桿件" : "節點")}」的所有搜尋歷史(共 ${_loadSearchHistory(histType).length} 筆)?`;
     if (!win.confirm(msg)) return;
-    try { localStorage.removeItem(_SEARCH_HIST_KEY[type]); } catch (_) {}
+    try { localStorage.removeItem(_SEARCH_HIST_KEY[histType]); } catch (_) {}
     _refreshHistUI();
   });
   win.addEventListener("keydown", (e) => {
@@ -2189,6 +2261,7 @@ export function _renderSearchResults(div, doc, result, win) {
     const jump = doc.createElement("span");
     jump.className = "jump";
     jump.textContent = "→ 跳到此頁";
+    jump.title = "跳到此頁並選取:已勾選結果列 → 只選那些桿件 / 節點;未選取 → 整頁搜尋結果全選";
     // 阻止點擊跳轉文字時冒泡到 row(避免同時觸發整列選取桿件)
     jump.addEventListener("click", (ev) => { ev.stopPropagation(); });
     jump.onclick = async () => {
@@ -2203,12 +2276,20 @@ export function _renderSearchResults(div, doc, result, win) {
           jump.textContent = `⏳ 切換到「${g.file.name}」第 ${g.key + 1} 頁…`;
           try { await activatePageWithBusy(g.file.id, g.key); } catch (_) {}
         }
+        // 決定選取對象:此頁 group 中「被選取」的桿件 / 節點(selectedKeys / selJointKeys 為跨群組,
+        //   以此頁 key 前綴過濾);若兩者都沒選取 → fallback 整頁(= 此頁全部搜尋結果,維持原行為)
+        const _grPrefix = `${g.file.id}|${g.key}|`;
+        const _selMembersHere = flatRows.filter(r => r.m && selectedKeys.has(r.key) && r.key.startsWith(_grPrefix)).map(r => r.m);
+        const _selJointsHere  = flatJointRows.filter(r => r.j && selJointKeys.has(r.key) && r.key.startsWith(_grPrefix)).map(r => r.j);
+        const _useSel = (_selMembersHere.length > 0 || _selJointsHere.length > 0);
+        const pickJoints  = _useSel ? _selJointsHere  : (g.joints  || []);
+        const pickMembers = _useSel ? _selMembersHere : (g.members || []);
         jump.textContent = "⏳ 計算範圍與縮放…";
         let mnX = Infinity, mnY = Infinity, mxX = -Infinity, mxY = -Infinity;
         const upd = (x, y) => { if (x < mnX) mnX = x; if (x > mxX) mxX = x; if (y < mnY) mnY = y; if (y > mxY) mxY = y; };
-        for (const j of g.joints) upd(j.x, j.y);
+        for (const j of pickJoints) upd(j.x, j.y);
         const jmap = new Map((g.page.joints || []).map(jj => [jj.id, jj]));
-        for (const m of g.members) {
+        for (const m of pickMembers) {
           const a = jmap.get(m.j1), b = jmap.get(m.j2);
           if (a) upd(a.x, a.y);
           if (b) upd(b.x, b.y);
@@ -2225,19 +2306,22 @@ export function _renderSearchResults(div, doc, result, win) {
               if (w.y < b.y[0]) b.y[0] = w.y; if (w.y > b.y[1]) b.y[1] = w.y;
               if (w.z < b.z[0]) b.z[0] = w.z; if (w.z > b.z[1]) b.z[1] = w.z;
             };
-            for (const it of result.joints) if (it.file.id === g.file.id && it.key === g.key) ext(it.w);
-            for (const it of result.members) {
-              if (it.file.id === g.file.id && it.key === g.key) { ext(it.wa); ext(it.wb); }
+            for (const j of pickJoints) ext(_world(g.file, g.page, j));
+            for (const m of pickMembers) {
+              const a = jmap.get(m.j1), b = jmap.get(m.j2);
+              if (a) ext(_world(g.file, g.page, a));
+              if (b) ext(_world(g.file, g.page, b));
             }
             if (Number.isFinite(b.x[0]) && typeof _3dPreviewWindow.zoomToBounds === "function") {
               _3dPreviewWindow.zoomToBounds(b, { padFactor: 2.5 });
             }
           }
         } catch (_) {}
-        jump.textContent = "⏳ 選取搜尋結果…";
+        jump.textContent = _useSel ? "⏳ 選取所選結果…" : "⏳ 選取搜尋結果…";
         try {
-          state.selection.joints  = new Set((g.joints  || []).map(j => j.id));
-          state.selection.members = new Set((g.members || []).map(m => m.id));
+          // 有選取 → 只選取所選的桿件 / 節點(各自獨立);無選取 → 整頁搜尋結果全選
+          state.selection.joints  = new Set(pickJoints.map(j => j.id));
+          state.selection.members = new Set(pickMembers.map(m => m.id));
           // ★ 標記 selection 來源頁為剛跳過去的這頁,讓 render 的 _selOnSrc 判斷成立 → 節點/桿件變紫色
           //   只設 selection 不設 source 的話 _selOnSrc=false → 即使有選取也不會上色
           state.selection.sourceFileId = g.file.id;
@@ -2274,9 +2358,9 @@ export function _renderSearchResults(div, doc, result, win) {
         : _showCoords
           ? `<tr><th>ID</th><th>方向</th>` +
             `<th class="num">X</th><th class="num">Y</th><th class="num">Z</th>` +
-            `<th class="num">長度</th><th>表單</th><th>材料</th><th>節點支承</th></tr>`
+            `<th class="num">長度</th><th>表單</th><th>材料</th><th>支承/釋放</th></tr>`
           : `<tr><th>ID</th><th>方向</th><th>J1</th><th>J2</th>` +
-            `<th class="num">長度</th><th>表單</th><th>材料</th><th>節點支承</th></tr>`;
+            `<th class="num">長度</th><th>表單</th><th>材料</th><th>支承/釋放</th></tr>`;
       tbl.appendChild(thead);
       const tbody = doc.createElement("tbody");
 
@@ -2427,8 +2511,12 @@ export function _renderSearchResults(div, doc, result, win) {
         tdTbl.textContent = _matTbl;
         const tdMat = doc.createElement("td"); tdMat.className = "col-mat";
         tdMat.textContent = m.material || "";
-        // 桿件本身無支承(支承是節點屬性);coord-on 時端點列會各自顯示
-        const tdMSup = doc.createElement("td"); tdMSup.className = "muted"; tdMSup.textContent = "—";
+        // 此欄對桿件顯示「桿件釋放」(對節點列顯示支承)
+        const _rt = releaseTypeOf(m);
+        const tdMSup = doc.createElement("td");
+        tdMSup.className = _rt ? "col-mat" : "muted";
+        tdMSup.textContent = _rt ? (releaseLabel(m.release) || _rt) : "—";
+        if (_rt === "RELEASE") tdMSup.title = releaseLabel(m.release);
         tr.appendChild(tdLen); tr.appendChild(tdTbl); tr.appendChild(tdMat); tr.appendChild(tdMSup);
         const rowIdx = flatRows.length;
         tr.addEventListener("click", (e) => {
@@ -2452,12 +2540,31 @@ export function _renderSearchResults(div, doc, result, win) {
         tr.addEventListener("contextmenu", (e) => {
           e.preventDefault(); e.stopPropagation();
           if (!selectedKeys.has(key)) { selectedKeys.clear(); selectedKeys.add(key); lastClickIdx = rowIdx; refreshSelectionUI(); }
+          const n = selectedKeys.size;
+          const _applyRel = (release) => {
+            const { changed, crossPageCount } = _applyReleaseToResultMembers(flatRows, selectedKeys, release);
+            if (selInfoSpan) {
+              selInfoSpan.style.color = "#7fd3ff";
+              const extra = crossPageCount ? ` ・ 跨頁 ${crossPageCount}` : "";
+              selInfoSpan.textContent = `✓ ${release ? `釋放 ${release.type}` : "清除釋放"} ${changed} 條${extra}`;
+              setTimeout(() => { selInfoSpan.style.color = ""; refreshSelectionUI(); }, 2500);
+            }
+          };
           _showCtxMenu(e.clientX, e.clientY, [
-            { label: `設定材料…(${selectedKeys.size} 條)`, onClick: () => { if (_focusMaterialPicker) _focusMaterialPicker(); } },
+            { label: `設定材料…(${n} 條)`, onClick: () => { if (_focusMaterialPicker) _focusMaterialPicker(); } },
+            { label: `設定釋放…(${n} 條)`, onClick: async () => {
+                let preset = null;
+                for (const r of flatRows) { if (r.m && selectedKeys.has(r.key) && r.m.release) { preset = r.m.release; break; } }
+                const chosen = await pickReleaseModal(n, preset, doc);
+                if (chosen != null) _applyRel(chosen);
+              } },
+            { label: "快速兩端鉸接", onClick: () => _applyRel({ type: "RELEASE", start: ["MX","MY","MZ"], end: ["MX","MY","MZ"] }) },
+            { label: "設為桁架 TRUSS", onClick: () => _applyRel({ type: "TRUSS" }) },
+            { label: "清除釋放", onClick: () => _applyRel(null) },
           ]);
         });
         tbody.appendChild(tr);
-        flatRows.push({ key, file: g.file, page: g.page, m, tr, matTd: tdMat, tblTd: tdTbl });
+        flatRows.push({ key, file: g.file, page: g.page, m, tr, matTd: tdMat, tblTd: tdTbl, relTd: tdMSup });
         // 兩端點列(僅 coord-on 模式;coord-off 模式 J1/J2 已在桿件那列顯示)
         if (_showCoords) {
           tbody.appendChild(_mkJointRow(a, wa, true));
@@ -2592,6 +2699,54 @@ export function _applySupportToResultJoints(flatRows, selKeys, support) {
     if (r.j.globalId != null && globalsTouched.has(r.j.globalId) && r._updateCell) r._updateCell();
   }
   try { invalidateRankCache && invalidateRankCache(); } catch (_) {}
+  try { render && render(); } catch (_) {}
+  try { refreshLists && refreshLists(); } catch (_) {}
+  return { changed, crossPageCount };
+}
+
+// 共用:把 release(null=清除)套用到「結果列中被選取的桿件」+ 跨頁 globalMemberId 同步。
+//   flatRows 元素需有 { key, page, m, relTd? };回傳 { changed, crossPageCount }。
+function _setMemberRelCell(td, m) {
+  if (!td) return;
+  const rt = releaseTypeOf(m);
+  td.className = rt ? "col-mat" : "muted";
+  td.textContent = rt ? (releaseLabel(m.release) || rt) : "—";
+}
+export function _applyReleaseToResultMembers(flatRows, selKeys, release) {
+  try { pushUndo(); } catch (_) {}
+  let changed = 0;
+  const globalsTouched = new Set();
+  const relJson = release ? JSON.stringify(release) : "";
+  for (const r of flatRows) {
+    if (!r.m || !selKeys.has(r.key)) continue;
+    const realM = ((r.page && r.page.members) || []).find(x => x.id === r.m.id) || r.m;
+    if (release) realM.release = JSON.parse(relJson); else delete realM.release;
+    r.m.release = release ? JSON.parse(relJson) : undefined;
+    _setMemberRelCell(r.relTd, r.m);
+    changed++;
+    if (realM.globalMemberId != null) globalsTouched.add(realM.globalMemberId);
+  }
+  let crossPageCount = 0;
+  if (globalsTouched.size) {
+    for (const f of state.files) {
+      for (const pg of Object.values(f.pages || {})) {
+        if (!pg || pg._orphan) continue;
+        for (const mm of (pg.members || [])) {
+          if (mm.globalMemberId == null || !globalsTouched.has(mm.globalMemberId)) continue;
+          if (release) mm.release = JSON.parse(relJson);
+          else if (mm.release) delete mm.release;
+          crossPageCount++;
+        }
+      }
+    }
+  }
+  // 同步刷新結果中其他頁面的同 globalMember 列
+  for (const r of flatRows) {
+    if (r.m && r.m.globalMemberId != null && globalsTouched.has(r.m.globalMemberId)) {
+      r.m.release = release ? JSON.parse(relJson) : undefined;
+      _setMemberRelCell(r.relTd, r.m);
+    }
+  }
   try { render && render(); } catch (_) {}
   try { refreshLists && refreshLists(); } catch (_) {}
   return { changed, crossPageCount };

@@ -15,6 +15,7 @@
 
 import type { Support, SupportType, DOF, SpringKey } from "../core/support";
 import { DOF_KEYS, SPRING_KEYS } from "../core/support";
+import { ensureMechDialogCss } from "./mechDialogStyle";
 
 interface TypeMeta { type: SupportType; label: string; desc: string; }
 const TYPE_META: TypeMeta[] = [
@@ -35,59 +36,16 @@ const SPRING_LABEL: Record<SpringKey, string> = {
 
 let _sdResolve: ((v: Support | null) => void) | null = null;
 
-// #supportDialog 的樣式;主視窗已由 style.css 提供,獨立 popup(搜尋視窗)需自行注入一份。
-const _SUPPORT_DIALOG_CSS = `
-#supportDialog { position: fixed; inset: 0; z-index: 2000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); }
-#supportDialog.active { display: flex; }
-#supportDialog .sd-card { background: #1e1e22; color: #eaeaea; border: 1px solid #555; border-radius: 8px; min-width: 440px; max-width: 580px; box-shadow: 0 10px 32px rgba(0,0,0,0.7); font: 12px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-#supportDialog .sd-titlebar { background: rgba(255,255,255,0.06); padding: 8px 14px; border-bottom: 1px solid #444; border-radius: 8px 8px 0 0; color: #ffd23f; font-weight: 700; font-size: 13px; }
-#supportDialog .sd-body { padding: 14px 18px; color: #c8ccd0; max-height: 72vh; overflow: auto; }
-#supportDialog .sd-intro { margin-bottom: 12px; }
-#supportDialog .sd-intro b { color: #fff; }
-#supportDialog .sd-types { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-#supportDialog .sd-type { padding: 6px 12px; border: 1px solid #555; border-radius: 6px; cursor: pointer; user-select: none; background: #26262b; color: #cfd3d8; font-weight: 700; }
-#supportDialog .sd-type:hover { background: #33343a; color: #fff; }
-#supportDialog .sd-type.active { background: #2f4a78; border-color: #4f9dff; color: #fff; box-shadow: 0 0 0 1px rgba(79,157,255,0.3) inset; }
-#supportDialog .sd-desc { color: #9aa0a6; margin: 2px 0 12px; font-size: 11px; }
-#supportDialog .sd-params { border-top: 1px dashed #3a3a3e; padding-top: 12px; min-height: 18px; }
-#supportDialog .sd-params:empty { display: none; }
-#supportDialog .sd-dofgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px 16px; }
-#supportDialog .sd-dof { display: flex; align-items: center; gap: 6px; }
-#supportDialog .sd-dof label { cursor: pointer; color: #cfd3d8; }
-#supportDialog .sd-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
-#supportDialog .sd-row .k { width: 52px; color: #9bb6e8; font-weight: 700; }
-#supportDialog input[type=number] { width: 130px; background: #15161a; color: #eaeaea; border: 1px solid #555; border-radius: 4px; padding: 4px 6px; font: inherit; }
-#supportDialog input[type=number]:focus { outline: none; border-color: #4f9dff; }
-#supportDialog .sd-unit { color: #7b818a; font-size: 10.5px; }
-#supportDialog .sd-hint { color: #7b818a; font-size: 10.5px; margin-bottom: 8px; }
-#supportDialog .sd-warn { color: #ffb454; margin-top: 10px; font-size: 11px; min-height: 14px; }
-#supportDialog .sd-buttons { padding: 10px 14px 14px; display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid #333; }
-#supportDialog .sd-btn { padding: 6px 16px; border-radius: 4px; cursor: pointer; border: 1px solid #555; background: #2a2a2e; color: #eaeaea; font: inherit; }
-#supportDialog .sd-btn:hover { background: #3a3a3e; }
-#supportDialog .sd-btn.primary { background: #1976d2; border-color: #2196f3; color: #fff; }
-#supportDialog .sd-btn.primary:hover { background: #2196f3; }
-#supportDialog .sd-btn.primary:disabled { background: #37474f; border-color: #455a64; color: #90a4ae; cursor: not-allowed; }
-`;
-
-// 確保目標 document 有 #supportDialog 樣式(主視窗已有 → 略過;popup → 注入一次)
-function _ensureSupportDialogCss(doc: Document): void {
-  if (doc === document) return;                       // 主視窗由 style.css 提供
-  if (doc.getElementById("supportDialogStyle")) return;
-  const style = doc.createElement("style");
-  style.id = "supportDialogStyle";
-  style.textContent = _SUPPORT_DIALOG_CSS;
-  (doc.head || doc.documentElement).appendChild(style);
-}
-
 // doc:要顯示視窗的 document(預設主視窗;從搜尋 popup 呼叫時傳入該 popup 的 document,
-//   讓視窗疊在搜尋視窗之上而非主視窗)
+//   讓視窗疊在搜尋視窗之上而非主視窗)。樣式走共用的 .mech-dialog(見 mechDialogStyle.ts)。
 export function pickSupportModal(jointCount: number, current?: Support | null, doc: Document = document): Promise<Support | null> {
   return new Promise((resolve) => {
-    _ensureSupportDialogCss(doc);
+    ensureMechDialogCss(doc);
     let modal = doc.getElementById("supportDialog") as HTMLDivElement | null;
     if (!modal) {
       modal = doc.createElement("div");
       modal.id = "supportDialog";
+      modal.className = "mech-dialog";
       doc.body.appendChild(modal);
       doc.addEventListener("keydown", (e: KeyboardEvent) => {
         const m = doc.getElementById("supportDialog");

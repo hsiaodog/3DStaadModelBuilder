@@ -155,10 +155,17 @@ export function exportXlsxFile() {
   //   3 = comment 列(* XX / * ZZ)— 暖色底
   //   4 = 節點 ID 欄位 — 淡藍底
   //   5 = 桿件 ID 欄位 — 淡綠底
+  // 先以「原始欄位」收集所有格(延後到算出各區塊位移後才產生 XML),並標記每格所屬區塊。
+  //   區塊 id:0=JOINT 1=MEMBER 2=MATERIAL 3=SUPPORTS 4=RELEASE
+  //   左側三塊欄位固定,可由欄位推斷;SUPPORTS/RELEASE 的「類型」標籤會拆成多格往右溢出,
+  //   無法靠欄位界線判斷,故由 _forceBlock 在渲染那兩塊時明確指定。
   const cells = [];
+  let _forceBlock = null;
+  const _inferBlock = (c) => c < 10 ? 0 : c < 73 ? 1 : c < 82 ? 2 : c < 91 ? 3 : 4;
   const push = (rowIdx, colIdx, val, styleId) => {
-    const c = _xlsxCell(rowIdx, colIdx, val, styleId);
-    if (c) cells.push({ r: rowIdx, c: colIdx, s: c });
+    // 只存「會產生輸出」的格(空值且無樣式 → 略過,與 xlsxCell 行為一致)
+    if ((val == null || val === "") && styleId == null) return;
+    cells.push({ r: rowIdx, c: colIdx, val, styleId, b: _forceBlock != null ? _forceBlock : _inferBlock(colIdx) });
   };
   // Section titles — 每個 title 拆成多格:首格放 `*`,接著用空白拆字、每個字 / 詞獨立一格
   //   例:"BRACE XY"        → baseCol=*, +1=BRACE, +2=XY
@@ -193,6 +200,8 @@ export function exportXlsxFile() {
   _pushTitle(48, "MEMBER BRACE XY");      // 48-58(+2 gap,BRACE 之間 2 條空白)
   _pushTitle(61, "MEMBER BRACE YZ");      // 61-71
   _pushTitle(74, "MEMBER PROPERTIES");    // 74-81(+1 extra + 黃色分隔 col 73)
+  _forceBlock = 3; _pushTitle(83, "Joint Supports");   _forceBlock = null;   // 83-85:* Joint Supports
+  _forceBlock = 4; _pushTitle(92, "Member Release");   _forceBlock = null;   // 92-94:* Member Release
   // Column headers — 首欄(ID 欄)用 `*` 取代「ID」;其他欄維持
   push(1, 0,  "*", 2);   push(1, 1,  "X", 2);  push(1, 2,  "Y", 2);  push(1, 3,  "Z", 2);
   push(1, 5,  "*", 2);   push(1, 6,  "X", 2);  push(1, 7,  "Y", 2);  push(1, 8,  "Z", 2);   // 第 2 大列區塊的 column header
@@ -203,7 +212,9 @@ export function exportXlsxFile() {
   push(1, 48, "*", 2);   push(1, 49, "J1", 2); push(1, 50, "J2", 2);
   push(1, 61, "*", 2);   push(1, 62, "J1", 2); push(1, 63, "J2", 2);
   push(1, 74, "*", 2);   push(1, 80, "Table", 2);  push(1, 81, "Material", 2);
-  // SUPPORTS 區塊 header(col 92 起,跟 Material 同樣 6 個 ID slot + Type 欄)
+  // SUPPORTS 區塊 header(col 83 起,緊接 Material 後;6 個 ID slot + Type 欄)
+  push(1, 83, "*", 2);   push(1, 90, "Type", 2);
+  // MEMBER RELEASE 區塊 header(col 92 起,接在 SUPPORTS 右邊)
   push(1, 92, "*", 2);   push(1, 99, "Type", 2);
   // ── Joint 區塊:按 (XX, ZZ) rank 分區。共用 helper 改由 buildExportContext() 一次建好(Phase 4 dedup)
   const _ctx = buildExportContext({ joints, members });
@@ -759,7 +770,7 @@ export function exportXlsxFile() {
   // === SUPPORTS 區塊(col 92 起,接在 Material 右邊)===
   //   layout 跟 Material 一致:6 個 ID slot + Type(col 99)
   //   有支承的 joint 依「STAAD 規格字串」分組(FIXED / PINNED / FIXED BUT … / SPRING / ENFORCED)
-  const SUP_BASE_COL = 92;
+  const SUP_BASE_COL = 83;
   const SUP_ID_SLOTS = 6;
   const SUP_TYPE_COL = SUP_BASE_COL + SUP_ID_SLOTS + 1;     // 99
   let _rSup = 2;
@@ -773,10 +784,13 @@ export function exportXlsxFile() {
         if (v === "" || v === undefined) continue;
         push(_rSup, SUP_BASE_COL + i, v, typeof v === "number" ? 5 : undefined);
       }
-      push(_rSup, SUP_TYPE_COL, label);
+      // 類型標籤拆成每詞一格(不再單格長字串):FIXED BUT FX FY MY → FIXED | BUT | FX | FY | MY
+      const _lab = String(label).split(/\s+/).filter(Boolean);
+      for (let i = 0; i < _lab.length; i++) push(_rSup, SUP_TYPE_COL + i, _lab[i]);
       _rSup++;
     }
   };
+  _forceBlock = 3;
   {
     const specToIds = new Map<string, number[]>();
     for (const j of joints as any[]) {
@@ -796,32 +810,109 @@ export function exportXlsxFile() {
       _firstSup = false;
     }
   }
-  // 大區分隔欄(黃色)改用 OOXML <cols> 元素整欄套色,不再 push per-row 空格(避免大量空格 cell 造成 Excel 開檔抱怨)
-  //   col 19(T)= JOINT 類 vs MEMBER 類;col 39(AN)= MEMBER 類 vs MATERIAL 類
-  //   col 91(CM)= MATERIAL 類 vs SUPPORTS 類
-  //   實際的 <cols> 寫在 sheetXml 組裝那段
+  _forceBlock = null;
+  // === MEMBER RELEASE 區塊(col 102 起,接在 SUPPORTS 右邊)===
+  //   RELEASE 依 (START, END 自由度) 分組,各組輸出 START / END 兩個小區;
+  //   TRUSS / TENSION / COMPRESSION / CABLE 各自一個小區。Type 欄放尾段關鍵字。
+  const REL_BASE_COL = 92;
+  const REL_ID_SLOTS = 6;
+  const REL_TYPE_COL = REL_BASE_COL + REL_ID_SLOTS + 1;    // 109
+  let _rRel = 2;
+  const _writeRelBlock = (label: string, ids: number[]) => {
+    if (!ids.length) return;
+    _pushSubHeader(_rRel++, REL_BASE_COL, `* ${label}`);
+    const idRows = _segsToRows(_idsToSegs([...ids].sort((a, b) => a - b)));
+    for (const r of idRows) {
+      for (let i = 0; i < REL_ID_SLOTS; i++) {
+        const v = r[i];
+        if (v === "" || v === undefined) continue;
+        push(_rRel, REL_BASE_COL + i, v, typeof v === "number" ? 5 : undefined);
+      }
+      // 類型標籤拆成每詞一格:START MX MY MZ → START | MX | MY | MZ
+      const _lab = String(label).split(/\s+/).filter(Boolean);
+      for (let i = 0; i < _lab.length; i++) push(_rRel, REL_TYPE_COL + i, _lab[i]);
+      _rRel++;
+    }
+  };
+  _forceBlock = 4;
+  {
+    const _DOFK = ["FX", "FY", "FZ", "MX", "MY", "MZ"];
+    const _dof = (a: any) => Array.isArray(a) ? a.filter((d: string) => _DOFK.includes(d)) : [];
+    const relGroups = new Map<string, { start: string[]; end: string[]; ids: number[] }>();
+    const truss: number[] = [], tension: number[] = [], compression: number[] = [], cable: number[] = [];
+    for (const m of members as any[]) {
+      const r = m.release;
+      if (!r || !r.type) continue;
+      if (r.type === "TRUSS") { truss.push(m.id); continue; }
+      if (r.type === "TENSION") { tension.push(m.id); continue; }
+      if (r.type === "COMPRESSION") { compression.push(m.id); continue; }
+      if (r.type === "CABLE") { cable.push(m.id); continue; }
+      const s = _dof(r.start), e = _dof(r.end);
+      if (!s.length && !e.length) continue;
+      const key = `S:${s.join(" ")}|E:${e.join(" ")}`;
+      if (!relGroups.has(key)) relGroups.set(key, { start: s, end: e, ids: [] });
+      relGroups.get(key)!.ids.push(m.id);
+    }
+    let _firstRel = true;
+    const _relSep = () => { if (!_firstRel) _rRel++; _firstRel = false; };
+    for (const g of relGroups.values()) {
+      _relSep();
+      if (g.start.length) _writeRelBlock(`START ${g.start.join(" ")}`, g.ids);
+      if (g.end.length)   _writeRelBlock(`END ${g.end.join(" ")}`, g.ids);
+    }
+    if (truss.length)       { _relSep(); _writeRelBlock("TRUSS", truss); }
+    if (tension.length)     { _relSep(); _writeRelBlock("TENSION", tension); }
+    if (compression.length) { _relSep(); _writeRelBlock("COMPRESSION", compression); }
+    if (cable.length)       { _relSep(); _writeRelBlock("CABLE", cable); }
+  }
+  _forceBlock = null;
   const _matRowCount = _memRows.filter(mr => mr.mat && String(mr.mat).trim()).length;
-  // 按 row 分組 → 組 sheet 的 <row> 標記;row 內 cells 必須依 column 升序(OOXML 規範)
+  // === 動態排版:依各區塊「實際用到的最右欄」由左往右緊接擺放,區塊間插「白|黃|白」===
+  //   只有「有資料列(row >= 2)」的區塊才放置;只有標題沒資料的空區塊整個略過(不佔位、也不畫前面的分隔欄)
+  //   → 黃色分隔欄就會緊貼內容,不再浮在右邊。
+  const _BLOCK_BASE = [0, 11, 74, 83, 92];     // 各區塊原始起始欄(JOINT/MEMBER/MATERIAL/SUPPORTS/RELEASE)
+  const _maxUsed   = [-1, -1, -1, -1, -1];     // 各區塊實際用到的最右(原始)欄;-1 = 無任何格
+  const _hasData   = [false, false, false, false, false];
+  for (const c of cells) {
+    if (c.c > _maxUsed[c.b]) _maxUsed[c.b] = c.c;
+    if (c.r >= 2) _hasData[c.b] = true;        // row 0=標題、1=欄名;只有 row>=2 才算有內容
+  }
+  const _offset = [0, 0, 0, 0, 0];
+  const _placed = [false, false, false, false, false];
+  const _yellowCols1: number[] = [];           // 1-based 黃色分隔欄位置
+  let _cursor = 0, _firstBlk = true;
+  for (let b = 0; b < 5; b++) {
+    if (!_hasData[b]) continue;                 // 空區塊(只有標題或完全沒有) → 跳過
+    let newStart: number;
+    if (_firstBlk) { newStart = 0; _firstBlk = false; }
+    else {
+      // _cursor=白、_cursor+1=黃、_cursor+2=白,區塊從 _cursor+3 起
+      _yellowCols1.push(_cursor + 1 + 1);       // 黃欄 0-based=_cursor+1 → 1-based +1
+      newStart = _cursor + 3;
+    }
+    _offset[b] = newStart - _BLOCK_BASE[b];
+    _placed[b] = true;
+    _cursor = _maxUsed[b] + _offset[b] + 1;     // 此區塊內容右界 +1 = 下一個空閒欄
+  }
+  // 套用位移產生最終儲存格(略過被跳過的空區塊);按 row 分組,row 內依 column 升序(OOXML 規範)
   const rowMap = new Map();
   for (const c of cells) {
+    if (!_placed[c.b]) continue;
+    const nc = c.c + _offset[c.b];
+    const s = _xlsxCell(c.r, nc, c.val, c.styleId);
+    if (!s) continue;
     if (!rowMap.has(c.r)) rowMap.set(c.r, []);
-    rowMap.get(c.r).push(c);
+    rowMap.get(c.r).push({ c: nc, s });
   }
   const rowKeys = [...rowMap.keys()].sort((a, b) => a - b);
   const rowsXml = rowKeys.map(r => {
     const sorted = rowMap.get(r).slice().sort((a, b) => a.c - b.c);
     return `<row r="${r+1}">${sorted.map(x => x.s).join("")}</row>`;
   }).join("");
-  // <cols> 套整欄黃色樣式(1-based col index)
-  //   col 11 → 0-based col 10 (K) :JOINT 類 vs MEMBER 類(JOINT 右塊 col I 後留 col J 空欄 + col K 黃線)
-  //   col 74 → 0-based col 73 (BV):MEMBER 類 vs MATERIAL 類
-  //     (MEMBER 從 col 11 起,5 塊各 11 欄,PROPERTIES 從 col 74 起 8 欄)
-  //   width 從 xlsx 輸出設定讀(預設 2);customWidth=1 才會被 Excel 認可
+  // <cols>:黃色分隔欄整欄套色(1-based),寬度讀 xlsx 設定(預設 2);兩側白欄維持預設寬度(不寫 <col>)
   const _sepW = _xs.separatorWidth;
   const colsXml = `<cols>` +
-    `<col min="11" max="11" width="${_sepW}" customWidth="1" style="6"/>` +
-    `<col min="74" max="74" width="${_sepW}" customWidth="1" style="6"/>` +
-    `<col min="92" max="92" width="${_sepW}" customWidth="1" style="6"/>` +
+    _yellowCols1.map(c => `<col min="${c}" max="${c}" width="${_sepW}" customWidth="1" style="6"/>`).join("") +
     `</cols>`;
   const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${colsXml}<sheetData>${rowsXml}</sheetData></worksheet>`;

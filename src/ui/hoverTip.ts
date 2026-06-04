@@ -16,6 +16,7 @@ import {
 } from "../app/integration";
 import { listGlobalBindings } from "../core/globalJoints";
 import { supportTypeOf } from "../core/support";
+import { releaseTypeOf, releaseLabel } from "../core/memberRelease";
 import { _t } from "../i18n";
 
 function ensureHoverTip() {
@@ -178,5 +179,11 @@ export function fmtMemberInfo(m) {
   }
   // 材料(若桿件已設定;global 屬性,任何頁面都同步)
   if (m && m.material) lines.push(tipRow(T("hover.material","材料"), String(m.material)));
+  // 桿件釋放 / 行為類型(RELEASE / TRUSS / TENSION / COMPRESSION / CABLE)
+  const _rt = releaseTypeOf(m);
+  if (_rt) {
+    lines.push(tipRow(T("hover.release","桿件釋放"),
+      _rt === "RELEASE" ? releaseLabel(m.release) : _rt));
+  }
   return lines.join("\n");
 }

@@ -41,6 +41,9 @@ export function updateSelectToolsVisibility() {
   const memberCount = state.selection.members ? state.selection.members.size : 0;
   if ($("selToolsMeasure"))    $("selToolsMeasure").style.display    = memberCount >= 1 ? "" : "none";
   if ($("selToolsIntersectSel")) $("selToolsIntersectSel").style.display = memberCount >= 2 ? "" : "none";
+  // 力學設定小區:節點支承只在選到節點時出現、桿件釋放只在選到桿件時出現(混合則兩者都出現)
+  if ($("selToolsSupportSection")) $("selToolsSupportSection").style.display = hasJoints  ? "" : "none";
+  if ($("selToolsReleaseSection")) $("selToolsReleaseSection").style.display = hasMembers ? "" : "none";
 }
 
 // axis: "horizontal"(同 y)/ "vertical"(同 x);kind: "all" / "joints" / "members";

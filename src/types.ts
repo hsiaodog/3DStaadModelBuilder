@@ -103,6 +103,8 @@ export interface Member {
   globalMemberId?: number | null;
   /** 材料 lookup key */
   material?: string;
+  /** 桿件釋放 / 行為類型(MEMBER RELEASE / TRUSS / TENSION / COMPRESSION / CABLE)*/
+  release?: import("./core/memberRelease").MemberRelease;
 }
 
 /** Rank cache(Y / X / Z 軸各自的「世界座標 → rank」map)*/

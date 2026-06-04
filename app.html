@@ -388,12 +388,19 @@
         <button id="selToolsIntersectSel" style="display:none" title="切交點(選取):只對目前選取的桿件兩兩求交,在交點處建節點並拆段。需選 ≥2 條桿件;新拆段會自動加入選取以利連續操作">切交點(選取)</button>
         <button id="btnDel" class="danger" title="刪除選取 (Shift+D / Del):移除選取的節點與桿件">刪除</button>
       </div>
-      <div class="bg-edit-section">
+      <div class="bg-edit-section" id="selToolsSupportSection">
         <div class="bg-edit-title" data-i18n="subtool.section.support">節點支承</div>
         <button id="selToolsSupportSet"    title="設定支承(選取節點):開啟支承設定視窗,可選 FIXED / PINNED / FIXED BUT / SPRING / ENFORCED 並填參數,套用到選取節點(含跨頁對應點)。設定支承會自動把該點標為編號錨點。Cmd+Z 可還原">設定支承…</button>
         <button id="selToolsSupportFixed"  title="快速設為固接 FIXED(6 個自由度全鎖),不開視窗">快速固接</button>
         <button id="selToolsSupportPinned" title="快速設為銷接 PINNED(鎖 3 平移、放 3 轉動),不開視窗">快速銷接</button>
         <button id="selToolsSupportClear"  title="清除選取節點的支承">清除支承</button>
+      </div>
+      <div class="bg-edit-section" id="selToolsReleaseSection">
+        <div class="bg-edit-title" data-i18n="subtool.section.release">桿件釋放</div>
+        <button id="selToolsReleaseSet"    title="設定桿件釋放(選取桿件):開啟視窗,可選 端部釋放 RELEASE(START/END 各放自由度)/ TRUSS / TENSION / COMPRESSION / CABLE,套用到選取桿件(含跨頁對應)。Cmd+Z 可還原">設定釋放…</button>
+        <button id="selToolsReleasePinned" title="快速:兩端鉸接(START / END 都釋放 MX MY MZ 三個彎矩/扭矩),不開視窗">快速兩端鉸接</button>
+        <button id="selToolsReleaseTruss"  title="快速:設為桁架桿 TRUSS(只傳軸力),不開視窗">設為桁架</button>
+        <button id="selToolsReleaseClear"  title="清除選取桿件的釋放 / 類型">清除釋放</button>
       </div>
       <div class="bg-edit-section">
         <div class="bg-edit-title" data-i18n="subtool.section.move">移動</div>

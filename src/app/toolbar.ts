@@ -285,6 +285,23 @@ export {
   clearSupportOnSelectedJoints,
   toggleAnchorOnSelectedJoints,
 };
+// 桿件釋放區塊:設定釋放… / 快速兩端鉸接 / 設為桁架 / 清除釋放
+$("selToolsReleaseSet")    && ($("selToolsReleaseSet").onclick    = () => setReleaseOnSelectedMembers());
+$("selToolsReleasePinned") && ($("selToolsReleasePinned").onclick = () => quickReleasePinned());
+$("selToolsReleaseTruss")  && ($("selToolsReleaseTruss").onclick  = () => quickReleaseTruss());
+$("selToolsReleaseClear")  && ($("selToolsReleaseClear").onclick  = () => clearReleaseOnSelectedMembers());
+import {
+  setReleaseOnSelectedMembers,
+  quickReleasePinned,
+  quickReleaseTruss,
+  clearReleaseOnSelectedMembers,
+} from "../tools/memberRelease";
+export {
+  setReleaseOnSelectedMembers,
+  quickReleasePinned,
+  quickReleaseTruss,
+  clearReleaseOnSelectedMembers,
+};
 
 // 兩點合一:把選取的 2 個節點合併
 //   合併點選擇:讓兩端原連的桿件「方向不變、只伸縮」
