@@ -144,6 +144,7 @@ export async function checkForUpdatesManual() {
   if (hud) hud.textContent = "檢查更新中…";
   const latest = await _fetchLatestRelease();
   const cur = _currentVersion();
+  console.log(`[版本檢查] 目前版本: ${cur} ・ GitHub 找到: ${latest && latest.tag ? latest.tag : "(無 / 取得失敗)"}`);
   if (!latest) {
     if (hud) hud.textContent = "檢查更新失敗(無法連線或 GitHub API 限制)";
     window.alert(`無法取得最新版本資訊。\n可能原因:離線、GitHub API 限制、或尚未發佈任何 release。\n\n目前版本:${cur}`);
@@ -184,6 +185,7 @@ export async function checkForUpdatesAuto() {
       _writeCache(cache);
     }
   }
+  console.log(`[版本檢查] 目前版本: ${cur} ・ GitHub 找到: ${latest && latest.tag ? latest.tag : "(無)"}${fresh ? " (快取)" : ""}`);
   if (!latest || !latest.tag) return;
   if (cmpVersion(latest.tag, cur) <= 0) return;                       // 已是最新或更新
   if (cache.skippedVersion === latest.tag) return;                    // 使用者勾過略過
