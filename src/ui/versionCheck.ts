@@ -48,11 +48,17 @@ function _writeCache(obj: any) {
 async function _fetchLatestRelease(): Promise<{ tag: string; url: string; name: string; body: string; publishedAt: string } | null> {
   const repo = (typeof __APP_REPO__ !== "undefined") ? __APP_REPO__ : "";
   if (!repo) return null;
-  const url = `https://api.github.com/repos/${repo}/releases/latest`;
+  // 用 releases 清單端點(無 release → 回 200 + 空陣列),避免 releases/latest 在沒發佈版本時
+  //   回 404 → DevTools 噴紅色錯誤(那是瀏覽器自動記錄,try/catch 擋不掉)。
+  const url = `https://api.github.com/repos/${repo}/releases?per_page=10`;
   try {
     const resp = await fetch(url, { headers: { "Accept": "application/vnd.github+json" } });
     if (!resp.ok) return null;
-    const j = await resp.json();
+    const arr = await resp.json();
+    if (!Array.isArray(arr) || !arr.length) return null;   // 尚未發佈任何 release → 安靜略過
+    // 取最新的正式版(排除草稿 / 預發行);都沒有就退而取第一筆
+    const j = arr.find((r: any) => r && !r.draft && !r.prerelease) || arr[0];
+    if (!j) return null;
     return {
       tag: String(j.tag_name || ""),
       url: String(j.html_url || ""),
