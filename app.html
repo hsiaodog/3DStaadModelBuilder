@@ -87,6 +87,7 @@
       <div class="menu-dropdown">
         <div class="menu-entry" data-action="open-material-mgr" data-i18n="tools.openMatMgr" title="材料管理:CRUD 此專案的材料清單(會隨專案儲存)。搜尋桿件時可從下拉選用,逐字過濾">材料管理</div>
         <div class="menu-entry" data-action="open-floor-types" data-i18n="tools.openFloorTypes" title="節點編號管理:管理樓層類型(XZ 頁面) + 斜撐起始(YZ / XY 頁面),共用同一 YY 階池;為每個頁面指派類型(每頁每 kind 只能一種)">節點編號管理</div>
+        <div class="menu-entry" data-action="open-structure-pipeline" data-i18n="tools.structurePipeline" title="結構 Pipeline 管理:依結構類型(自動倉儲 / 廠房 / 煙囪 …)設定一鍵處理的步驟與編號參數;可匯入 / 匯出 YAML">結構 Pipeline 管理…</div>
         <div class="menu-entry" data-action="open-global-joint-mgr" data-i18n="tools.openGlobalJointMgr" title="全局節點管理:列出 / 搜尋 / 篩選所有 globalJoint,可改 label、跳到任一綁定頁、解除單一綁、設世界原點、刪節點。右側欄區塊縮為「僅當頁有」、點擊跳轉時用 popup 選目標頁">全局節點管理</div>
         <div class="menu-sep"></div>
         <div class="menu-entry" data-action="bg-repair" data-i18n="tools.bgRepair" title="底圖修復:重新渲染當前頁面的底圖(從 cachedBgSvg / cachedBgImg / pdf / image 重建);用於底圖偶爾突然消失時恢復顯示。節點 / 桿件 / 標線不受影響">底圖修復</div>
@@ -139,6 +140,15 @@
         <label class="flsp-row"><input type="checkbox" id="fileListShowStats" checked  aria-label="顯示節點/桿件數"/><span data-i18n="sb.fileList.colStats">節點 / 桿件數</span></label>
         <div class="flsp-foot" data-i18n="sb.fileList.colNote">(檔名永遠顯示)</div>
       </div>
+    </div>
+
+    <div class="section">
+      <h3 data-i18n="sb.structureType">結構類型</h3>
+      <div style="display:flex;gap:6px;align-items:center">
+        <select id="structureTypeSel" title="選擇結構類型;「⚡ 3D 一鍵處理」會依此 pipeline 規劃步驟與編號方式" style="flex:1;min-width:0"></select>
+        <button id="structurePipelineMgrBtn" title="結構 Pipeline 管理:編輯步驟 / 參數、匯入匯出 YAML" style="font-size:11px;padding:2px 8px;text-transform:none;letter-spacing:0;line-height:1.4" data-i18n="sb.structureManage">管理…</button>
+      </div>
+      <div class="help" data-i18n="sb.structureTypeHelp" style="margin-top:4px">選定後「⚡ 3D 一鍵處理」會依此結構類型的 pipeline 編排節點 / 桿件。</div>
     </div>
 
     <div class="section">

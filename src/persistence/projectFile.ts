@@ -19,6 +19,7 @@ import {
 } from "../app/integration";
 import { busyTick, setBusyMessage, showBusy, hideBusy } from "../ui/busy";
 import { _saveRecentProject } from "./recentProjects";
+import { serializePipelinesForProject } from "../core/pipeline/pipelineSettings";
 
 // 通用下載 helper(blob → <a download> click → revoke URL)
 function download(name, text) {
@@ -217,6 +218,7 @@ async function buildProjectBlob() {
     materials: Array.isArray(state.materials) ? state.materials : [],
     floorTypes: Array.isArray(state.floorTypes) ? state.floorTypes : [{ key: "default", label: "預設", yyStart: 1, kind: "floor" }],
     xlsxExportSettings: (state as any).xlsxExportSettings || undefined,
+    structurePipelines: serializePipelinesForProject(),
     files: filesData,
   };
   const text = JSON.stringify(data);

@@ -31,6 +31,7 @@ import { migrateAllSupports } from "../core/support";
 import { _saveRecentProject } from "./recentProjects";
 import { base64ToArrayBuffer, fmtMB } from "./projectFile";
 import { loadXlsxSettingsFromProject } from "../export/xlsxSettings";
+import { loadPipelinesFromProject } from "../core/pipeline/pipelineSettings";
 
 export async function loadProjectFull(file, handle) {
   // 若使用 File System Access API 取得 handle(具 createWritable)→ 記住以便「儲存專案」直接覆寫同一個檔案
@@ -186,6 +187,8 @@ export async function loadProjectFull(file, handle) {
 
   // xlsx 輸出設定(專案層)— 沒設就保持 undefined,getXlsxSettings() 會走 localStorage / 預設 fallback
   loadXlsxSettingsFromProject((data as any).xlsxExportSettings);
+  // 結構 pipeline(專案層)— 沒設就保持 undefined,getActivePipeline() 走 localStorage / 內建 warehouse fallback
+  loadPipelinesFromProject((data as any).structurePipelines);
 
   // Pass 1:重建檔案 entry,持有 binary 的還原 pdf / image 物件
   const allFiles = data.files || [];

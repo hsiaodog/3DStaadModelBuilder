@@ -26,6 +26,7 @@ import { openXlsxSettingsDialog } from "../dialogs/xlsxSettings";
 import { openFloorTypesDialog } from "../dialogs/floorTypes";
 import { openGlobalJointMgrDialog } from "../dialogs/globalJoints";
 import { openMaterialMgrWindow } from "../dialogs/materialMgr";
+import { openPipelineManager } from "../dialogs/pipelineManager";
 import { open3DPreviewDialog } from "../dialogs/preview3d";
 import { openSearchWindow } from "../dialogs/search";
 import { _getRecentProjects, _openRecentProject, _removeRecentProject } from "../persistence/recentProjects";
@@ -240,6 +241,7 @@ async function _refreshRecentProjectMenu() {
     }),
     "copy-page-to-same-plane": () => copyPageJointsMembersToSamePlanePage(),
     "run-3d-pipeline":         () => _run3DOneClickPipeline(),
+    "open-structure-pipeline": () => openPipelineManager(),
     "open-3d-preview":         () => open3DPreviewDialog(),
     "open-material-mgr":       () => openMaterialMgrWindow(),
     "open-floor-types":        () => { if (typeof openFloorTypesDialog === "function") openFloorTypesDialog(); },

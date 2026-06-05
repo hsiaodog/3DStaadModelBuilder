@@ -17,6 +17,8 @@ import { $, bg, bgctx } from "./dom";
 import { fitToView } from "./transform";
 import { undoStack, redoStack, setPushUndoHook } from "./undoRedo";
 import { _setLanguage, readSavedLang, _applyI18n } from "../i18n";
+import { getAllPipelines, getActiveStructureType, setActiveStructureType } from "../core/pipeline/pipelineSettings";
+import { openPipelineManager } from "../dialogs/pipelineManager";
 import {
   // legacy forward refs
   render, refreshLists, refreshFileList, refreshPageSelector,
@@ -290,4 +292,27 @@ try { _applyI18n(); } catch (_) {}
 // 還不算完全 init 完畢、要等 legacy 走到對應位置」的舊時序,把 IIFE 拉回 legacy 這條位置上。
 (function _initLang() {
   _setLanguage(readSavedLang());
+})();
+
+// 左側欄「結構類型」下拉:選定後「⚡ 3D 一鍵處理」依此 pipeline 規劃步驟與編號方式
+(function _initStructureTypeSelector() {
+  const sel = $("structureTypeSel") as HTMLSelectElement | null;
+  if (!sel) return;
+  const fill = () => {
+    const active = getActiveStructureType();
+    sel.innerHTML = "";
+    for (const p of getAllPipelines()) {
+      const o = document.createElement("option");
+      o.value = p.structureType;
+      o.textContent = p.label || p.structureType;
+      if (p.structureType === active) o.selected = true;
+      sel.appendChild(o);
+    }
+  };
+  fill();
+  sel.addEventListener("change", () => { try { setActiveStructureType(sel.value); } catch (e) { console.warn(e); } });
+  // 回到主視窗時刷新(反映在管理視窗 / 3D 預覽做的變更)
+  window.addEventListener("focus", fill);
+  const btn = $("structurePipelineMgrBtn");
+  if (btn) btn.addEventListener("click", () => { try { openPipelineManager(fill); } catch (e) { console.warn(e); } });
 })();

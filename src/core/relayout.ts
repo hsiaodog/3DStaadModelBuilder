@@ -25,6 +25,21 @@ import { getOrInitDebugObj as _getOrInitDebugObj } from "../utils/debug";
 
 // 對單一 page 套重排核心邏輯(joints + members 都重編)。回傳 {jointGroups, finalMax} 或 null。
 // 不包含 pushUndo / render / refreshLists / 計數器同步,呼叫端負責。
+// 編號可調參數(structure pipeline 用):只含「原本寫死」的 5 個 knob;未提供則用倉儲預設 → 行為與舊版一致。
+//   direction / capacity / memberCap* / measureDecimals 仍走 state(由 pipeline step 在呼叫前寫入)。
+export function _resolveNumbering(nb: any) {
+  nb = nb || {};
+  const _n = (v: any, d: number) => (Number.isFinite(v) ? v : d);
+  const ord = (nb.axisOrderByPlane && typeof nb.axisOrderByPlane === "object") ? nb.axisOrderByPlane : null;
+  return {
+    tolGroup:   _n(nb.tolGroup, 2),       // joint / 同向桿件分群容差(mm)
+    tolBeamRow: _n(nb.tolBeamRow, 50),    // 樑排分群容差(mm)
+    angleTol:   _n(nb.angleTol, 0.05),    // 水平/垂直判定角度比(≈3°)
+    absAxisTol: _n(nb.absAxisTol, 10),    // 軸向對齊絕對門檻(mm,短桿件防誤判)
+    axisOrderByPlane: ord || { XY: ["Y", "X", "D"], YZ: ["Y", "Z", "D"], XZ: ["X", "Z", "D"] },
+  };
+}
+
 export function _relayoutPageCore(p, opts) {
   if (!p || p._orphan || !p.joints || !p.joints.length) return null;
   opts = opts || {};
@@ -34,12 +49,13 @@ export function _relayoutPageCore(p, opts) {
   // 跨頁累加用:外部傳入桿件起始基底(預設 1);回傳的 maxMemberId 給下一頁繼承
   const memberStartBase = (Number.isFinite(opts.memberStartBase) && opts.memberStartBase >= 1)
     ? Math.floor(opts.memberStartBase) : 1;
-  const tolGroup = 2;
+  const NB = _resolveNumbering(opts.numbering);   // structure pipeline 可調參數(預設=倉儲)
+  const tolGroup = NB.tolGroup;
   // 樑分群容差 — 用 50mm:
   //   • 大於 tolGroup=2mm(避免 CAD 細件 cap plate / anchor bolt 微小漂移把同排切碎)
   //   • 小於 100mm(避免把實際距離 100-500mm 的兩排不同樑誤合成一個 group → 編號互相穿插
   //     如 20301、20302、20303、20304 變成 (X1,上排), (X1,下排), (X2,上排), (X2,下排) 交錯)
-  const tolBeamRow = 50;
+  const tolBeamRow = NB.tolBeamRow;
   const cap = Math.max(10, state.relayoutCapacity || 100);
   const isVertical = state.relayoutDirection !== "horizontal";
   const nextBaseAfter = (lastId) => (Math.floor(lastId / cap) + 1) * cap + 1;
@@ -138,7 +154,7 @@ export function _relayoutPageCore(p, opts) {
   //   依 page.plane 挑平面內兩條世界軸:
   //     XZ → main=X、sub=Z;XY → main=X、sub=Y;YZ → main=Z、sub=Y
   //   分類後 dx/dy 都是世界 mm + 精準度 round,thresholds 也是 mm → 單位一致
-  const angleTol = 0.05;   // ≈ 3° 容忍
+  const angleTol = NB.angleTol;   // ≈ 3° 容忍(可由 pipeline 調)
   const eps = 0.5;          // 同位節點(dx≈dy≈0)排除用 — mm
   const jointMap = new Map(p.joints.map(j => [j.id, j]));
   const _plane = p.plane || "XY";
@@ -173,7 +189,7 @@ export function _relayoutPageCore(p, opts) {
   // 短桿件絕對門檻 — 短的 B4 / brace strut 用 ratio (dxRatio < 0.05) 可能因為長度短而被誤判:
   //   B4 長度 100mm + 5mm 水平偏移 → dxRatio = 0.05 剛好踩到門檻變斜撐 → 拿到 D 範圍 ID
   //   絕對門檻 < 10mm 的 dx 就一定當垂直、< 10mm 的 dy 就一定當水平,不論長度
-  const absAxisTol = 10;
+  const absAxisTol = NB.absAxisTol;
   const horizontalsM = [], verticalsM = [], diagonalsM = [];
   // ★ 診斷:收集 D 分類的桿件 dx/dy/len,讓使用者用 console 找出為何特定桿件被歸到 D
   //   (window._lastDiagDClassify[pageTag] = [{ memberId, j1, j2, dx, dy, len, dxRatio }, ...])
@@ -386,11 +402,7 @@ export function _relayoutPageCore(p, opts) {
     Z: state.memberCapZ || 99,
     D: state.memberCapDiag || 99,
   };
-  const orderByPlane = {
-    "XY": ["Y", "X", "D"],
-    "YZ": ["Y", "Z", "D"],
-    "XZ": ["X", "Z", "D"],
-  };
+  const orderByPlane = NB.axisOrderByPlane;
   const phaseOrder = orderByPlane[plane] || ["Y", "X", "Z", "D"];
   // 進位:n 的最高位 +1,後面歸 0,再 +1(例 199→201、8859→9001)
   // 換 phase 進位:跟當前 phase 的 mult 對齊(線性,避免 digit-based 指數成長)
@@ -605,6 +617,7 @@ export async function relayoutNumberingAll(opts) {
       interactive: false,
       origin: t.f.planeOrigin || null,
       memberStartBase,
+      numbering: opts.numbering,
     });
     if (r) {
       ok++;
@@ -667,6 +680,7 @@ export async function relayoutMembersNumbering() {
 export async function relayoutMembersNumberingAll(opts) {
   opts = opts || {};
   const skipConfirm = !!opts.skipConfirm;
+  const NB = _resolveNumbering(opts.numbering);   // structure pipeline 可調(Stage 1 柱判定用)
   let totalPages = 0;
   for (const f of state.files) for (const k in (f.pages || {})) totalPages++;
   if (!totalPages) { if (!skipConfirm) alert("沒有任何頁面可重排。"); return; }
@@ -759,6 +773,7 @@ export async function relayoutMembersNumberingAll(opts) {
       membersOnly: true,
       phaseOnly: phaseKey,
       catStartBase: { Y: startBase, X: startBase, Z: startBase, D: startBase },
+      numbering: opts.numbering,
     });
   };
 
@@ -784,7 +799,7 @@ export async function relayoutMembersNumberingAll(opts) {
     type ColMember = { pageMembers: any[]; world: { x: number; y1: number; y2: number; z: number; midY: number } };
     const colMemberByGm = new Map<number, ColMember>();   // globalMemberId → 物理 member
     const colMemberAnon: ColMember[] = [];                 // 沒 globalMemberId 的 member(以座標 fallback)
-    const angleTol = 0.05;
+    const angleTol = NB.angleTol;
     const epsMm = 0.5;   // mm
     const _stage1Md = Math.max(0, Math.min(6, Number.isFinite(state.measureDecimals) ? state.measureDecimals : 0));
     const _stage1Rnd = (v: number) => { const r = parseFloat(v.toFixed(_stage1Md)); return r === 0 ? 0 : r; };

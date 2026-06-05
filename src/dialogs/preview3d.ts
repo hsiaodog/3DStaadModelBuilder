@@ -36,6 +36,10 @@ import { _displayIdForJointWith } from "../core/displayId";
 import { joint2DToWorld3D } from "../core/projection";
 import { supportTypeOf, hasSupport, supportLabel } from "../core/support";
 import { releaseRenderInfo, releaseLabel, releaseTypeOf } from "../core/memberRelease";
+import { getActivePipeline, getAllPipelines, getActiveStructureType, setActiveStructureType } from "../core/pipeline/pipelineSettings";
+import { getStepDef } from "../core/pipeline/registry";
+import { runPipeline } from "../core/pipeline/runPipeline";
+import { openPipelineManager } from "./pipelineManager";
 import { _t, _applyI18nOnDoc } from "../i18n";
 import { setBusyMessage } from "../ui/busy";
 
@@ -953,59 +957,60 @@ export function open3DPreviewDialog() {
   //   6) 更新 3D — 重收資料 + 重畫
   //   7) 檢查問題 — 顯示報告面板(找延伸桿件 / 單頁節點)
   // 「清全部綁」沒列為獨立步驟 — 適配關聯內部已涵蓋。
-  const _btnOneClick = mkBtn("⚡ 一鍵處理", "依序跑完整 pipeline:整理所有頁面 → 適配關聯(精準度)→ 清壞綁(>100mm)→ 編排節點編號 → 編排桿件編號 → 重算 3D → 檢查問題報告。一次操作全壓在同一個 Ctrl+Z(各步驟個別有 pushUndo,連續按可逐步還原)", async () => {
-    const md = Math.max(0, Math.min(6, Number.isFinite(state.measureDecimals) ? state.measureDecimals : 0));
-    if (!win.confirm(
-      `一鍵處理 — 依序跑下列 7 步:\n\n` +
-      `1. 整理所有頁面(合併同位節點 / 刪重複桿件 / 共線中段拆段)\n` +
-      `2. 適配關聯(精準度 ${md} 位數)— 先清光所有綁定,再重建\n` +
-      `3. 清壞綁(分歧 > 100mm 的 globalJoint 移除)\n` +
-      `4. 編排節點編號(全部頁面)\n` +
-      `5. 編排桿件編號(全部頁面)\n` +
-      `6. 重算 3D\n` +
-      `7. 檢查問題(顯示報告)\n\n` +
-      `每步都會 pushUndo;失敗 / 取消可用 Ctrl+Z 逐步還原。要繼續嗎?`
-    )) return;
-    showPopupBusy("一鍵處理:準備中…");
+  // 結構類型選擇器 + 管理(pipeline 決定一鍵處理的步驟與編號參數)
+  const _structRow = doc.createElement("div");
+  _structRow.style.cssText = "display:flex;align-items:center;gap:4px;margin:2px 0 4px;flex-wrap:wrap";
+  const _structLabel = doc.createElement("span");
+  _structLabel.textContent = "結構類型:";
+  _structLabel.setAttribute("data-i18n", "p3d.structureType");
+  _structLabel.style.cssText = "color:#9bb6e8;font-size:11px";
+  const _structSel = doc.createElement("select");
+  _structSel.style.cssText = "background:#1a1c20;color:#ddd;border:1px solid #444;border-radius:3px;padding:2px 6px;font:inherit;cursor:pointer";
+  const _fillStructSel = () => {
+    _structSel.innerHTML = "";
+    const active = getActiveStructureType();
+    for (const p of getAllPipelines()) {
+      const o = doc.createElement("option");
+      o.value = p.structureType; o.textContent = p.label || p.structureType;
+      if (p.structureType === active) o.selected = true;
+      _structSel.appendChild(o);
+    }
+  };
+  _fillStructSel();
+  _structSel.addEventListener("change", () => { try { setActiveStructureType(_structSel.value); } catch (e) { console.warn(e); } });
+  const _btnMng = doc.createElement("button");
+  _btnMng.textContent = "管理…";
+  _btnMng.setAttribute("data-i18n", "p3d.structureManage");
+  _btnMng.title = "結構 Pipeline 管理:編輯步驟 / 參數、匯入匯出 YAML";
+  _btnMng.style.cssText = "background:#2a2c30;color:#ddd;border:1px solid #444;border-radius:3px;padding:2px 8px;cursor:pointer;font:inherit";
+  _btnMng.addEventListener("click", () => { try { openPipelineManager(() => _fillStructSel()); } catch (e) { console.warn(e); } });
+  _structRow.appendChild(_structLabel); _structRow.appendChild(_structSel); _structRow.appendChild(_btnMng);
+  og.appendChild(_structRow);
+
+  const _btnOneClick = mkBtn("⚡ 一鍵處理", "依目前選定的『結構類型 pipeline』依序跑步驟。各步驟個別 pushUndo,連續 Ctrl+Z 可逐步還原", async () => {
+    const pipeline = getActivePipeline();
+    const enabled = (pipeline.steps || []).filter(s => s && s.enabled !== false && getStepDef(s.id));
+    if (!enabled.length) { alert("目前的結構 pipeline 沒有任何啟用的步驟。"); return; }
+    showPopupBusy(`一鍵處理(${pipeline.label}):準備中…`);
     startMirrorBusy();
+    // 3D 預覽 host 轉接器(refreshRender=重收 3D 資料;checkIssues=問題報告面板)
+    const host = {
+      setMessage: (m) => { showPopupBusy(m); if (typeof setBusyMessage === "function") setBusyMessage(m); },
+      yieldAndCheckCancel: async () => { await new Promise(r => setTimeout(r, 0)); },
+      refreshRender: () => { try { data = collectData(); rebuildAfterDataChange(); requestRender(); } catch (_) {} },
+      checkIssues: () => {
+        try {
+          showIssuesPanel("檢查中…", "<div style='color:#9aa0a6'>掃描中…</div>");
+          let cands = [];
+          try { if (typeof findAllExtendableMembers === "function") cands = findAllExtendableMembers({}) || []; } catch (_) {}
+          const singlePageNodes = (data.nodes || []).filter(n => n.srcCount === 1);
+          renderIssuesPanel(cands, singlePageNodes);
+        } catch (e) { console.warn("[3D 一鍵處理] 檢查問題失敗", e); }
+      },
+    };
     let ok = true;
     try {
-      // Step 1
-      showPopupBusy("一鍵處理 1/7:整理所有頁面…");
-      if (typeof setBusyMessage === "function") setBusyMessage("一鍵處理 1/7:整理所有頁面…");
-      if (typeof consolidateAllPagesWithConfirm === "function") {
-        await consolidateAllPagesWithConfirm({ skipConfirm: true });
-      }
-      // Step 2
-      showPopupBusy("一鍵處理 2/7:適配關聯(精準度)…");
-      if (typeof setBusyMessage === "function") setBusyMessage("一鍵處理 2/7:適配關聯(精準度)…");
-      if (typeof _runFitMergeByPrecision === "function") {
-        await _runFitMergeByPrecision({ skipConfirm: true });
-      }
-      // Step 3
-      showPopupBusy("一鍵處理 3/7:清壞綁(>100mm)…");
-      if (typeof setBusyMessage === "function") setBusyMessage("一鍵處理 3/7:清壞綁(>100mm)…");
-      if (typeof cleanupBadGlobalJoints === "function") {
-        cleanupBadGlobalJoints({ threshold: 100, skipConfirm: true });
-      }
-      // Step 4
-      showPopupBusy("一鍵處理 4/7:編排節點編號…");
-      if (typeof setBusyMessage === "function") setBusyMessage("一鍵處理 4/7:編排節點編號…");
-      if (typeof relayoutNumberingAll === "function") {
-        await relayoutNumberingAll({ skipConfirm: true });
-      }
-      // Step 5
-      showPopupBusy("一鍵處理 5/7:編排桿件編號…");
-      if (typeof setBusyMessage === "function") setBusyMessage("一鍵處理 5/7:編排桿件編號…");
-      if (typeof relayoutMembersNumberingAll === "function") {
-        await relayoutMembersNumberingAll({ skipConfirm: true });
-      }
-      // Step 6
-      showPopupBusy("一鍵處理 6/7:重算 3D…");
-      if (typeof setBusyMessage === "function") setBusyMessage("一鍵處理 6/7:重算 3D…");
-      data = collectData();
-      rebuildAfterDataChange();
-      requestRender();
+      await runPipeline(pipeline, host);
     } catch (e) {
       ok = false;
       console.warn("[3D 一鍵處理] 失敗", e);
@@ -1014,18 +1019,7 @@ export function open3DPreviewDialog() {
       stopMirrorBusy();
       hidePopupBusy();
     }
-    // Step 7:檢查問題 — 顯示報告面板(即使前面失敗也跑,讓使用者看到當前狀態)
-    try {
-      showIssuesPanel("檢查中…", "<div style='color:#9aa0a6'>掃描中…</div>");
-      await new Promise(r => setTimeout(r, 0));
-      let cands = [];
-      try {
-        if (typeof findAllExtendableMembers === "function") cands = findAllExtendableMembers({}) || [];
-      } catch (e) { console.warn("[3D 一鍵處理] findAllExtendableMembers 失敗", e); }
-      const singlePageNodes = (data.nodes || []).filter(n => n.srcCount === 1);
-      renderIssuesPanel(cands, singlePageNodes);
-    } catch (e) { console.warn("[3D 一鍵處理] 檢查問題失敗", e); }
-    if (ok) console.log("[3D 一鍵處理] 完成");
+    if (ok) console.log(`[3D 一鍵處理] 完成 ・ pipeline=${pipeline.structureType}`);
   }, { i18n: "p3d.oneClick" });
   _btnOneClick.style.cssText = "background:#4f9dff;border-color:#4f9dff;color:#fff;font-weight:700;padding:5px 12px";
   og.appendChild(_btnOneClick);
