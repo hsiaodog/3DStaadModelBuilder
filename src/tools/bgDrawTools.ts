@@ -19,6 +19,23 @@ import {
   _selectedBgLinesAsWorld,
 } from "../app/integration";
 
+// ---------- CAD 直距輸入(畫直線 / 複製線共用)----------
+//   設好起點 / 基準後,使用者打數字定「長度」,游標定「方向」;Enter 確認。
+//   state.bgDistStr 是打字中的字串(顯示單位);世界座標=未縮放 px,長度=px/scale → px = dist×scale。
+export function bgTypedDist() {
+  const v = parseFloat(state.bgDistStr || "");
+  return (Number.isFinite(v) && v > 0) ? v : null;
+}
+// 由錨點沿「往 toward 的方向」取固定長度 dist(顯示單位)的端點;方向退化 / dist 無效 → null
+export function bgDirDistPoint(anchor, toward, dist) {
+  if (!anchor || !toward) return null;
+  const dx = toward.x - anchor.x, dy = toward.y - anchor.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-9 || !(dist > 0)) return null;
+  const mag = dist * ((state as any).scale || 1);   // 顯示單位 → 世界 px
+  return { x: anchor.x + dx / len * mag, y: anchor.y + dy / len * mag };
+}
+
 // ---------- 畫直線 / 畫虛線 ----------
 //   兩者共用 state.bgDrawLine 狀態與 commit 流程,差別只在 dasharray:
 //   實線 → null;虛線 → 預設樣式 "8 4"(跟「轉虛線」共用)。
@@ -29,6 +46,7 @@ export function startBgDrawLine(opts) {
   state.bgBisector = null;
   state.bgEqui = null;
   state.bgCopyLine = null;
+  state.bgDistStr = "";
   _refreshBgDrawButtonStates();
   $("hud").textContent = dashed
     ? "畫虛線:點選第一個點(自動吸 bg 端點 / 交點。Alt = 也吸線中段。Esc 取消)"
@@ -38,6 +56,7 @@ export function startBgDrawLine(opts) {
 export function exitBgDrawLine(msg) {
   if (!state.bgDrawLine) return;
   state.bgDrawLine = null;
+  state.bgDistStr = "";
   _refreshBgDrawButtonStates();
   if (msg != null) $("hud").textContent = msg;
   render();
@@ -50,6 +69,7 @@ export function commitBgDrawLineSecond(world) {
   pushUndo();
   addBgLineWorld(file, p1, world, dasharray ? { dasharray } : undefined);
   state.bgDrawLine = null;
+  state.bgDistStr = "";
   _refreshBgDrawButtonStates();
   $("hud").textContent = dasharray ? "已加入 bg 虛線" : "已加入 bg 直線";
   render();
@@ -92,6 +112,7 @@ export function startBgCopyLine() {
     clearAllBgSelection && clearAllBgSelection(file);
   }
   state.bgCopyLine = { active: true, sources, base: null };
+  state.bgDistStr = "";
   _refreshBgDrawButtonStates();
   if (sources.length) {
     $("hud").textContent = `複製線:選了 ${sources.length} 條 → 點基準點(自動吸 bg 端點 / 交點)`;
@@ -103,6 +124,7 @@ export function startBgCopyLine() {
 export function exitBgCopyLine(msg) {
   if (!state.bgCopyLine) return;
   state.bgCopyLine = null;
+  state.bgDistStr = "";
   _refreshBgDrawButtonStates();
   if (msg != null) $("hud").textContent = msg;
   render();
@@ -120,6 +142,7 @@ export function commitBgCopyLineDest(world) {
     addBgLineWorld(file, p1, p2, src.dasharray ? { dasharray: src.dasharray } : undefined);
     n++;
   }
+  state.bgDistStr = "";   // 每次放置後清空,下一份需重新輸入距離
   $("hud").textContent = `複製線:放置 ${n} 條(再點下一處,Esc 結束)`;
   render();
 }
@@ -131,7 +154,7 @@ export function startBgBisector() {
     alert("請先選 1 條 bg 線"); return;
   }
   const lines = _selectedBgLinesAsWorld(file);
-  if (lines.length < 1) { alert("選取的不是單一直線(可先「切成直線」)"); return; }
+  if (lines.length < 1) { alert("選取的不是單一直線(可先「拆分直線」)"); return; }
   const L = lines[0];
   const dx = L.p2.x - L.p1.x, dy = L.p2.y - L.p1.y;
   const len = Math.hypot(dx, dy);

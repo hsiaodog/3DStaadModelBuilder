@@ -27,6 +27,7 @@ import {
 import { _worldForRank } from "../core/rankCache";
 import { supportTypeOf, hasSupport } from "../core/support";
 import { releaseRenderInfo } from "../core/memberRelease";
+import { bgTypedDist, bgDirDistPoint } from "../tools/bgDrawTools";
 import { setDebugVar, getDebugVar } from "../utils/debug";
 
 // labelsLayer 事件委派(只設定一次):每次 render 會建 ~17k 個 lbl div,
@@ -771,6 +772,16 @@ function _renderImpl() {
       svg.appendChild(el("line", { x1: o.x - r2 * 1.4, y1: o.y, x2: o.x + r2 * 1.4, y2: o.y, stroke: "#00c8c8", "stroke-width": swO }));
       svg.appendChild(el("line", { x1: o.x, y1: o.y - r2 * 1.4, x2: o.x, y2: o.y + r2 * 1.4, stroke: "#00c8c8", "stroke-width": swO }));
     }
+    // 座標原點 pending:游標鎖到交點時,畫亮黃綠雙圈 + 十字「鎖點效果」(跟青色已設定原點區別)
+    if (state.originPending && state.originSnap) {
+      const s = state.originSnap;
+      const rS = jointR * 2.0;
+      const swS = Math.max(1.5, 2.4 / state.zoom);
+      svg.appendChild(el("circle", { cx: s.x, cy: s.y, r: rS, fill: "rgba(0, 230, 118, 0.20)", stroke: "#00e676", "stroke-width": swS }));
+      svg.appendChild(el("circle", { cx: s.x, cy: s.y, r: rS * 0.42, fill: "none", stroke: "#00e676", "stroke-width": swS }));
+      svg.appendChild(el("line", { x1: s.x - rS * 1.6, y1: s.y, x2: s.x + rS * 1.6, y2: s.y, stroke: "#00e676", "stroke-width": swS }));
+      svg.appendChild(el("line", { x1: s.x, y1: s.y - rS * 1.6, x2: s.x, y2: s.y + rS * 1.6, stroke: "#00e676", "stroke-width": swS }));
+    }
     // 比例尺:工程比例尺樣式(主線 + T 端帽 + 主/次刻度 + 數字)
     if (af && af.scaleRuler) {
       const sr = af.scaleRuler;
@@ -963,6 +974,10 @@ function _renderImpl() {
       if (Math.abs(p2.x - p1.x) >= Math.abs(p2.y - p1.y)) p2 = { x: p2.x, y: p1.y };
       else p2 = { x: p1.x, y: p2.y };
     }
+    // CAD 直距輸入:有打字距離 → 沿游標方向取固定長度
+    const _td = bgTypedDist();
+    if (p1 && _td) { const c = bgDirDistPoint(p1, p2, _td); if (c) p2 = c; }
+    state.bgDrawLine._end = p1 ? { x: p2.x, y: p2.y } : null;
     const lc = "#4fc3f7";
     const lw = Math.max(1.2, 1.6 / state.zoom);
     if (p1) {
@@ -1021,6 +1036,10 @@ function _renderImpl() {
       if (Math.abs(target.x - cl.base.x) >= Math.abs(target.y - cl.base.y)) target.y = cl.base.y;
       else target.x = cl.base.x;
     }
+    // CAD 直距輸入:有打字距離 → 沿游標方向取固定長度
+    const _tdC = bgTypedDist();
+    if (cl.base && _tdC) { const c = bgDirDistPoint(cl.base, target, _tdC); if (c) target = c; }
+    cl._end = cl.base ? { x: target.x, y: target.y } : null;
     const lc = "#22c55e";       // 複製線預覽用綠色,跟畫直線(藍)/中分線(紫)/等分線(綠)區分
     const lw = Math.max(1.2, 1.6 / state.zoom);
     if (cl.base) {

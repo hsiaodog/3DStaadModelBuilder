@@ -39,7 +39,6 @@ import {
   _isStraightBgLineElement,
   allocJointId, allocMemberId, allocGlobalJointId, allocGlobalMemberId,
   bgComputeMeasureFromSelection,
-  bgSquaresToJoints,
   bgRectsToMembers,
   bgConvertToIntersections,
   bgPathsSplitToLines, bgPathsToMembers,
@@ -71,7 +70,7 @@ import { getPage, refreshPageCoordSection, syncStateScaleFromActiveFile, prewarm
 import { screenToWorld } from "./transform";
 import { setNextGlobalJointId, setNextGlobalMemberId } from "./state";
 import { handleCmdInputCommit } from "../tools/moveCmd";
-import { hideCtxMenu } from "../dialogs/ctxMenu";
+import { hideCtxMenu, ctxState } from "../dialogs/ctxMenu";
 import { inferGlobalJoint } from "../core/globalJoints";
 import { joint2DToWorld3D, world3DToJoint2D } from "../core/projection";
 import { lineLineIntersect, splitMembersAtCollinearJoints, subtractiveSelect, consolidateGeometry } from "../tools/jointMemberEdit";
@@ -579,7 +578,7 @@ export function performDelete() {
   }
 }
 
-function deleteSelectedBgPaths(opts) {
+export function deleteSelectedBgPaths(opts) {
   const file = getActiveFile();
   if (!file || !file.selectedBgPaths || file.selectedBgPaths.size === 0) return;
   const bgSvgEl = document.getElementById("bgSvg");
@@ -645,16 +644,23 @@ function linesAreCollinear(a, b, eps) {
   const aLen = Math.hypot(av.x, av.y), bLen = Math.hypot(bv.x, bv.y);
   if (aLen < 1e-9 || bLen < 1e-9) return false;
   const cross = (av.x * bv.y - av.y * bv.x) / (aLen * bLen);
-  if (Math.abs(cross) > 0.01) return false;       // 不平行
-  // b 中點到 a 線的垂直距離
-  const bm = { x: (b.p1.x + b.p2.x) / 2, y: (b.p1.y + b.p2.y) / 2 };
-  const dx = bm.x - a.p1.x, dy = bm.y - a.p1.y;
-  const dist = Math.abs(dx * av.y - dy * av.x) / aLen;
-  return dist < eps;
+  // 平行門檻 ≈ 1.1°(sin);真正相交的兩線(即使略斜)不會被誤併。
+  //   重疊 / 重複線本就近乎 0°,加上下方「兩端點皆貼齊」判定即可可靠併為同一條。
+  if (Math.abs(cross) > 0.02) return false;       // 不平行
+  // 兩條線各自的端點到對方線的垂直距離都要小 → 真正「重疊 / 共線」(只比中點對短線不夠)
+  const _perpDist = (pt, o, ov, oLen) => {
+    const dx = pt.x - o.p1.x, dy = pt.y - o.p1.y;
+    return Math.abs(dx * ov.y - dy * ov.x) / oLen;
+  };
+  const d1 = _perpDist(b.p1, a, av, aLen);
+  const d2 = _perpDist(b.p2, a, av, aLen);
+  const dm = _perpDist({ x: (b.p1.x + b.p2.x) / 2, y: (b.p1.y + b.p2.y) / 2 }, a, av, aLen);
+  return Math.max(d1, d2, dm) < eps;
 }
 // 把線段陣列依「共線」分群,回傳 group 陣列(每個 group = 共線索引的陣列)
 export function groupCollinearLines(lines, eps) {
-  eps = eps || 0.5;
+  // 預設 2(世界單位 ≈ mm):容忍 CAD 重複線的 1~2mm 偏移,讓重疊線併成同一條
+  eps = eps || 2.0;
   const groups = [];
   for (let i = 0; i < lines.length; i++) {
     let placed = false;
@@ -686,27 +692,54 @@ export function distinctSelectedLineCount(file) {
   if (!lines.length) return 0;
   return groupCollinearLines(lines).length;
 }
-// 從 ≥ 2 條 bg 線推算共同交點:若所有「不同線」兩兩交點收斂到同一點 → 回傳該點;否則 null
-function bgComputeOriginFromSelection(file) {
+// 從 ≥ 2 條 bg 線推算共同交點:若所有「不同線」兩兩交點收斂到同一點 → 回傳該點;否則 null。
+// 失敗時用 console.warn("[座標原點]", …) 印出實際原因與幾何,方便診斷「不收斂」。
+export function bgComputeOriginFromSelection(file) {
+  const fail = (reason, extra) => { console.warn("[座標原點] 推算失敗:", reason, extra || {}); return null; };
   const lines = _selectedBgLinesAsWorld(file);
-  if (lines.length < 2) return null;
+  if (lines.length < 2) {
+    return fail("可解析為單一線段的選取不足 2 條(虛線/多段 path 會被略過,可先用「拆分直線」)", {
+      解析到的線數: lines.length, 選取數: file?.selectedBgPaths?.size ?? 0,
+    });
+  }
   const groups = groupCollinearLines(lines);
-  if (groups.length < 2) return null;     // 全部共線 → 無交點
+  if (groups.length < 2) return fail("選取的線全部共線(同一條),沒有交點", { 線數: lines.length });
   const reps = groups.map(g => lines[g[0]]);
+  // 有限延長範圍:圖面(clipRect 優先,否則整張底圖)每邊往外擴半個尺寸 → 總接受範圍 = 圖面 × 2。
+  //   交點落在此範圍內就算(線段不必真的相交;可延長),範圍外(近平行線在遠處的假交點)則 reject。
+  const cr = (file as any).clipRect;
+  const bw = cr ? cr.w : (state as any).bgWidth, bh = cr ? cr.h : (state as any).bgHeight;
+  const bx = cr ? cr.x : 0, by = cr ? cr.y : 0;
+  const minX = bx - bw / 2, maxX = bx + bw * 1.5, minY = by - bh / 2, maxY = by + bh * 1.5;
+  const inBounds = (p) => p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY;
   const ips = [];
+  const rejected = [];   // 診斷:被擋掉的交點(平行 / 落在圖面外)
   for (let i = 0; i < reps.length; i++) {
     for (let j = i + 1; j < reps.length; j++) {
       const r = lineLineIntersect(reps[i].p1, reps[i].p2, reps[j].p1, reps[j].p2);
-      if (r) ips.push(r);
+      if (!r) { rejected.push({ pair: [i, j], why: "近乎平行(無交點)" }); continue; }
+      if (!inBounds(r)) { rejected.push({ pair: [i, j], why: "交點落在圖面外(可能近乎平行)", at: r }); continue; }
+      ips.push(r);   // 延長範圍內相交即算
     }
   }
-  if (ips.length === 0) return null;
+  if (ips.length === 0) {
+    return fail("沒有有效交點", {
+      不同線數: reps.length,
+      被擋掉的交點: rejected,
+      接受範圍: { minX, maxX, minY, maxY },
+      各線端點: reps.map(l => ({ p1: l.p1, p2: l.p2 })),
+    });
+  }
   const ax = ips.reduce((s, p) => s + p.x, 0) / ips.length;
   const ay = ips.reduce((s, p) => s + p.y, 0) / ips.length;
   // 收斂性檢查:所有交點離平均不超過 5 世界單位
   const tol = 5;
   for (const p of ips) {
-    if (Math.hypot(p.x - ax, p.y - ay) > tol) return null;
+    if (Math.hypot(p.x - ax, p.y - ay) > tol) {
+      return fail("多條線交點散開超過容差(不在同一點)", {
+        交點數: ips.length, 平均: { x: ax, y: ay }, 容差: tol, 各交點: ips,
+      });
+    }
   }
   return { x: ax, y: ay };
 }
@@ -774,7 +807,7 @@ function bgCreateScaleRulerByTwoLines() {
   if (els.length !== 2) return;
   const L1 = bgSingleLineWorldEnds(els[0]);
   const L2 = bgSingleLineWorldEnds(els[1]);
-  if (!L1 || !L2) { alert("請選取單一線段(若是矩形/多段 path,先「切成直線」)"); return; }
+  if (!L1 || !L2) { alert("請選取單一線段(若是矩形/多段 path,先「拆分直線」)"); return; }
   const v1 = { x: L1.p2.x - L1.p1.x, y: L1.p2.y - L1.p1.y };
   const v2 = { x: L2.p2.x - L2.p1.x, y: L2.p2.y - L2.p1.y };
   const len1 = Math.hypot(v1.x, v1.y), len2 = Math.hypot(v2.x, v2.y);
@@ -829,7 +862,7 @@ function bgCreateScaleRuler() {
   if (!el) return;
   const segs = svgElementToSegments(el);
   if (segs.length !== 1) {
-    alert("此元素不是單一線段(可能是矩形、polyline 或多段 path)。請先「切成直線」再建立比例尺");
+    alert("此元素不是單一線段(可能是矩形、polyline 或多段 path)。請先「拆分直線」再建立比例尺");
     return;
   }
   const seg = segs[0];
@@ -956,7 +989,7 @@ export function calibratePlane() {
 }
 
 // 從目前選取的 bg paths 中找出所有正方形,在每個正方形的中心新增一個節點
-function bgSquaresToJoints() {
+export function bgSquaresToJoints() {
   const file = getActiveFile();
   const bgSvgEl = document.getElementById("bgSvg");
   if (!file || !bgSvgEl) return;
@@ -1179,7 +1212,7 @@ export function bgRectsToMembers(mode) {
 // 向後相容:舊 callers 仍能呼叫到中軸版本
 function bgRectsToCenterlineMembers() { bgRectsToMembers("center"); }
 
-function bgPathsToMembers() {
+export function bgPathsToMembers() {
   const file = getActiveFile();
   if (!file || !file.selectedBgPaths || file.selectedBgPaths.size === 0) {
     alert("請先在「底圖」模式下框選或點選底圖線條");
@@ -1224,7 +1257,7 @@ function bgPathsToMembers() {
 }
 
 // 把選取的 bg path 拆成多條 <line>(對 rect、多段 path、polyline 都有效)
-function bgPathsSplitToLines() {
+export function bgPathsSplitToLines() {
   const file = getActiveFile();
   if (!file || !file.selectedBgPaths || file.selectedBgPaths.size === 0) return;
   const bgSvgEl = document.getElementById("bgSvg");
@@ -1255,11 +1288,11 @@ function bgPathsSplitToLines() {
     const segs = svgElementToSegments(el2);
     if (segs.length <= 1) {
       _splitLog.alreadyLine++;
-      console.log(`[切成直線] idx=${idx} tag=${el2.tagName} segs=${segs.length} d=${(el2.getAttribute("d")||"").slice(0,80)} → 跳過(已是單一線段或不可解析)`);
+      console.log(`[拆分直線] idx=${idx} tag=${el2.tagName} segs=${segs.length} d=${(el2.getAttribute("d")||"").slice(0,80)} → 跳過(已是單一線段或不可解析)`);
       continue;
     }
     _splitLog.split++;
-    console.log(`[切成直線] idx=${idx} tag=${el2.tagName} segs=${segs.length} → 拆`);
+    console.log(`[拆分直線] idx=${idx} tag=${el2.tagName} segs=${segs.length} → 拆`);
     const stroke = effectiveAttr(el2, "stroke") || "currentColor";
     const sw = effectiveAttr(el2, "stroke-width") || "1";
     const parent = el2.parentNode;
@@ -1287,7 +1320,7 @@ function bgPathsSplitToLines() {
   updateBgStrokeWidth();
   render();
   updateBgEditOpsVisibility();
-  console.log("[切成直線] 結果:", _splitLog);
+  console.log("[拆分直線] 結果:", _splitLog);
 }
 
 export function attachBgPathHandlers(/* el2, file */) {
@@ -1299,6 +1332,9 @@ export function attachBgPathHandlers(/* el2, file */) {
 //   stopPropagation → 阻止後續 wrap.click 把點擊當作畫布空白點處理
 function _bgSvgDelegateClick(ev) {
   if (state.tool !== "selectBg") return;
+  // 座標原點 pending 改用「游標鎖點交點 → 點擊設原點」(見 canvasEvents mousedown),
+  //   不再靠點選線條;這裡直接吞掉點擊,避免污染 selectedBgPaths。
+  if (state.originPending) { ev.stopPropagation(); return; }
   // 畫直線 / 複製線 / 中分線 / 等分線 / 切面定位 進行中 → 點擊由 wrap.click 處理,不走選取邏輯
   if ((state.bgDrawLine && state.bgDrawLine.active) ||
       (state.bgCopyLine && state.bgCopyLine.active) ||
@@ -1394,7 +1430,7 @@ export function selectAllBgPaths() {
   updateBgEditOpsVisibility();
 }
 
-function showBgCtxMenu(x, y) {
+export function showBgCtxMenu(x, y) {
   const file = getActiveFile();
   if (!file || !file.selectedBgPaths || file.selectedBgPaths.size === 0) return;
   ctxState.pending = {

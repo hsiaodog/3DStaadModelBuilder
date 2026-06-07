@@ -572,7 +572,7 @@ export async function renderPdfBg(pdf, n) {
       // pdf.js 常把 stroke 設在 <g> 父層而非 path 本身,所以路徑本身可能沒 stroke 屬性
       try {
         // 不自動拆分(autoSplit 在大 PDF 上太慢)
-        // 使用者需要拆時可以選取後按「切成直線」按鈕手動拆
+        // 使用者需要拆時可以選取後按「拆分直線」按鈕手動拆
         if (spMsg) spMsg.textContent = "建立索引…";
         await yieldFrame();
         const shapes = vSvg.querySelectorAll("path, line, rect, polyline, polygon, circle, ellipse");

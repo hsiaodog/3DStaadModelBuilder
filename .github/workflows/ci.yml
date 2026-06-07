@@ -1,0 +1,50 @@
+name: CI
+
+# 四層防線:缺 import / 缺函式 / 缺 DOM 節點 → 在合併前就攔下來。
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      # Layer 0 — 型別 / 缺 import / 缺 export(TS2304 等)
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Layer 1 — 靜態接線稽核:無 guard 解參考缺失 DOM 節點
+      - name: Wiring audit
+        run: npm run check:wiring
+
+      # 產生單檔(build 內含 tsc;失敗即擋)
+      - name: Build single-file
+        run: npm run build
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      # Layer 2 — 逐顆按鈕冒煙:點擊不丟 ReferenceError / is-not-a-function
+      - name: Smoke test (every button)
+        run: npm run test:smoke
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

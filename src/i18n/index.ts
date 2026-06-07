@@ -217,7 +217,7 @@ const _I18N = {
   "subtool.bgEditBisector":      { "zh-TW": "中分線",           "en": "Bisector" },
   "subtool.bgEditEquidist":      { "zh-TW": "等分線",           "en": "Equidistant Line" },
   "subtool.bgEditToDashed":      { "zh-TW": "轉虛線",           "en": "Toggle Dashed" },
-  "subtool.bgEditSplit":         { "zh-TW": "切成直線",         "en": "Split to Lines" },
+  "subtool.bgEditSplit":         { "zh-TW": "拆分直線",         "en": "Split to Lines" },
   "subtool.bgEditToMember":      { "zh-TW": "轉為桿件",         "en": "To Members" },
   "subtool.bgEditMarkIntersect": { "zh-TW": "多線轉交點",       "en": "Mark Intersections" },
   "subtool.bgEditMarkIntersectAndMember": { "zh-TW": "多線轉交點+桿件", "en": "Mark Intersect + Members" },

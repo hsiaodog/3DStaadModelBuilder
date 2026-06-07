@@ -15,7 +15,7 @@ import { hideCtxMenu } from "../dialogs/ctxMenu";
 import { wrap, $ } from "./dom";
 import { applyTransform, screenToWorld, _saveCurrentTabView } from "./transform";
 import { undo, redo, pushUndo } from "./undoRedo";
-import { snap } from "./snap";
+import { snap, snapToBgVertex } from "./snap";
 import {
   // forward refs from legacy.ts (lots)
   getActiveFile, getPage, render, refreshLists,
@@ -24,10 +24,11 @@ import {
   clearAllBgSelection, exitSplitMode, exitMoveMode, exitManualAlign,
   exitRangeZoom, exitOriginPending, exitScaleRulerPending, exitSectionLinkPending,
   exitMeasurePending, exitBgDrawLine, exitBgCopyLine, exitBgBisector, exitBgEqui,
+  commitBgDrawLineSecond, commitBgCopyLineDest, bgTypedDist,
   cancelScaleRulerDrag, _restoreSectionLinkShapeMarquee, _persistCurrentMeasure,
   finalizeRangeZoomRect, performDelete, checkBgPendingAfterSelect,
   clearAllShapeMarqueeModes, commitPendingFilter, cycleSelectFilter, cycleSnapGrid,
-  closeAutoPairDialog, hideBusy, showBusy, busyTick,
+  closeAutoPairDialog, hideBusy, showBusy, busyTick, commitPlaneOriginAt,
   navBack, navForward, openPlanePicker,
   selectAllBgPaths, selToolsSelectAll, _memberPassesDirFilter,
   splitSelectedAtMidpoint, processIntersections, startMoveMode,
@@ -137,6 +138,24 @@ wrap.addEventListener("mousedown", (e) => {
     e.preventDefault();
     return;
   }
+  // 座標原點 pending:左鍵 = 確認;有鎖到交點就設為原點,否則累積失敗(連 3 次自動取消)
+  if (e.button === 0 && state.originPending) {
+    e.preventDefault();
+    if (state.originSnap) {
+      commitPlaneOriginAt({ x: state.originSnap.x, y: state.originSnap.y });
+    } else {
+      state.originFailCount = (state.originFailCount || 0) + 1;
+      if (state.originFailCount >= 3) {
+        exitOriginPending();
+        if (state.tool !== "select") setTool("select");
+        if ($("hud")) $("hud").textContent = "座標原點:連續 3 次未鎖到交點,已自動取消";
+        render();
+      } else if ($("hud")) {
+        $("hud").textContent = `座標原點:此處沒有交點可鎖(第 ${state.originFailCount}/3 次)— 靠近兩線交點再點`;
+      }
+    }
+    return;
+  }
   if (e.button === 0 && (state.tool === "select" || state.tool === "selectBg")) {
     const tag = e.target && e.target.tagName;
     if (state.tool === "select" && (tag === "circle" || tag === "line")) return;
@@ -184,6 +203,21 @@ window.addEventListener("mousemove", (e) => {
       const lockTag = (e.shiftKey && alignDrag.axis) ? `  軸鎖:${alignDrag.axis === "x" ? "水平" : "垂直"}` : "";
       $("hud").textContent = `底圖偏移:${u}${lockTag}  (Esc 完成)`;
     }
+    return;
+  }
+  // 座標原點 pending:游標自動鎖點底圖線交點 / 端點,並即時顯示鎖點效果
+  if (state.originPending && !panning) {
+    const world = screenToWorld(e.clientX, e.clientY);
+    const radius = ((state.snapPx || 12) * 1.6) / state.zoom;   // 比一般 snap 略大,好對準
+    const s = snapToBgVertex(world, { radius });
+    state.originSnap = s ? { x: s.x, y: s.y, kind: s.kind } : null;
+    if ($("hud")) {
+      const left = 3 - (state.originFailCount || 0);
+      $("hud").textContent = state.originSnap
+        ? `座標原點:已鎖${state.originSnap.kind === "bg-cross" ? "交點" : "端點"} — 點擊設為原點(Esc 取消)`
+        : `座標原點:移近兩線交點自動鎖點;點空白處 ${left} 次內未鎖到會自動取消(Esc 取消)`;
+    }
+    render();
     return;
   }
   if (panning) {
@@ -396,6 +430,30 @@ window.addEventListener("keydown", (e) => {
   const inEditable = e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA";
   if (inEditable) return;
 
+  // 畫直線 / 複製線:CAD 直距輸入 — 設好起點 / 基準後,打數字定長度、游標定方向、Enter 確認
+  {
+    const drawing = !!(state.bgDrawLine && state.bgDrawLine.active && state.bgDrawLine.p1);
+    const copying = !!(state.bgCopyLine && state.bgCopyLine.active && state.bgCopyLine.base);
+    if ((drawing || copying) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const _hud = () => {
+        const u = (state as any).unitName ? ` ${(state as any).unitName}` : "";
+        if ($("hud")) $("hud").textContent = state.bgDistStr
+          ? `距離 ${state.bgDistStr}${u}(游標定方向;Enter 確認,Esc 清除,點擊放置)`
+          : (drawing ? "畫直線:打數字輸入距離,或移動滑鼠點第二點" : "複製線:打數字輸入距離,或移動滑鼠點放置");
+      };
+      if (/^[0-9]$/.test(e.key)) { state.bgDistStr = (state.bgDistStr || "") + e.key; _hud(); render(); e.preventDefault(); return; }
+      if (e.key === "." && !(state.bgDistStr || "").includes(".")) { state.bgDistStr = (state.bgDistStr || "") + "."; _hud(); render(); e.preventDefault(); return; }
+      if (e.key === "Backspace") { state.bgDistStr = (state.bgDistStr || "").slice(0, -1); _hud(); render(); e.preventDefault(); return; }
+      if (e.key === "Enter") {
+        if (bgTypedDist()) {
+          if (drawing && state.bgDrawLine._end) commitBgDrawLineSecond(state.bgDrawLine._end);
+          else if (copying && state.bgCopyLine._end) commitBgCopyLineDest(state.bgCopyLine._end);
+        }
+        e.preventDefault(); return;
+      }
+    }
+  }
+
   // 移動中的鎖定切換:free / dist 模式下,按 Shift = 鎖水平、Alt = 鎖垂直
   // (避免用 Ctrl — macOS 的 Ctrl+click 會被 OS 攔成 right-click,跟我們的 contextmenu 衝突)
   if (state.moveMode.active && state.moveMode.base) {
@@ -487,6 +545,12 @@ window.addEventListener("keydown", (e) => {
       cancelScaleRulerDrag();
       return;
     }
+    // 正在打距離 → 先清掉距離輸入,不退出模式
+    if (state.bgDistStr && ((state.bgDrawLine && state.bgDrawLine.active) || (state.bgCopyLine && state.bgCopyLine.active))) {
+      state.bgDistStr = "";
+      render();
+      return;
+    }
     if (state.bgDrawLine && state.bgDrawLine.active) {
       exitBgDrawLine("已取消畫直線");
       return;
@@ -565,6 +629,7 @@ window.addEventListener("keydown", (e) => {
     if (state.originPending) {
       exitOriginPending();
       $("hud").textContent = "";
+      render();
       return;
     }
     if (state.splitMode) { exitSplitMode(); return; }

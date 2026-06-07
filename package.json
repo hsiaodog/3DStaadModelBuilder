@@ -5,12 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "release": "vite build",
+    "build": "tsc --noEmit && vite build",
+    "release": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:wiring": "node scripts/check-wiring.mjs",
+    "test:smoke": "playwright test",
+    "test:all": "npm run typecheck && npm run check:wiring && npm run build && npm run test:smoke",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/js-yaml": "^4.0.9",
     "typescript": "^5.6.3",
     "vite": "^6.0.7",

@@ -1,0 +1,17 @@
+#!/bin/sh
+# Pre-commit 關卡:擋住「缺 import / 缺 export / 缺 DOM 節點」這類會在執行期才爆的 bug。
+# 只跑快的靜態檢查(tsc + 接線稽核),不跑 build / Playwright(留給 CI)。
+#
+# 啟用方式(npm install 時 prepare script 會自動做):
+#   git config core.hooksPath .githooks
+# 單次略過:  git commit --no-verify
+
+set -e
+
+echo "[pre-commit] tsc --noEmit …"
+npm run -s typecheck
+
+echo "[pre-commit] check:wiring …"
+npm run -s check:wiring
+
+echo "[pre-commit] OK"

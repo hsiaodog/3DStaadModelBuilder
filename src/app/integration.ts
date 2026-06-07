@@ -812,10 +812,13 @@ $("btnPlaneOrigin") && ($("btnPlaneOrigin").onclick = () => {
   if (state.rangeZoomMode) exitRangeZoom();
   clearSelection();
   clearAllBgSelection(file);
+  cacheActivePageBgSegs();          // 確保 snapToBgVertex 有最新的線段快取可鎖點
   state.originPending = true;
+  state.originSnap = null;
+  state.originFailCount = 0;
   if (state.tool !== "selectBg") setTool("selectBg");
   $("btnPlaneOrigin").classList.add("active");
-  $("hud").textContent = "座標原點:請選第一條相交線(Esc 取消);完成後同平面其他頁面會一起對齊";
+  $("hud").textContent = "座標原點:移動滑鼠自動鎖點交點,點擊設為原點(Esc 取消);完成後同平面其他頁面會一起對齊";
   render();
 });
 // 修正本檔原點:只動本檔的 planeOrigin + pg.z + sectionLinks cutValue,其他檔案不動;完成後自動跳全局校準
@@ -852,17 +855,44 @@ $("btnFixLocalOrigin") && ($("btnFixLocalOrigin").onclick = () => {
   if (state.rangeZoomMode) exitRangeZoom();
   clearSelection();
   clearAllBgSelection(file);
+  cacheActivePageBgSegs();          // 確保 snapToBgVertex 有最新的線段快取可鎖點
   state.originPending = "local";
+  state.originSnap = null;
+  state.originFailCount = 0;
   if (state.tool !== "selectBg") setTool("selectBg");
   $("btnFixLocalOrigin").classList.add("active");
-  $("hud").textContent = "修正本檔原點:請選第一條相交線(Esc 取消);只動本檔 planeOrigin pixel,其他全不動";
+  $("hud").textContent = "修正本檔原點:移動滑鼠自動鎖點交點,點擊設為原點(Esc 取消);只動本檔,其他全不動";
   render();
 });
 export function exitOriginPending() {
   if (!state.originPending) return;
   state.originPending = false;
+  state.originSnap = null;          // 清掉鎖點預覽
+  state.originFailCount = 0;        // 歸零失敗計數
   if ($("btnFixLocalOrigin")) $("btnFixLocalOrigin").classList.remove("active");
   updatePlaneOriginButton && updatePlaneOriginButton();
+}
+
+// 把游標鎖到的交點(state.originSnap)設為座標原點:依 originPending 是否為 "local"
+// 決定只動本檔或同平面傳播。成功回傳 true,並退出 pending、切回 select 工具。
+// 由 canvasEvents 的點擊處理呼叫(新版「鎖點交點 → 點擊設原點」流程)。
+export function commitPlaneOriginAt(pt) {
+  const file = getActiveFile();
+  if (!file || !pt) return false;
+  const isLocal = (state.originPending === "local");
+  const r = isLocal
+    ? _applyNewPlaneOriginLocalOnly(file, { x: pt.x, y: pt.y })
+    : _applyNewPlaneOriginToAllSamePlane(file, { x: pt.x, y: pt.y });
+  exitOriginPending();
+  if (state.tool !== "select") setTool("select");
+  if ($("hud")) {
+    const slTail = r && r.slUpdated ? `・切面 ${r.slUpdated} 條重算${r.tgtZUpdated ? `(目標 page.z ${r.tgtZUpdated})` : ""}` : "";
+    $("hud").textContent = isLocal
+      ? `本檔原點已設定(鎖點交點)・僅本檔${slTail}`
+      : `座標原點已設定(鎖點交點)・同平面其他 ${r ? r.changed : 0} 頁已同步對齊${slTail}`;
+  }
+  render();
+  return true;
 }
 // 把 file 上所有主切面關聯的 cutValue 用「目前 planeOrigin」重新算,並同步目標檔 page.z。
 // 何時呼叫:任何讓 file.planeOrigin 變動的動作之後(設定 / 修改 / 重設 都算)。
@@ -1131,7 +1161,7 @@ function _validateLineToOrigin(file) {
   console.log("[線到原點 validate] selectedBgPaths=", [...file.selectedBgPaths],
     "distinctLineCount=", distinct, "linesAsWorld.length=", lines.length, "lines=", lines);
   if (distinct === 0) {
-    alert(`選取的 ${file.selectedBgPaths.size} 條 bg 路徑都不是「單一線段」(可能是多段折線 / 曲線 / 矩形)。請先用「切成直線」拆分,再選一條直線`);
+    alert(`選取的 ${file.selectedBgPaths.size} 條 bg 路徑都不是「單一線段」(可能是多段折線 / 曲線 / 矩形)。請先用「拆分直線」拆分,再選一條直線`);
     return null;
   }
   if (distinct > 1) {
@@ -1402,6 +1432,7 @@ import {
   bgToggleDashedOnSelection,
   exitBgDrawLine, exitBgCopyLine, exitBgBisector, exitBgEqui,
   wireBgDrawTools,
+  bgTypedDist, bgDirDistPoint,
 } from "../tools/bgDrawTools";
 wireBgDrawTools();
 export {
@@ -1410,6 +1441,7 @@ export {
   startBgBisector, updateBgBisectorPreview, commitBgBisector,
   startBgEqui, updateBgEquiPreview, commitBgEqui,
   bgToggleDashedOnSelection,
+  bgTypedDist, bgDirDistPoint,
   // 4 個 exit* — 之前已從 legacy export(measure.ts / sectionLink.ts 等 import 用),
   // 搬到 bgDrawTools.ts 後仍需從 legacy.ts re-export 維持下游 import 兼容
   exitBgDrawLine, exitBgCopyLine, exitBgBisector, exitBgEqui,
@@ -1923,6 +1955,8 @@ export function finalizeRangeZoomRect(x1, y1, x2, y2) {
 export * from "./toolbar";
 import {
   calibratePlane, clearAllBgSelection, bgRectsToMembers, zoomToSelection,
+  bgSquaresToJoints, bgComputeOriginFromSelection, showBgCtxMenu,
+  bgPathsSplitToLines, bgPathsToMembers, deleteSelectedBgPaths,
 } from "./toolbar";
 import { _startSaveWithHook } from "./init";
 import "./toolbar";
@@ -2094,6 +2128,9 @@ wrap.addEventListener("click", (e) => {
       if (Math.abs(p.x - p1.x) >= Math.abs(p.y - p1.y)) p.y = p1.y;
       else p.x = p1.x;
     }
+    // 有打字距離 → 沿(p1→點擊方向)取固定長度
+    const _td = bgTypedDist();
+    if (_td) { const c = bgDirDistPoint(state.bgDrawLine.p1, p, _td); if (c) p = c; }
     commitBgDrawLineSecond(p);
     return;
   }
@@ -2142,6 +2179,9 @@ wrap.addEventListener("click", (e) => {
       if (Math.abs(p.x - b.x) >= Math.abs(p.y - b.y)) p.y = b.y;
       else p.x = b.x;
     }
+    // 有打字距離 → 沿(base→點擊方向)取固定長度
+    const _tdC = bgTypedDist();
+    if (_tdC) { const c = bgDirDistPoint(cl.base, p, _tdC); if (c) p = c; }
     commitBgCopyLineDest(p);
     return;
   }

@@ -61,6 +61,7 @@ export const state = {
   bgBisector: null,                          // 中分線模式: { active: true, mid: {x,y}, nx, ny, halfLen: number }
   bgEqui: null,                              // 等分線模式: { active: true, center: {x,y}, dx, dy, halfLen: number }
   bgCopyLine: null,                          // 複製線模式: { active, sources: [{p1,p2,dasharray}], base: {x,y}|null }
+  bgDistStr: "",                             // 畫直線 / 複製線:CAD 直距輸入,目前打字中的距離字串(顯示單位;游標定方向)
   bgMultiSelect: false,                      // 修改底圖模式:多線選取(點擊與匡選預設累加,不需 Shift)
   bgShapeMarquee: new Set(),                 // 修改底圖模式內形狀匡選子模式("square" / "rect" 可同時開)
   splitFirstCorner: null,                    // 兩點式對角:第一個對角點(世界座標)
@@ -85,7 +86,9 @@ export const state = {
   rangeZoomMode: false,     // 範圍放大模式
   rangeZoomFirst: null,     // 第一個對角點(wrap 相對座標 {x,y})
   multiSelectSticky: false, // 多選持續模式(Shift+S 切換):開啟後點選為追加
-  originPending: false,     // 座標原點 pending:進入 selectBg 等使用者選 2 條線
+  originPending: false,     // 座標原點 pending:進入 selectBg 後游標自動鎖點交點,點擊設為原點
+  originSnap: null,         // 座標原點:目前游標鎖到的交點/端點 {x,y,kind} 或 null(沒鎖到)
+  originFailCount: 0,       // 座標原點:連續「點在沒有交點處」的次數,達 3 自動取消
   scaleRulerPending: false, // 比例尺 pending:進入 selectBg 等使用者選 2 條平行線後自動建立
   sectionLinkPending: false, // 切面關聯 pending:進入 selectBg 等使用者選 1 條切線後確認
   sectionLinkPlacing: null,  // 切面定位:對話框 OK 後 → 兩點點擊定位箭頭(tip/tail)。{ file, repLine, targetIds, tip }

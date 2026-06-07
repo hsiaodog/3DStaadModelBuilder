@@ -3,6 +3,11 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Playwright 冒煙測試產物
+test-results/
+playwright-report/
+playwright/.cache/
+
 # OS / editor
 .DS_Store
 *.swp
