@@ -116,7 +116,7 @@
   </div>
 
   <div class="sidebar left" id="sbLeft">
-    <h2 data-i18n="sb.title">STAAD 描圖工具</h2>
+    <h2><span data-i18n="sb.title">STAAD 描圖工具</span><button id="leftCollapseHdr" class="sb-collapse" title="收合側欄">‹</button></h2>
 
     <div class="section">
       <h3 data-i18n="sb.bg">底圖</h3>
@@ -325,9 +325,6 @@
           <button id="btnCalibrate" data-i18n-title="tip.btnCalibrate" title="校準:套用比例尺與平面原點,將所有節點的螢幕座標轉換為相對原點的真實位置(必須先建立比例尺與平面原點)"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span class="btn-text" data-i18n="tb.calibrate">校準</span></button>
           <button id="btnRecomputeWorld" title="重新計算 3D 座標(當頁):本 codebase 的 3D 世界座標永遠是即時計算 (joint2DToWorld3D),本鈕當作緊急 manual safety net — 跑校準變動共同收尾流程(rank 失效 + globalJoint 重 infer + UI 重整 + 重畫)。一般情況改原點 / 比例尺 / 平面 / 翻轉 / 旋轉 / page.z 都會自動觸發,只有偵測到顯示沒同步時才需手動點。實際刷新範圍是全模型(因為 globalJoint / rank 是 model-wide),命名「當頁」是使用情境語意。Ctrl+Z 可還原"><span class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span><span class="btn-text" data-i18n="tb.recomputeWorld">重算 3D 座標</span></button>
           <button id="btnRotate90" style="display:none" title="底圖順時針旋轉 90°(只在底圖模式可用)— 同時旋轉本頁所有節點與桿件位置,讓底圖跟結構一起轉。比例尺 / 座標原點 / 平面 / clipRect 也一起旋轉。Ctrl+Z 可還原"><span class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="21 4 21 10 15 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L21 10"/></svg></span><span class="btn-text" data-i18n="tb.rotate90">旋轉 90°</span></button>
-          <button id="btnBgToggle" title="顯示 / 隱藏底圖(只影響可見性,節點與桿件繼續顯示)"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span><span class="btn-text" data-i18n="tb.bgToggle">底圖 顯示</span></button>
-          <button id="btnJointVis" title="顯示 / 隱藏節點(圓圈 + 節點編號)"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5" fill="currentColor"/></svg></span><span class="btn-text" data-i18n="tb.jointVis">節點 顯示</span></button>
-          <button id="btnMemberVis" title="顯示 / 隱藏桿件(線 + 桿件編號)"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/><circle cx="5" cy="19" r="2" fill="currentColor"/><circle cx="19" cy="5" r="2" fill="currentColor"/></svg></span><span class="btn-text" data-i18n="tb.memberVis">桿件 顯示</span></button>
         </div>
       </div>
       <div class="tb-section">
@@ -562,6 +559,10 @@
         <button id="btnLblReset"   class="zt-sq" title="還原標示字體預設">A</button>
         <button id="btnLblBigger"  class="zt-sq" title="標示字體放大">A+</button>
       </div>
+      <div class="zt-sep"></div>
+      <button id="btnBgToggle" class="zt-wide" title="顯示 / 隱藏底圖(只影響可見性,節點與桿件繼續顯示)"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span><span class="btn-text" data-i18n="tb.bgToggle">底圖 顯示</span></button>
+      <button id="btnJointVis" class="zt-wide" title="顯示 / 隱藏節點(圓圈 + 節點編號)"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5" fill="currentColor"/></svg></span><span class="btn-text" data-i18n="tb.jointVis">節點 顯示</span></button>
+      <button id="btnMemberVis" class="zt-wide" title="顯示 / 隱藏桿件(線 + 桿件編號)"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/><circle cx="5" cy="19" r="2" fill="currentColor"/><circle cx="19" cy="5" r="2" fill="currentColor"/></svg></span><span class="btn-text" data-i18n="tb.memberVis">桿件 顯示</span></button>
       <button id="btnJointLblToggle"  class="zt-wide" title="節點標號顯示 / 隱藏"><span class="btn-icon"><!-- 節點(圓圈)+ 標號 tag --><svg viewBox="0 0 24 24"><circle cx="7" cy="14" r="3"/><rect x="12" y="6" width="9" height="7" rx="1"/><text x="13.5" y="11.6" font-size="5.5" fill="currentColor" stroke="none">J</text><line x1="9.5" y1="12" x2="12" y2="9.5"/></svg></span><span class="btn-text">節點標號 顯示</span></button>
       <button id="btnMemberLblToggle" class="zt-wide" title="桿件標號顯示 / 隱藏"><span class="btn-icon"><!-- 桿件(線段)+ 標號 tag --><svg viewBox="0 0 24 24"><line x1="3" y1="18" x2="13" y2="8"/><circle cx="3" cy="18" r="1.6" fill="currentColor" stroke="none"/><circle cx="13" cy="8" r="1.6" fill="currentColor" stroke="none"/><rect x="13" y="13" width="9" height="7" rx="1"/><text x="14" y="18.6" font-size="5.5" fill="currentColor" stroke="none">M</text></svg></span><span class="btn-text">桿件標號 顯示</span></button>
     </div>
@@ -585,7 +586,7 @@
   </div>
 
   <div class="sidebar right" id="sbRight">
-    <h2 data-i18n="rb.title">模型</h2>
+    <h2><span data-i18n="rb.title">模型</span><button id="rightCollapseHdr" class="sb-collapse" title="收合側欄">›</button></h2>
 
     <div class="section">
       <h3 data-i18n="rb.currentPage">當前頁面</h3>

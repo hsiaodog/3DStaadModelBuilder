@@ -242,17 +242,26 @@
     position: fixed; top: 50%; width: 18px; height: 64px;
     background: var(--panel); color: var(--text);
     border: 1px solid var(--line);
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer; z-index: 1402; font-size: 14px; user-select: none;
+    display: none; align-items: center; justify-content: center;   /* 展開時隱藏;收合鈕在標題列 */
+    cursor: pointer; z-index: 1600; font-size: 14px; user-select: none;
     transition: left 0.22s ease, right 0.22s ease;
     box-shadow: 0 2px 8px rgba(0,0,0,0.4);
   }
+  .collapser.collapsed { display: flex; }   /* 只有收合後才顯示邊緣浮動把手,用來重新展開 */
   .collapser:hover { background: var(--panel2); }
   .collapser.left  { transform: translateY(-50%); border-radius: 0 6px 6px 0; }
   .collapser.right { transform: translateY(-50%); border-radius: 6px 0 0 6px; }
-  .collapser.left.collapsed  { left: 4px !important; border-radius: 6px; }
-  .collapser.right.collapsed { right: 4px !important; border-radius: 6px; }
-  .sidebar h2 { margin: 0; padding: 10px 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); border-bottom: 1px solid var(--line); }
+  /* 收合後的展開把手:移到最上面,小小圓角方塊 */
+  .collapser.left.collapsed  { left: 6px !important; top: 46px; transform: none; width: 28px; height: 28px; border-radius: 8px; }
+  .collapser.right.collapsed { right: 6px !important; top: 46px; transform: none; width: 28px; height: 28px; border-radius: 8px; }
+  .sidebar h2 { margin: 0; padding: 10px 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  /* 標題右邊的收合鈕(展開時可見;收合後整個側欄移出畫面,改用邊緣浮動把手展開) */
+  .sb-collapse { flex: none; width: 22px; height: 22px; padding: 0; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--panel2, #3a3d42); color: var(--text); border: 1px solid var(--line);
+    border-radius: 5px; cursor: pointer; font-size: 15px; }
+  .sb-collapse:hover { background: var(--accent, #4a90d9); color: #fff; }
   .section { padding: 10px 12px; border-bottom: 1px solid var(--line); }
   /* 自製檔案選擇按鈕:取代 OS-locale 的 native file input */
   .file-input-wrap { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }

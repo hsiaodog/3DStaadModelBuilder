@@ -586,6 +586,10 @@ const _I18N = {
   "tip.selToolsMoveRect":  { "en": "Move by Δx, Δy" },
 };
 let _lang = "zh-TW";
+// 命令列用:回傳某個 i18n key 的中英對照 { "zh-TW", "en" }(找不到回 null)
+export function getI18nEntry(key) {
+  try { return _I18N[key] || null; } catch (_) { return null; }
+}
 export function _t(key) {
   // TDZ-safe:更新函式(updateBgToggleBtn 等)在頁面初始化階段就會呼叫 _t,
   //   此時 _I18N (const) 還在 TDZ。用 try/catch 保護,讓未初始化階段回傳 null
@@ -690,6 +694,8 @@ export function _applyI18n() {
   document.querySelectorAll("#langMenu .submenu .menu-entry").forEach(e => {
     e.classList.toggle("checked", (e as HTMLElement).dataset.action === langMap[_lang]);
   });
+  // i18n 重套 title 後,讓命令列把「⌨ 指令」hint 重新補回去(冪等)
+  try { if (typeof (window as any).__afterI18n === "function") (window as any).__afterI18n(); } catch (_) {}
 }
 export function _setLanguage(lang) {
   _lang = (lang === "en") ? "en" : "zh-TW";

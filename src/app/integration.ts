@@ -1801,6 +1801,8 @@ export function updateBgEditOpsVisibility() {
   if ($("bgEditSplit"))         $("bgEditSplit").style.display         = showSel;
   if ($("bgEditToMember"))      $("bgEditToMember").style.display      = showSel;
   if ($("bgEditDel"))           $("bgEditDel").style.display           = showSel;
+  // 轉為節點:只要有選取就顯示(內部會從選取中挑出正方形;非正方形會提示)
+  if ($("bgEditSquareToJoint")) $("bgEditSquareToJoint").style.display = showSel;
   // 多線轉交點 / 多線轉交點+桿件:選 ≥ 2 條 bg 線即可(不再要求 多線選取 模式)
   const markBtn = $("bgEditMarkIntersect");
   const markMBtn = $("bgEditMarkIntersectAndMember");
@@ -1856,7 +1858,7 @@ function refreshShapeMarqueeUI() {
   $("bgEditSelStraightSolid") && $("bgEditSelStraightSolid").classList.toggle("active", hasSS);
   $("bgEditSelDiagonals") && $("bgEditSelDiagonals").classList.toggle("active", hasDg);
   $("bgEditSelDashedDiagonals") && $("bgEditSelDashedDiagonals").classList.toggle("active", hasDD);
-  $("bgEditSquareToJoint") && ($("bgEditSquareToJoint").style.display = hasSq ? "" : "none");
+  // 轉為節點的顯示改由 updateBgEditOpsVisibility 依「有無選取」決定(不再綁正方形匡選模式)
   $("bgEditRectToCenterMember") && ($("bgEditRectToCenterMember").style.display = hasRc ? "" : "none");
   $("bgEditRectToTopMember")    && ($("bgEditRectToTopMember").style.display    = hasRc ? "" : "none");
   $("bgEditRectToBottomMember") && ($("bgEditRectToBottomMember").style.display = hasRc ? "" : "none");
@@ -3918,10 +3920,10 @@ function applySidebarWidth() {
   // HUD 由 CSS 固定在「中間下方偏右」(bottom 18px, left 75%, translateX -50%)
   // zoomTools:右側欄外緣 / 收合時靠視窗右邊
   const rightCollapsed = $("sbRight").classList.contains("collapsed");
-  $("zoomTools").style.right = (rightCollapsed ? 12 : (12 + sidebarWidth.right + 28)) + "px";
+  $("zoomTools").style.right = (rightCollapsed ? 6 : (12 + sidebarWidth.right + 8)) + "px";
   // bgEditTools / selectTools:左側欄外緣 / 收合時靠視窗左邊
   const leftCollapsed = $("sbLeft").classList.contains("collapsed");
-  const leftPx = (leftCollapsed ? 12 : (12 + sidebarWidth.left + 28)) + "px";
+  const leftPx = (leftCollapsed ? 6 : (12 + sidebarWidth.left + 8)) + "px";
   $("bgEditTools").style.left = leftPx;
   if ($("selectTools")) $("selectTools").style.left = leftPx;
   applyToolbarBounds();
@@ -3934,20 +3936,26 @@ function applyToolbarBounds() {
   const leftToolW = Math.max(visW(sel), visW(bgE));
   const leftCollapsed = $("sbLeft").classList.contains("collapsed");
   const rightCollapsed = $("sbRight").classList.contains("collapsed");
-  const leftBase = leftCollapsed ? 12 : (12 + sidebarWidth.left + 28);
-  const rightBase = rightCollapsed ? 12 : (12 + sidebarWidth.right + 28);
-  tb.style.left = (leftBase + leftToolW + 8) + "px";
-  tb.style.right = (rightBase + visW(zoom) + 8) + "px";
+  const leftBase = leftCollapsed ? 6 : (12 + sidebarWidth.left + 8);
+  const rightBase = rightCollapsed ? 6 : (12 + sidebarWidth.right + 8);
+  // 收合時上方 toolbar 至少留 40px 給角落的展開把手(只有左/右工具面板隱藏時才會夾到);
+  //   面板有顯示時 toolbar 本來就排在面板右邊,離把手很遠,max() 不會生效。
+  const minClear = (c) => (c ? 40 : 0);
+  tb.style.left = Math.max(minClear(leftCollapsed), leftBase + leftToolW + 8) + "px";
+  tb.style.right = Math.max(minClear(rightCollapsed), rightBase + visW(zoom) + 8) + "px";
   // 把左右 tool 區的 top 設在 toolbar 下方,避免遮住上方控制區
   const tbRect = tb.getBoundingClientRect();
   const topY = Math.max(100, Math.round(tbRect.bottom) + 8);
   const topPx = topY + "px";
+  // 底部留白:要避開命令列(#cmdConsole 的常駐輸入列),量它的實際高度,沒有就用 fallback
+  const cmdRow = document.querySelector("#cmdConsole .cc-row");
+  const bottomReserve = (cmdRow ? cmdRow.offsetHeight : 36) + 12;
   // 限制 tool 區最大高度為視窗高度 - top - 底部留白,讓內容超出時能 flex-wrap 換到下一欄
-  const maxH = Math.max(120, window.innerHeight - topY - 16);
+  const maxH = Math.max(120, window.innerHeight - topY - bottomReserve);
   const maxHPx = maxH + "px";
   if (sel)  { sel.style.top = topPx;  sel.style.maxHeight = maxHPx; }
   if (bgE)  { bgE.style.top = topPx;  bgE.style.maxHeight = maxHPx; }
-  if (zoom) { zoom.style.top = topPx; }
+  if (zoom) { zoom.style.top = topPx; zoom.style.maxHeight = maxHPx; }
 }
 
 // ---------- 檔案頁面分頁列 ----------
@@ -4030,18 +4038,29 @@ function bindResizer(handleId, side) {
 bindResizer("leftResizer", "left");
 bindResizer("rightResizer", "right");
 
-function bindCollapser(toggleId, sidebarId, expanded, collapsed) {
-  const t = $(toggleId), s = $(sidebarId);
-  t.onclick = () => {
-    const isCollapsed = s.classList.toggle("collapsed");
-    t.classList.toggle("collapsed", isCollapsed);
-    t.textContent = isCollapsed ? expanded : collapsed;
-    t.title = isCollapsed ? "展開側欄" : "收合側欄";
-    applySidebarWidth();
-  };
+// 收合 / 展開側欄。收合鈕在標題列(展開時可見);收合後整個側欄移出畫面,
+//   改用邊緣浮動把手(leftToggle / rightToggle)重新展開。
+function toggleSidebar(sidebarId) {
+  const s = $(sidebarId);
+  if (!s) return;
+  const isLeft = sidebarId === "sbLeft";
+  const isCollapsed = s.classList.toggle("collapsed");
+  const tab = $(isLeft ? "leftToggle" : "rightToggle");
+  if (tab) {
+    tab.classList.toggle("collapsed", isCollapsed);
+    tab.textContent = isCollapsed ? (isLeft ? "›" : "‹") : (isLeft ? "‹" : "›");
+    tab.title = isCollapsed ? "展開側欄" : "收合側欄";
+  }
+  applySidebarWidth();
 }
-bindCollapser("leftToggle", "sbLeft", "›", "‹");
-bindCollapser("rightToggle", "sbRight", "‹", "›");
+function bindCollapser(triggerId, sidebarId) {
+  const t = $(triggerId);
+  if (t) t.onclick = () => toggleSidebar(sidebarId);
+}
+bindCollapser("leftToggle", "sbLeft");
+bindCollapser("rightToggle", "sbRight");
+bindCollapser("leftCollapseHdr", "sbLeft");     // 標題列收合鈕(左)
+bindCollapser("rightCollapseHdr", "sbRight");   // 標題列收合鈕(右)
 applySidebarWidth();
 
 // ---------- page selector ----------
@@ -4601,6 +4620,9 @@ export * from "./dialogs";
 
 // Phase 8m:頂部主選單列 + 最近開啟專案 子選單 搬到 src/ui/menubar.ts(~192 行)
 import "../ui/menubar";
+
+// 命令列(AutoCAD 風):必須在 menubar 之後 import,確保選單 actions 已註冊成指令
+import "../cmd/console";
 
 // ============================================================================
 // Phase 1 — 把常用 global expose 給 window,維持 console debugging / 既有測試體驗

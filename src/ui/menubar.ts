@@ -34,6 +34,7 @@ import { listBackups, restoreBackupIntoNewProject, deleteBackup } from "../persi
 import { _t, _setLanguage } from "../i18n";
 import { showAboutDialog, checkForUpdatesManual, checkForUpdatesAuto } from "./versionCheck";
 import { openAutoBackupDialog } from "../persistence/autoBackup";
+import { registerMenuActions } from "../cmd/registry";
 
 // ---------- 頂部主選單列 ----------
 // 開啟專案 → 子選單裡的「最近開啟」清單(IDB 持久化,點即重開)
@@ -306,6 +307,8 @@ async function _refreshRecentProjectMenu() {
       if (fn) fn();
     });
   });
+  // 把選單 actions 全部註冊成命令列指令(命令列會在 menubar 之後 import 並掃按鈕)
+  try { registerMenuActions(actions); } catch (e) { console.warn("[cmd] registerMenuActions 失敗:", e); }
   const searchBtn = document.getElementById("menuBarSearchBtn");
   if (searchBtn) {
     searchBtn.addEventListener("click", (e) => {
